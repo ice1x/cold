@@ -16,7 +16,7 @@ few places — those are called out.
 | **Mono per track** | **No — Cold is polyphonic (chords)** | M1 |
 | 8 audio tracks | Yes | M5 |
 | Sample slots / +Drive bank | Sample bank (slots) | M4 |
-| Sample chop / slice | Backlog | later |
+| Sample chop / slice | Yes — slice grids | M8 |
 
 ## Sound shaping
 
@@ -25,8 +25,8 @@ few places — those are called out.
 | Multimode filter (LP/BP/HP + base-width) | **Continuous morph LP→BP→HP→Notch** | M2 |
 | Amp envelope (AHD-style) | Amp ADSR (emulates AHD) | M1 |
 | Filter envelope | Separate filter env | backlog |
-| Overdrive | Backlog | later |
-| Bit reduction / sample-rate reduction | Backlog | later |
+| Overdrive | Insert FX | M10 |
+| Bit reduction / sample-rate reduction | Insert FX | M10 |
 
 ## Modulation
 
@@ -34,7 +34,7 @@ few places — those are called out.
 | --- | --- | --- |
 | LFO per track | Yes | M3 |
 | LFO destinations | cutoff, **filter type (morph)**, +more | M3 |
-| Multiple LFOs | Backlog | later |
+| Multiple LFOs | Dual LFO + designer | M9 |
 
 ## Sequencer
 
@@ -42,16 +42,16 @@ few places — those are called out.
 | --- | --- | --- |
 | 16-step sequencer, host sync | Yes | M6 |
 | Parameter locks (p-locks) | Yes | M6 |
-| Patterns & chains | Backlog | later |
-| Trig conditions / probability | Backlog | later |
-| Micro-timing / retrig | Backlog | later |
+| Patterns & chains | Patterns M6 / chains backlog | M6 |
+| Trig conditions / probability | Yes | M15 |
+| Micro-timing / retrig | Yes | M15 |
 
 ## FX
 
 | Digitakt feature | Cold | Milestone |
 | --- | --- | --- |
-| Send delay / reverb | Backlog | later |
-| Master compressor / overdrive | Backlog | later |
+| Send delay / reverb | Per-track insert delay/reverb | M10 |
+| Master compressor / overdrive | Insert FX (master bus backlog) | M10 |
 
 ## Cold-only additions (not in Digitakt)
 
@@ -59,3 +59,6 @@ few places — those are called out.
 - **Classic repitch/varispeed** loop mode alongside Digitakt-style looping.
 - **MCP control surface** for LLM/voice control and tuning recommendations
   ([MCP.md](MCP.md)).
+- **Octatrack-grade features** (scenes + crossfader, slice grids, dual LFO +
+  designer, two insert FX per track, live resampling, timestretch, Parts) —
+  see [OCTATRACK_REFERENCE.md](OCTATRACK_REFERENCE.md).
