@@ -32,8 +32,8 @@ Distinctive goals beyond a plain Digitakt clone:
 
 ## M1 — Minimal playable sampler PoC (FIRST USABLE BUILD)
 
-- [ ] 000006 — Tests: sample file decode (wav/aiff/mp3 → float buffer + sample rate)
-- [ ] 000007 — Implement `io/SampleLoader` via `juce::AudioFormatManager` (wav/aiff/mp3)
+- [x] 000006 — Tests: sample file decode (wav/aiff/mp3 → float buffer + sample rate)
+- [x] 000007 — Implement `io/SampleLoader` via `juce::AudioFormatManager` (wav/aiff/mp3)
 - [ ] 000008 — Tests: one-shot voice playback (read position, pitch ratio from MIDI note, end-of-sample)
 - [ ] 000009 — Implement `dsp/SampleVoice` repitch/varispeed playback + MIDI-note trigger
 - [ ] 000010 — Tests: looping modes (one-shot / forward loop / ping-pong, loop speed follows pitch)

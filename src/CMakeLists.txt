@@ -9,6 +9,23 @@ target_compile_features(cold_dsp INTERFACE cxx_std_20)
 #   add_library(cold_dsp STATIC dsp/MorphFilter.cpp dsp/AmpEnvelope.cpp ...)
 
 # ----------------------------------------------------------------------------
+# Thin JUCE-backed I/O layer (file decode). Kept separate from the DSP layer
+# so it can be unit-tested via a JUCE-linked test target while the DSP classes
+# stay framework-agnostic. Sample sources/banks are added here (M1, M4).
+# ----------------------------------------------------------------------------
+add_library(cold_io STATIC
+    io/SampleLoader.cpp)
+target_include_directories(cold_io PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_features(cold_io PUBLIC cxx_std_20)
+target_link_libraries(cold_io
+    PUBLIC
+    cold_dsp
+    juce::juce_audio_formats
+    PRIVATE
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
+
+# ----------------------------------------------------------------------------
 # The plugin: AU + VST3 + Standalone instrument.
 # ----------------------------------------------------------------------------
 juce_add_plugin(Cold
@@ -38,6 +55,7 @@ target_compile_definitions(Cold PUBLIC
 
 target_link_libraries(Cold PRIVATE
     cold_dsp
+    cold_io
     juce::juce_audio_utils
     juce::juce_dsp
     PUBLIC
