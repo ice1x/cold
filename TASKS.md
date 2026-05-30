@@ -8,7 +8,17 @@ Distinctive goals beyond a plain Digitakt clone:
 - **Polyphony** (chords with samples).
 - **Looping** (Digitakt-style) **and** classic **repitch/varispeed** mode.
 - **Continuously morphing filter** with the **filter type as a modulation target**.
-- **MCP control** for LLM/voice control + tuning recommendations.
+- **Octatrack-grade performance & sound design**: **Scenes + crossfader morph**
+  (the OT signature), **slice grids** with per-step slice locks, **dual LFO**
+  with a custom **LFO designer**, **two insert FX per track**, **live
+  resampling**, **timestretch**, and **Parts**.
+- **MCP control** for LLM/voice control + tuning recommendations (the crossfader,
+  scenes, and morph filter are first-class MCP modulation targets).
+
+> The Octatrack-inspired milestones (M8–M15) intentionally push Cold past the
+> Digitakt feature set toward Elektron's flagship sampler. See
+> [docs/OCTATRACK_REFERENCE.md](docs/OCTATRACK_REFERENCE.md) for the
+> feature → milestone mapping and the deliberate plugin-context adaptations.
 
 ---
 
@@ -22,8 +32,8 @@ Distinctive goals beyond a plain Digitakt clone:
 
 ## M1 — Minimal playable sampler PoC (FIRST USABLE BUILD)
 
-- [ ] 000006 — Tests: sample file decode (wav/aiff/mp3 → float buffer + sample rate)
-- [ ] 000007 — Implement `io/SampleLoader` via `juce::AudioFormatManager` (wav/aiff/mp3)
+- [x] 000006 — Tests: sample file decode (wav/aiff/mp3 → float buffer + sample rate)
+- [x] 000007 — Implement `io/SampleLoader` via `juce::AudioFormatManager` (wav/aiff/mp3)
 - [ ] 000008 — Tests: one-shot voice playback (read position, pitch ratio from MIDI note, end-of-sample)
 - [ ] 000009 — Implement `dsp/SampleVoice` repitch/varispeed playback + MIDI-note trigger
 - [ ] 000010 — Tests: looping modes (one-shot / forward loop / ping-pong, loop speed follows pitch)
@@ -88,10 +98,82 @@ Distinctive goals beyond a plain Digitakt clone:
 - [ ] 000051 — Implement `recommend_tuning` (return state for LLM reasoning + apply path)
 - [ ] 000052 — End-to-end test: drive Cold in Logic by voice via MCP; verify param changes + tuning recommendation
 
+---
+
+# Octatrack-inspired milestones (push beyond the Digitakt)
+
+## M8 — Sample slicing & chops (Octatrack-style slice grids)
+
+- [ ] 000053 — Tests: slice-grid model (up to 64 slices, equal/transient auto-slice, manual edit, per-slice start/length/loop)
+- [ ] 000054 — Implement slice grid on the sample (auto + manual), persisted per slot
+- [ ] 000055 — Tests: slice playback in `SampleVoice` (trig a slice by index/MIDI note)
+- [ ] 000056 — Implement slice playback + per-step **slice p-lock** (each trig selects a slice)
+- [ ] 000057 — Slice editor UI (waveform + draggable slice markers)
+- [ ] 000058 — Logic smoke test: chop a drum break, sequence different slices per step
+
+## M9 — Dual LFO + LFO designer
+
+- [ ] 000059 — Tests: second LFO per track + trig modes (free / trig / hold / one-shot)
+- [ ] 000060 — Implement a 2nd `dsp/Lfo` instance per track wired into the mod matrix
+- [ ] 000061 — Tests: custom multi-step LFO shape (designer model + interpolation between steps)
+- [ ] 000062 — Implement **LFO designer** (user-drawn multi-step waveform as an LFO source)
+- [ ] 000063 — Dual-LFO + designer UI; Logic smoke test of two independent routings
+
+## M10 — Per-track insert FX chain (FX1 + FX2)
+
+- [ ] 000064 — Tests: FX slot abstraction (process block, bypass, param set, latency report)
+- [ ] 000065 — Implement core FX: overdrive, bit-reduction, sample-rate reduction, EQ
+- [ ] 000066 — Implement time/mod FX: chorus/flanger, comb, host-synced delay, reverb, compressor
+- [ ] 000067 — Two ordered insert FX slots per track, fully **p-lockable**
+- [ ] 000068 — FX UI; Logic smoke test: stack two FX per track and p-lock them
+
+## M11 — Scenes + crossfader morph (Octatrack signature feature)
+
+- [ ] 000069 — Tests: scene snapshot model (capture/restore any "in-scene" param across all tracks)
+- [ ] 000070 — Implement scene store with per-param **scene assignment** + two active slots (A / B)
+- [ ] 000071 — Tests: crossfader interpolation A↔B (continuous, per-param curve, smoothed)
+- [ ] 000072 — Implement the **crossfader morph engine** (one control morphs whole-mix snapshots)
+- [ ] 000073 — Expose crossfader + A/B scene select as automatable params **and** MCP modulation targets
+- [ ] 000074 — Scenes/crossfader UI; Logic smoke test: morph a full mix via crossfader automation
+
+## M12 — Live sampling & resampling (track recorders)
+
+- [ ] 000075 — Tests: record buffer (capture, length cap, one-shot/loop, input level/peak)
+- [ ] 000076 — Implement input recorder (sidechain/aux input → sample slot), trig-armed
+- [ ] 000077 — Tests: internal resampling (capture an engine/track/master bus to a buffer)
+- [ ] 000078 — Implement **resample-internal** (track or master output → slot), sequencer-triggerable
+- [ ] 000079 — Recorder UI; Logic smoke test: resample a track's output, immediately play it back
+
+## M13 — Timestretch & Flex/Static sample sources
+
+- [ ] 000080 — Tests: timestretch playback (time/beat-based, pitch-independent) vs repitch mode
+- [ ] 000081 — Implement timestretch playback mode in `SampleVoice` (host-tempo lock option)
+- [ ] 000082 — Tests: streamed (**Static**, disk) vs RAM (**Flex**) sample sources for long files
+- [ ] 000083 — Implement disk-streaming sample source for long samples (lock-free read to audio thread)
+- [ ] 000084 — Logic smoke test: timestretch a loop to host tempo; stream a multi-minute file
+
+## M14 — Parts, song arranger & multi-out
+
+- [ ] 000085 — Tests: **Parts** (per-bank snapshot of machine/sample/FX/scene assignments)
+- [ ] 000086 — Implement Parts (4 per bank) with instant switch + reload
+- [ ] 000087 — Tests: pattern **arranger** (chain patterns into a song with repeats/length)
+- [ ] 000088 — Implement arranger / song mode (host-transport synced)
+- [ ] 000089 — Implement **multi-output** (per-track separate output buses for Logic)
+- [ ] 000090 — Logic smoke test: switch Parts live; run an arrangement; route tracks to separate channels
+
+## M15 — Sequencer power (conditional trigs, micro-timing, retrig)
+
+- [ ] 000091 — Tests: **conditional/logic trigs** (probability %, A:B ratio, fill, first/not-first, neighbor, prev)
+- [ ] 000092 — Implement trig conditions in the sequencer
+- [ ] 000093 — Tests: per-trig **micro-timing** (± tick nudge) + swing
+- [ ] 000094 — Implement micro-timing + swing
+- [ ] 000095 — Tests: **retrig** (rate division, count/length, velocity ramp)
+- [ ] 000096 — Implement retrig
+- [ ] 000097 — Sequencer UI for conditions/retrig; Logic smoke test of conditional + retrig patterns
+
 ## Backlog (later; assign IDs when scheduled)
 
-Patterns & chains, sample chop/slice, retrig, trig conditions/probability,
-velocity & micro-timing, overdrive/bit-reduction, sample-rate reduction,
-separate filter envelope, send FX (delay/reverb), per-track overdrive,
-time-stretch playback mode, sample recording/resampling, preset management,
-higher-quality interpolation (Hermite/sinc).
+Pattern chains, separate filter envelope, preset/kit management, higher-quality
+interpolation (Hermite/sinc), per-trig **sample-lock**, **Thru / effects-processor
+mode** (process incoming audio), **Pickup / looper machines**, master-track FX bus,
+dedicated **MIDI sequencer tracks**, **neighbor machine**, cue/preview output.
