@@ -1,0 +1,46 @@
+# ----------------------------------------------------------------------------
+# Framework-agnostic DSP library (no JUCE) — unit-testable from tests/.
+# Sources are added here as the engine grows (M1+).
+# ----------------------------------------------------------------------------
+add_library(cold_dsp INTERFACE)
+target_include_directories(cold_dsp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_features(cold_dsp INTERFACE cxx_std_20)
+# When DSP .cpp files exist, convert this to a STATIC lib and list them, e.g.:
+#   add_library(cold_dsp STATIC dsp/MorphFilter.cpp dsp/AmpEnvelope.cpp ...)
+
+# ----------------------------------------------------------------------------
+# The plugin: AU + VST3 + Standalone instrument.
+# ----------------------------------------------------------------------------
+juce_add_plugin(Cold
+    PLUGIN_NAME "Cold"
+    PRODUCT_NAME "Cold"
+    COMPANY_NAME "Cold"
+    BUNDLE_ID com.cold.cold
+    PLUGIN_MANUFACTURER_CODE Cold
+    PLUGIN_CODE Cld1
+    FORMATS AU VST3 Standalone
+    IS_SYNTH TRUE
+    NEEDS_MIDI_INPUT TRUE
+    NEEDS_MIDI_OUTPUT FALSE
+    IS_MIDI_EFFECT FALSE
+    EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    COPY_PLUGIN_AFTER_BUILD FALSE)
+
+target_sources(Cold PRIVATE
+    PluginProcessor.cpp
+    PluginEditor.cpp)
+
+target_compile_definitions(Cold PUBLIC
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0)
+
+target_link_libraries(Cold PRIVATE
+    cold_dsp
+    juce::juce_audio_utils
+    juce::juce_dsp
+    PUBLIC
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_lto_flags
+    juce::juce_recommended_warning_flags)
