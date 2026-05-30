@@ -13,17 +13,23 @@ Encodes the project's TDD + git rules so every feature is consistent.
 1. **Pick the task** — the next unchecked `000xxx` in `TASKS.md`. Create a branch:
    `git checkout -b feature/<short-desc>` (never work on `main`).
 
-2. **Red** — write failing Catch2 tests first in `tests/`, targeting the
-   framework-agnostic class in `dsp/` or `io/`. Run `dt-test`; confirm they fail
-   for the right reason.
+2. **Red (unit)** — write failing Catch2 **unit** tests first in `tests/unit/`,
+   targeting the framework-agnostic class in `dsp/` or `io/`. Tag them `[unit]`.
+   Run `dt-test`; confirm they fail for the right reason.
 
 3. **Green** — implement the minimum to pass. Keep DSP JUCE-free; put host/file/
    control-server glue in `src/` or `io/`. Re-run `dt-test` to green.
 
-4. **Integrate** — wire the class into `PluginProcessor` / `Engine` / APVTS and add
-   an integration test exercising a realistic workflow (one of: CBT journal, story
-   editor, IT task manager, ERP, bug tracker — per global rules) where applicable;
-   for DSP, an end-to-end render test.
+4. **Cover (integration + e2e)** — a feature is **not done with only unit tests**.
+   Add the higher levels (see `dt-test` for the level/target/label map):
+   - **Integration** (`tests/integration/`, tag `[integration]`): several units
+     in a realistic workflow — e.g. multi-format sample-bank load, file↔stream
+     parity, an end-to-end DSP render.
+   - **E2E** (`tests/e2e/`, tag `[e2e]`): once the feature touches the plugin,
+     wire it into `PluginProcessor` / `Engine` / APVTS and drive the real
+     `ColdAudioProcessor` (prepare → processBlock with MIDI → state/editor),
+     asserting the audible/observable result.
+   Reuse `tests/support/SignalFixtures.h` for deterministic audio.
 
 5. **Build & install** — `dt-build`, then `dt-install` for in-DAW tasks.
 
