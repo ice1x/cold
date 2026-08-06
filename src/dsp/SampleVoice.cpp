@@ -24,6 +24,9 @@ void SampleVoice::setSample(const float* const* channels, int numChannels, int n
     sourceNumChannels = std::max(0, numChannels);
     sourceNumFrames = std::max(0, numFrames);
     sourceSampleRate = newSourceSampleRate > 0.0 ? newSourceSampleRate : hostSampleRate;
+    // Default the loop region to the whole sample; the caller can narrow it.
+    loopStartFrame = 0;
+    loopEndFrame = sourceNumFrames;
     reset();
 }
 
@@ -34,6 +37,24 @@ void SampleVoice::clearSample()
     sourceNumChannels = 0;
     sourceNumFrames = 0;
     sourceSampleRate = 0.0;
+    loopStartFrame = 0;
+    loopEndFrame = 0;
+}
+
+void SampleVoice::setLoopMode(LoopMode newMode)
+{
+    mode = newMode;
+}
+
+void SampleVoice::setLoopPoints(int startFrame, int endFrame)
+{
+    const int start = std::clamp(startFrame, 0, sourceNumFrames);
+    const int end = std::clamp(endFrame, 0, sourceNumFrames);
+    if (end > start)
+    {
+        loopStartFrame = start;
+        loopEndFrame = end;
+    }
 }
 
 void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
@@ -47,6 +68,7 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
     midiNote = newMidiNote;
     gain = std::clamp(velocity, 0.0f, 1.0f);
     position = 0.0;
+    direction = 1;
 
     const double rateCorrection = sourceSampleRate / hostSampleRate;
     step = noteToRatio(newMidiNote, rootNote) * rateCorrection;
@@ -65,6 +87,7 @@ void SampleVoice::reset()
     midiNote = -1;
     position = 0.0;
     step = 1.0;
+    direction = 1;
 }
 
 float SampleVoice::readInterpolated(int channel, double pos) const
@@ -83,9 +106,12 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
     if (!active)
         return;
 
+    const double loopLen = static_cast<double>(loopEndFrame - loopStartFrame);
+    const bool looping = mode != LoopMode::OneShot && loopLen > 0.0;
+
     for (int n = 0; n < numSamples; ++n)
     {
-        if (position >= static_cast<double>(sourceNumFrames))
+        if (position >= static_cast<double>(sourceNumFrames) || position < 0.0)
         {
             active = false;
             break;
@@ -102,7 +128,37 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
             out[ch][dest] += gain * readInterpolated(srcCh, position);
         }
 
-        position += step;
+        position += static_cast<double>(direction) * step;
+
+        if (!looping)
+            continue;
+
+        if (mode == LoopMode::Forward)
+        {
+            // Wrap forward; a while-loop covers steps larger than the loop length.
+            while (position >= static_cast<double>(loopEndFrame))
+                position -= loopLen;
+        }
+        else // PingPong: reflect off each boundary, flipping direction.
+        {
+            bool bounced = true;
+            while (bounced)
+            {
+                bounced = false;
+                if (direction > 0 && position > static_cast<double>(loopEndFrame))
+                {
+                    position = 2.0 * static_cast<double>(loopEndFrame) - position;
+                    direction = -1;
+                    bounced = true;
+                }
+                else if (direction < 0 && position < static_cast<double>(loopStartFrame))
+                {
+                    position = 2.0 * static_cast<double>(loopStartFrame) - position;
+                    direction = 1;
+                    bounced = true;
+                }
+            }
+        }
     }
 }
 

@@ -13,6 +13,19 @@ namespace cold::dsp
 class SampleVoice
 {
 public:
+    // Sample playback / looping behavior.
+    //   OneShot  — play once to the end, then free the voice.
+    //   Forward  — repeat the [loopStart, loopEnd) region indefinitely.
+    //   PingPong — bounce between loopStart and loopEnd, reversing at each.
+    // In every looping mode the traversal speed follows pitch (the loop plays
+    // faster/slower with the note), matching classic varispeed samplers.
+    enum class LoopMode
+    {
+        OneShot,
+        Forward,
+        PingPong
+    };
+
     // Equal-tempered playback ratio: the factor by which the sample is sped up so
     // that `midiNote` sounds relative to `rootNote` (the note of native pitch).
     [[nodiscard]] static double noteToRatio(int midiNote, int rootNote);
@@ -29,6 +42,17 @@ public:
 
     // Forget the current sample and stop the voice.
     void clearSample();
+
+    // Select the loop behavior. Takes effect on the next rendered block.
+    void setLoopMode(LoopMode mode);
+
+    // Set the loop region in source frames. Clamped to [0, numFrames]; ignored if
+    // it does not describe a positive-length window (endFrame > startFrame).
+    void setLoopPoints(int startFrame, int endFrame);
+
+    [[nodiscard]] LoopMode loopMode() const noexcept { return mode; }
+    [[nodiscard]] int loopStart() const noexcept { return loopStartFrame; }
+    [[nodiscard]] int loopEnd() const noexcept { return loopEndFrame; }
 
     // Begin a note. `velocity` in [0, 1] scales output gain (a stand-in until the
     // amp envelope lands). `rootNote` is the MIDI note of native pitch.
@@ -67,7 +91,12 @@ private:
     int midiNote = -1;
     float gain = 1.0f;
     double position = 0.0; // fractional read index into the source
-    double step = 1.0;     // input frames consumed per output sample
+    double step = 1.0;     // input frames consumed per output sample (magnitude)
+    int direction = 1;     // +1 forward, -1 reverse (ping-pong)
+
+    LoopMode mode = LoopMode::OneShot;
+    int loopStartFrame = 0;
+    int loopEndFrame = 0;
 };
 
 } // namespace cold::dsp
