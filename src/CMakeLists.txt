@@ -4,6 +4,7 @@
 # ----------------------------------------------------------------------------
 add_library(cold_dsp STATIC
     dsp/AmpEnvelope.cpp
+    dsp/MorphFilter.cpp
     dsp/SampleVoice.cpp
     dsp/Engine.cpp)
 target_include_directories(cold_dsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
