@@ -36,6 +36,10 @@ public:
     void setLoopMode(SampleVoice::LoopMode mode);
     void setLoopPoints(int startFrame, int endFrame);
 
+    // Amp ADSR shared by every voice (seconds; sustain in [0, 1]).
+    void setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
+                        float releaseSeconds);
+
     // Trigger / release notes. rootNote is the MIDI note of native pitch.
     void noteOn(int midiNote, float velocity = 1.0f, int rootNote = 60);
     void noteOff(int midiNote);
@@ -69,6 +73,11 @@ private:
     SampleVoice::LoopMode loopMode = SampleVoice::LoopMode::OneShot;
     int loopStartFrame = 0;
     int loopEndFrame = 0; // 0 => leave voice default (whole sample)
+
+    float ampAttack = 0.0f;
+    float ampDecay = 0.0f;
+    float ampSustain = 1.0f;
+    float ampRelease = 0.0f;
 };
 
 } // namespace cold::dsp

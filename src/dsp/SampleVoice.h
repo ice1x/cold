@@ -7,6 +7,8 @@
 // the playback speed. Looping, the amp envelope and the morph filter are layered
 // on in later M1/M2 tasks; this class owns the read position and pitch math.
 
+#include "dsp/AmpEnvelope.h"
+
 namespace cold::dsp
 {
 
@@ -54,6 +56,12 @@ public:
     [[nodiscard]] int loopStart() const noexcept { return loopStartFrame; }
     [[nodiscard]] int loopEnd() const noexcept { return loopEndFrame; }
 
+    // Amp ADSR shaping this voice. Defaults are transparent (instant on, hold at
+    // unity, instant off) so a voice with no configured envelope plays flat.
+    void setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
+                        float releaseSeconds);
+    [[nodiscard]] const AmpEnvelope& ampEnvelope() const noexcept { return env; }
+
     // Begin a note. `velocity` in [0, 1] scales output gain (a stand-in until the
     // amp envelope lands). `rootNote` is the MIDI note of native pitch.
     void startNote(int midiNote, float velocity = 1.0f, int rootNote = 60);
@@ -97,6 +105,8 @@ private:
     LoopMode mode = LoopMode::OneShot;
     int loopStartFrame = 0;
     int loopEndFrame = 0;
+
+    AmpEnvelope env;
 };
 
 } // namespace cold::dsp

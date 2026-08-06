@@ -62,6 +62,17 @@ void Engine::setLoopPoints(int startFrame, int endFrame)
         voices[static_cast<size_t>(i)].setLoopPoints(startFrame, endFrame);
 }
 
+void Engine::setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
+                            float releaseSeconds)
+{
+    ampAttack = attackSeconds;
+    ampDecay = decaySeconds;
+    ampSustain = sustainLevel;
+    ampRelease = releaseSeconds;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setAmpEnvelope(ampAttack, ampDecay, ampSustain, ampRelease);
+}
+
 void Engine::applyConfigToVoice(int index)
 {
     auto& voice = voices[static_cast<size_t>(index)];
@@ -71,6 +82,7 @@ void Engine::applyConfigToVoice(int index)
     voice.setLoopMode(loopMode);
     if (loopEndFrame > loopStartFrame)
         voice.setLoopPoints(loopStartFrame, loopEndFrame);
+    voice.setAmpEnvelope(ampAttack, ampDecay, ampSustain, ampRelease);
 }
 
 int Engine::allocateVoice()
