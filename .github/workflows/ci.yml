@@ -3,7 +3,7 @@ name: CI
 # Runs on the owner's local self-hosted macOS (Apple Silicon) runner — the same
 # machine the plugin targets (Logic Pro / M-series). Cloud macOS minutes are
 # avoided and the JUCE/Catch2 dependency tree stays warm between runs.
-on:
+"on":
   push:
     branches: ["**"]
   pull_request:
