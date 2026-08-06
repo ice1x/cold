@@ -42,7 +42,7 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000013 — Implement `dsp/Engine` voice pool + polyphony (play chords with one sample)
 - [x] 000014 — Tests: amp envelope (ADSR shape, sample-accurate stages, retrigger)
 - [x] 000015 — Implement `dsp/AmpEnvelope` applied per voice
-- [ ] 000016 — Expose params (load sample, playback mode, loop, amp env, gain, polyphony) via APVTS + minimal generic UI
+- [x] 000016 — Expose params (load sample, playback mode, loop, amp env, gain, polyphony) via APVTS + minimal generic UI
 - [ ] 000017 — Logic smoke test: load a WAV, play a chord, hear enveloped polyphonic playback + looping
 
 ## M2 — Continuously morphing multimode filter
