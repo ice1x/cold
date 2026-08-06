@@ -2,11 +2,12 @@
 # Framework-agnostic DSP library (no JUCE) — unit-testable from tests/.
 # Sources are added here as the engine grows (M1+).
 # ----------------------------------------------------------------------------
-add_library(cold_dsp INTERFACE)
-target_include_directories(cold_dsp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_features(cold_dsp INTERFACE cxx_std_20)
-# When DSP .cpp files exist, convert this to a STATIC lib and list them, e.g.:
-#   add_library(cold_dsp STATIC dsp/MorphFilter.cpp dsp/AmpEnvelope.cpp ...)
+add_library(cold_dsp STATIC
+    dsp/AmpEnvelope.cpp
+    dsp/SampleVoice.cpp
+    dsp/Engine.cpp)
+target_include_directories(cold_dsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_features(cold_dsp PUBLIC cxx_std_20)
 
 # ----------------------------------------------------------------------------
 # Thin JUCE-backed I/O layer (file decode). Kept separate from the DSP layer
