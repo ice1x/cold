@@ -123,6 +123,90 @@ TEST_CASE("MorphFilter resonance raises the band-pass peak at cutoff", "[morphfi
     REQUIRE(rmsHigh.bp > rmsLow.bp); // higher Q -> sharper, taller BP peak
 }
 
+TEST_CASE("MorphFilter type blend hits each anchor output", "[morphfilter][dsp][unit][morph]")
+{
+    MorphFilter::Outputs o;
+    o.lp = 1.0f;
+    o.bp = 2.0f;
+    o.hp = 3.0f;
+    o.notch = 4.0f;
+
+    REQUIRE_THAT(MorphFilter::morph(o, 0.0f), WithinAbs(o.lp, 1e-5));        // LP
+    REQUIRE_THAT(MorphFilter::morph(o, 1.0f / 3.0f), WithinAbs(o.bp, 1e-5)); // BP
+    REQUIRE_THAT(MorphFilter::morph(o, 2.0f / 3.0f), WithinAbs(o.hp, 1e-5)); // HP
+    REQUIRE_THAT(MorphFilter::morph(o, 1.0f), WithinAbs(o.notch, 1e-5));     // Notch
+}
+
+TEST_CASE("MorphFilter type blend crossfades linearly between anchors",
+          "[morphfilter][dsp][unit][morph]")
+{
+    MorphFilter::Outputs o;
+    o.lp = 0.0f;
+    o.bp = 10.0f;
+    o.hp = -4.0f;
+    o.notch = 8.0f;
+
+    // Halfway LP->BP (type = 1/6) is the mean of lp and bp.
+    REQUIRE_THAT(MorphFilter::morph(o, 1.0f / 6.0f), WithinAbs(5.0f, 1e-4));
+    // Halfway HP->Notch (type = 5/6) is the mean of hp and notch.
+    REQUIRE_THAT(MorphFilter::morph(o, 5.0f / 6.0f), WithinAbs(2.0f, 1e-4));
+}
+
+TEST_CASE("MorphFilter type morph is continuous across the whole sweep",
+          "[morphfilter][dsp][unit][morph]")
+{
+    MorphFilter::Outputs o;
+    o.lp = 1.0f;
+    o.bp = -3.0f;
+    o.hp = 5.0f;
+    o.notch = 0.5f;
+
+    float prev = MorphFilter::morph(o, 0.0f);
+    for (int i = 1; i <= 300; ++i)
+    {
+        const float t = static_cast<float>(i) / 300.0f;
+        const float cur = MorphFilter::morph(o, t);
+        REQUIRE(std::abs(cur - prev) < 0.2f); // no jumps between adjacent types
+        prev = cur;
+    }
+}
+
+TEST_CASE("MorphFilter smooths cutoff changes instead of jumping",
+          "[morphfilter][dsp][unit][smooth]")
+{
+    MorphFilter f;
+    f.prepare(48000.0); // snaps smoothed cutoff to the 1000 Hz default
+    REQUIRE_THAT(f.smoothedCutoff(), WithinAbs(1000.0f, 1e-3));
+
+    f.setCutoff(5000.0f);
+    f.processAll(0.0f); // one sample of smoothing
+
+    // After one sample the follower has moved toward, but nowhere near, the target.
+    REQUIRE(f.smoothedCutoff() > 1000.0f);
+    REQUIRE(f.smoothedCutoff() < 1200.0f);
+
+    for (int n = 0; n < 4000; ++n)
+        f.processAll(0.0f);
+    REQUIRE_THAT(f.smoothedCutoff(), WithinAbs(5000.0f, 5.0f)); // converged
+}
+
+TEST_CASE("MorphFilter smooths the filter type toward its target",
+          "[morphfilter][dsp][unit][smooth]")
+{
+    MorphFilter f;
+    f.prepare(48000.0);
+    REQUIRE_THAT(f.smoothedFilterType(), WithinAbs(0.0f, 1e-6));
+
+    f.setFilterType(1.0f);
+    f.process(0.0f);
+    REQUIRE(f.smoothedFilterType() > 0.0f);
+    REQUIRE(f.smoothedFilterType() < 0.2f);
+
+    for (int n = 0; n < 4000; ++n)
+        f.process(0.0f);
+    REQUIRE_THAT(f.smoothedFilterType(), WithinAbs(1.0f, 1e-3));
+}
+
 TEST_CASE("MorphFilter stays finite and bounded on a loud burst", "[morphfilter][dsp][unit]")
 {
     MorphFilter f;
