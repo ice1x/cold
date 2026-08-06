@@ -38,8 +38,8 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000009 — Implement `dsp/SampleVoice` repitch/varispeed playback + MIDI-note trigger
 - [x] 000010 — Tests: looping modes (one-shot / forward loop / ping-pong, loop speed follows pitch)
 - [x] 000011 — Implement looping (loopStart/loopEnd, modes) in `SampleVoice`
-- [ ] 000012 — Tests: polyphonic voice allocation (chords, voice stealing)
-- [ ] 000013 — Implement `dsp/Engine` voice pool + polyphony (play chords with one sample)
+- [x] 000012 — Tests: polyphonic voice allocation (chords, voice stealing)
+- [x] 000013 — Implement `dsp/Engine` voice pool + polyphony (play chords with one sample)
 - [ ] 000014 — Tests: amp envelope (ADSR shape, sample-accurate stages, retrigger)
 - [ ] 000015 — Implement `dsp/AmpEnvelope` applied per voice
 - [ ] 000016 — Expose params (load sample, playback mode, loop, amp env, gain, polyphony) via APVTS + minimal generic UI
