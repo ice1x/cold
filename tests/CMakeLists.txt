@@ -17,7 +17,8 @@ set(COLD_TEST_JUCE_FLAGS
 # ----------------------------------------------------------------------------
 add_executable(ColdTests
     unit/test_dsp_sanity.cpp
-    unit/test_sample_voice.cpp)
+    unit/test_sample_voice.cpp
+    unit/test_engine.cpp)
 target_link_libraries(ColdTests PRIVATE
     cold_dsp
     Catch2::Catch2WithMain)
