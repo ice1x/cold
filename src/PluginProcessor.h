@@ -75,6 +75,9 @@ private:
     std::atomic<float>* decayParam = nullptr;
     std::atomic<float>* sustainParam = nullptr;
     std::atomic<float>* releaseParam = nullptr;
+    std::atomic<float>* filterCutoffParam = nullptr;
+    std::atomic<float>* filterResonanceParam = nullptr;
+    std::atomic<float>* filterTypeParam = nullptr;
 
     int lastPolyphony = -1;
 

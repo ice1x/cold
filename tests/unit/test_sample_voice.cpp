@@ -3,6 +3,8 @@
 
 #include "dsp/SampleVoice.h"
 
+#include <algorithm>
+#include <cmath>
 #include <vector>
 
 using Catch::Matchers::WithinAbs;
@@ -41,6 +43,27 @@ SourceSample makeConstant(int numFrames, float value = 1.0f)
     s.channels.assign(1, std::vector<float>(static_cast<size_t>(numFrames), value));
     s.rebuild();
     return s;
+}
+
+// A single-channel Nyquist-ish alternating +1/-1 sample (bright, high-frequency).
+SourceSample makeAlternating(int numFrames)
+{
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(numFrames)));
+    for (int n = 0; n < numFrames; ++n)
+        s.channels[0][static_cast<size_t>(n)] = (n % 2 == 0) ? 1.0f : -1.0f;
+    s.rebuild();
+    return s;
+}
+
+// Peak magnitude over the tail of a buffer (skip the filter settling transient).
+float tailPeak(const std::vector<float>& buf, int tail)
+{
+    float peak = 0.0f;
+    const int start = std::max(0, static_cast<int>(buf.size()) - tail);
+    for (int n = start; n < static_cast<int>(buf.size()); ++n)
+        peak = std::max(peak, std::abs(buf[static_cast<size_t>(n)]));
+    return peak;
 }
 
 // A single-channel ramp 0,1,2,... so read position is directly observable in output.
@@ -334,6 +357,47 @@ TEST_CASE("SampleVoice release from stopNote fades out then frees", "[samplevoic
         REQUIRE_THAT(tail[static_cast<size_t>(n)], WithinAbs(expected[n], 1e-4));
 
     REQUIRE_FALSE(voice.isActive()); // freed once the release completed
+}
+
+TEST_CASE("SampleVoice filter is bypassed by default", "[samplevoice][dsp][unit][filter]")
+{
+    constexpr int frames = 32;
+    auto alt = makeAlternating(frames);
+
+    SampleVoice voice;
+    voice.prepare(48000.0);
+    voice.setSample(alt.data(), alt.numChannels(), alt.numFrames(), 48000.0);
+    REQUIRE_FALSE(voice.filterEnabled());
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+
+    auto out = render(voice, frames);
+    // Unfiltered: the bright ±1 sample passes through untouched.
+    for (int n = 0; n < frames; ++n)
+        REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs((n % 2 == 0) ? 1.0f : -1.0f, 1e-4));
+}
+
+TEST_CASE("SampleVoice low-pass filter attenuates a bright sample",
+          "[samplevoice][dsp][unit][filter]")
+{
+    constexpr int frames = 4000;
+    auto alt = makeAlternating(frames);
+
+    SampleVoice bypass;
+    bypass.prepare(48000.0);
+    bypass.setSample(alt.data(), alt.numChannels(), alt.numFrames(), 48000.0);
+    bypass.startNote(kRootNote, 1.0f, kRootNote);
+    const float rawPeak = tailPeak(render(bypass, frames), 1000);
+
+    SampleVoice filtered;
+    filtered.prepare(48000.0);
+    filtered.setSample(alt.data(), alt.numChannels(), alt.numFrames(), 48000.0);
+    filtered.setFilter(300.0f, 0.707f, 0.0f); // low LP -> kills the bright content
+    REQUIRE(filtered.filterEnabled());
+    filtered.startNote(kRootNote, 1.0f, kRootNote);
+    const float filtPeak = tailPeak(render(filtered, frames), 1000);
+
+    REQUIRE(rawPeak > 0.9f);
+    REQUIRE(filtPeak < 0.1f * rawPeak); // heavily attenuated
 }
 
 TEST_CASE("SampleVoice velocity scales output gain", "[samplevoice][dsp][unit]")

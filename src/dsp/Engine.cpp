@@ -73,6 +73,16 @@ void Engine::setAmpEnvelope(float attackSeconds, float decaySeconds, float susta
         voices[static_cast<size_t>(i)].setAmpEnvelope(ampAttack, ampDecay, ampSustain, ampRelease);
 }
 
+void Engine::setFilter(float cutoffHz, float resonance, float type)
+{
+    filterEnabled = true;
+    filterCutoff = cutoffHz;
+    filterResonance = resonance;
+    filterType = type;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setFilter(cutoffHz, resonance, type);
+}
+
 void Engine::applyConfigToVoice(int index)
 {
     auto& voice = voices[static_cast<size_t>(index)];
@@ -83,6 +93,9 @@ void Engine::applyConfigToVoice(int index)
     if (loopEndFrame > loopStartFrame)
         voice.setLoopPoints(loopStartFrame, loopEndFrame);
     voice.setAmpEnvelope(ampAttack, ampDecay, ampSustain, ampRelease);
+    voice.setFilterEnabled(filterEnabled);
+    if (filterEnabled)
+        voice.setFilter(filterCutoff, filterResonance, filterType);
 }
 
 int Engine::allocateVoice()

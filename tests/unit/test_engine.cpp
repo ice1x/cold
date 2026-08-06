@@ -3,6 +3,8 @@
 
 #include "dsp/Engine.h"
 
+#include <algorithm>
+#include <cmath>
 #include <vector>
 
 using Catch::Matchers::WithinAbs;
@@ -153,6 +155,32 @@ TEST_CASE("Engine polyphony is at least one voice", "[engine][dsp][unit]")
     engine.noteOn(kRootNote, 1.0f, kRootNote);
     engine.noteOn(kRootNote + 3, 1.0f, kRootNote); // steals the single voice
     REQUIRE(engine.activeVoiceCount() == 1);
+}
+
+TEST_CASE("Engine setFilter puts a filter in every voice's path", "[engine][dsp][unit][filter]")
+{
+    constexpr int frames = 4000;
+    // Bright alternating +1/-1 sample.
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] = (n % 2 == 0) ? 1.0f : -1.0f;
+    s.rebuild();
+
+    Engine engine;
+    engine.prepare(48000.0);
+    engine.setPolyphony(4);
+    engine.setSample(s.data(), s.numChannels(), s.numFrames(), 48000.0);
+    engine.setFilter(300.0f, 0.707f, 0.0f); // low-pass the whole pool
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    auto out = render(engine, frames);
+
+    // Measure the settled tail; the bright content is heavily attenuated.
+    float peak = 0.0f;
+    for (int n = frames - 1000; n < frames; ++n)
+        peak = std::max(peak, std::abs(out[static_cast<size_t>(n)]));
+    REQUIRE(peak < 0.2f);
 }
 
 TEST_CASE("Engine reset frees every voice", "[engine][dsp][unit]")

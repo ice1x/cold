@@ -19,6 +19,9 @@ constexpr auto kAttackId = "ampAttack";
 constexpr auto kDecayId = "ampDecay";
 constexpr auto kSustainId = "ampSustain";
 constexpr auto kReleaseId = "ampRelease";
+constexpr auto kFilterCutoffId = "filterCutoff";
+constexpr auto kFilterResonanceId = "filterResonance";
+constexpr auto kFilterTypeId = "filterType";
 
 // A time range in seconds with a perceptual skew (more resolution near zero).
 juce::NormalisableRange<float> timeRange(float maxSeconds)
@@ -65,6 +68,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kReleaseId, 1},
                                                      "Amp Release", timeRange(5.0f), 0.05f));
 
+    // Morph filter: cutoff (log-ish skew), resonance/Q, and the LP->BP->HP->Notch
+    // morph type. Cutoff defaults wide open so an unconfigured patch is bright.
+    juce::NormalisableRange<float> cutoffRange(20.0f, 20000.0f, 1.0f);
+    cutoffRange.setSkewForCentre(1000.0f);
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kFilterCutoffId, 1},
+                                                     "Filter Cutoff", cutoffRange, 20000.0f));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kFilterResonanceId, 1}, "Filter Resonance",
+        juce::NormalisableRange<float>(0.1f, 20.0f, 0.01f, 0.5f), 0.707f));
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kFilterTypeId, 1},
+                                                     "Filter Type", 0.0f, 1.0f, 0.0f));
+
     return layout;
 }
 
@@ -82,6 +97,9 @@ ColdAudioProcessor::ColdAudioProcessor()
     decayParam = apvts.getRawParameterValue(kDecayId);
     sustainParam = apvts.getRawParameterValue(kSustainId);
     releaseParam = apvts.getRawParameterValue(kReleaseId);
+    filterCutoffParam = apvts.getRawParameterValue(kFilterCutoffId);
+    filterResonanceParam = apvts.getRawParameterValue(kFilterResonanceId);
+    filterTypeParam = apvts.getRawParameterValue(kFilterTypeId);
 }
 
 void ColdAudioProcessor::prepareToPlay(double sampleRate, int)
@@ -125,6 +143,9 @@ void ColdAudioProcessor::updateEngineParameters()
 
     engine.setAmpEnvelope(attackParam->load(), decayParam->load(), sustainParam->load(),
                           releaseParam->load());
+
+    engine.setFilter(filterCutoffParam->load(), filterResonanceParam->load(),
+                     filterTypeParam->load());
 }
 
 void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
