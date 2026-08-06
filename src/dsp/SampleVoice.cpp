@@ -16,12 +16,30 @@ void SampleVoice::prepare(double newHostSampleRate)
     if (newHostSampleRate > 0.0)
         hostSampleRate = newHostSampleRate;
     env.setSampleRate(hostSampleRate);
+    for (auto& f : filters)
+        f.prepare(hostSampleRate);
 }
 
 void SampleVoice::setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
                                  float releaseSeconds)
 {
     env.setParameters(attackSeconds, decaySeconds, sustainLevel, releaseSeconds);
+}
+
+void SampleVoice::setFilter(float cutoffHz, float resonance, float type)
+{
+    for (auto& f : filters)
+    {
+        f.setCutoff(cutoffHz);
+        f.setResonance(resonance);
+        f.setFilterType(type);
+    }
+    useFilter = true;
+}
+
+void SampleVoice::setFilterEnabled(bool enabled)
+{
+    useFilter = enabled;
 }
 
 void SampleVoice::setSample(const float* const* channels, int numChannels, int numFrames,
@@ -81,6 +99,9 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
     step = noteToRatio(newMidiNote, rootNote) * rateCorrection;
 
     env.noteOn();
+    // Clear filter state so a new note doesn't inherit the previous one's ring.
+    for (auto& f : filters)
+        f.reset();
     active = true;
 }
 
@@ -140,7 +161,11 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
             if (srcCh >= sourceNumChannels)
                 continue;
 
-            out[ch][dest] += voiceGain * readInterpolated(srcCh, position);
+            float value = voiceGain * readInterpolated(srcCh, position);
+            if (useFilter && ch < static_cast<int>(filters.size()))
+                value = filters[static_cast<size_t>(ch)].process(value);
+
+            out[ch][dest] += value;
         }
 
         // A finished amp release frees the voice (a transparent env never idles

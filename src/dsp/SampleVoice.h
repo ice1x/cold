@@ -8,6 +8,9 @@
 // on in later M1/M2 tasks; this class owns the read position and pitch math.
 
 #include "dsp/AmpEnvelope.h"
+#include "dsp/MorphFilter.h"
+
+#include <array>
 
 namespace cold::dsp
 {
@@ -62,6 +65,14 @@ public:
                         float releaseSeconds);
     [[nodiscard]] const AmpEnvelope& ampEnvelope() const noexcept { return env; }
 
+    // Per-voice morph filter, applied after the amp envelope (sample -> amp env ->
+    // morph filter -> out). Calling setFilter enables it; it is bypassed by
+    // default so a bare voice renders the raw sample. cutoff in Hz, resonance/Q,
+    // type in [0, 1] (LP -> BP -> HP -> Notch).
+    void setFilter(float cutoffHz, float resonance, float type);
+    void setFilterEnabled(bool enabled);
+    [[nodiscard]] bool filterEnabled() const noexcept { return useFilter; }
+
     // Begin a note. `velocity` in [0, 1] scales output gain (a stand-in until the
     // amp envelope lands). `rootNote` is the MIDI note of native pitch.
     void startNote(int midiNote, float velocity = 1.0f, int rootNote = 60);
@@ -107,6 +118,10 @@ private:
     int loopEndFrame = 0;
 
     AmpEnvelope env;
+
+    // One filter per output channel (independent state); index 0/1 for L/R.
+    std::array<MorphFilter, 2> filters;
+    bool useFilter = false;
 };
 
 } // namespace cold::dsp
