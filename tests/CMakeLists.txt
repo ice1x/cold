@@ -16,7 +16,8 @@ set(COLD_TEST_JUCE_FLAGS
 # UNIT — framework-agnostic DSP (no JUCE, no plugin host). Fast inner loop.
 # ----------------------------------------------------------------------------
 add_executable(ColdTests
-    unit/test_dsp_sanity.cpp)
+    unit/test_dsp_sanity.cpp
+    unit/test_sample_voice.cpp)
 target_link_libraries(ColdTests PRIVATE
     cold_dsp
     Catch2::Catch2WithMain)

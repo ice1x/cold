@@ -1,0 +1,73 @@
+#pragma once
+
+// Framework-agnostic (no JUCE) single-note sample player.
+//
+// Renders one voice of a track's polyphonic pool: it reads a decoded sample at a
+// fractional position and repitches it (classic varispeed) so the pitch changes
+// the playback speed. Looping, the amp envelope and the morph filter are layered
+// on in later M1/M2 tasks; this class owns the read position and pitch math.
+
+namespace cold::dsp
+{
+
+class SampleVoice
+{
+public:
+    // Equal-tempered playback ratio: the factor by which the sample is sped up so
+    // that `midiNote` sounds relative to `rootNote` (the note of native pitch).
+    [[nodiscard]] static double noteToRatio(int midiNote, int rootNote);
+
+    // Host (output) sample rate. Call before rendering; safe to call again on a
+    // sample-rate change (does not disturb an in-flight note's pitch mapping).
+    void prepare(double hostSampleRate);
+
+    // Point the voice at a decoded sample. Non-owning: `channels` (an array of
+    // `numChannels` pointers, each to `numFrames` floats) and its data must
+    // outlive playback. `sourceSampleRate` is the sample's native rate.
+    void setSample(const float* const* channels, int numChannels, int numFrames,
+                   double sourceSampleRate);
+
+    // Forget the current sample and stop the voice.
+    void clearSample();
+
+    // Begin a note. `velocity` in [0, 1] scales output gain (a stand-in until the
+    // amp envelope lands). `rootNote` is the MIDI note of native pitch.
+    void startNote(int midiNote, float velocity = 1.0f, int rootNote = 60);
+
+    // Immediately free the voice (no release tail yet).
+    void stopNote();
+
+    // Return to the idle state, keeping the assigned sample.
+    void reset();
+
+    [[nodiscard]] bool isActive() const noexcept { return active; }
+    [[nodiscard]] int currentMidiNote() const noexcept { return midiNote; }
+    [[nodiscard]] double readPosition() const noexcept { return position; }
+
+    // Per-output-sample advance through the source (pitch ratio × rate correction).
+    [[nodiscard]] double increment() const noexcept { return step; }
+
+    // Add this voice's contribution into `out[ch][startSample .. startSample+num)`.
+    // Additive so a whole voice pool sums into a shared buffer. A mono source fans
+    // out to every output channel; excess source channels beyond the output are
+    // dropped. When the read position runs off the end the voice frees itself.
+    void renderNextBlock(float* const* out, int numOutChannels, int startSample, int numSamples);
+
+private:
+    [[nodiscard]] float readInterpolated(int channel, double pos) const;
+
+    const float* const* sourceChannels = nullptr;
+    int sourceNumChannels = 0;
+    int sourceNumFrames = 0;
+    double sourceSampleRate = 0.0;
+
+    double hostSampleRate = 44100.0;
+
+    bool active = false;
+    int midiNote = -1;
+    float gain = 1.0f;
+    double position = 0.0; // fractional read index into the source
+    double step = 1.0;     // input frames consumed per output sample
+};
+
+} // namespace cold::dsp
