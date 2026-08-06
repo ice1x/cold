@@ -51,7 +51,7 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000019 — Implement `dsp/MorphFilter` SVF core (TPT/Zavalishin, simultaneous outputs)
 - [x] 000020 — Tests: continuous type morph (smooth blend across LP→BP→HP→Notch)
 - [x] 000021 — Implement morphable `filterType` parameter (Ableton-style blend) + param smoothing
-- [ ] 000022 — Integrate filter into voice path; expose cutoff/resonance/type params
+- [x] 000022 — Integrate filter into voice path; expose cutoff/resonance/type params
 - [ ] 000023 — Logic smoke test: sweep cutoff and morph type, confirm artifact-free
 
 ## M3 — LFO + modulation (filter type as a destination)
