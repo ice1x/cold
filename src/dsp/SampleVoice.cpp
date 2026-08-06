@@ -15,6 +15,13 @@ void SampleVoice::prepare(double newHostSampleRate)
 {
     if (newHostSampleRate > 0.0)
         hostSampleRate = newHostSampleRate;
+    env.setSampleRate(hostSampleRate);
+}
+
+void SampleVoice::setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
+                                 float releaseSeconds)
+{
+    env.setParameters(attackSeconds, decaySeconds, sustainLevel, releaseSeconds);
 }
 
 void SampleVoice::setSample(const float* const* channels, int numChannels, int numFrames,
@@ -73,12 +80,16 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
     const double rateCorrection = sourceSampleRate / hostSampleRate;
     step = noteToRatio(newMidiNote, rootNote) * rateCorrection;
 
+    env.noteOn();
     active = true;
 }
 
 void SampleVoice::stopNote()
 {
-    active = false;
+    // Enter the amp release; a zero-length release frees the voice at once.
+    env.noteOff();
+    if (!env.isActive())
+        active = false;
 }
 
 void SampleVoice::reset()
@@ -88,6 +99,7 @@ void SampleVoice::reset()
     position = 0.0;
     step = 1.0;
     direction = 1;
+    env.reset();
 }
 
 float SampleVoice::readInterpolated(int channel, double pos) const
@@ -117,6 +129,9 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
             break;
         }
 
+        const float envGain = env.getNextSample();
+        const float voiceGain = gain * envGain;
+
         const int dest = startSample + n;
         for (int ch = 0; ch < numOutChannels; ++ch)
         {
@@ -125,7 +140,15 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
             if (srcCh >= sourceNumChannels)
                 continue;
 
-            out[ch][dest] += gain * readInterpolated(srcCh, position);
+            out[ch][dest] += voiceGain * readInterpolated(srcCh, position);
+        }
+
+        // A finished amp release frees the voice (a transparent env never idles
+        // on its own; it is ended by stopNote or by the one-shot running out).
+        if (!env.isActive())
+        {
+            active = false;
+            break;
         }
 
         position += static_cast<double>(direction) * step;

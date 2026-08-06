@@ -34,6 +34,15 @@ struct SourceSample
     }
 };
 
+// A single-channel constant sample, so output equals the applied gain per sample.
+SourceSample makeConstant(int numFrames, float value = 1.0f)
+{
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(numFrames), value));
+    s.rebuild();
+    return s;
+}
+
 // A single-channel ramp 0,1,2,... so read position is directly observable in output.
 SourceSample makeRamp(int numFrames, int numChannels = 1)
 {
@@ -283,6 +292,48 @@ TEST_CASE("SampleVoice one-shot is the default loop mode", "[samplevoice][dsp][u
     voice.startNote(kRootNote, 1.0f, kRootNote);
     render(voice, frames + 4);
     REQUIRE_FALSE(voice.isActive());
+}
+
+TEST_CASE("SampleVoice applies the amp envelope to its output", "[samplevoice][dsp][unit][env]")
+{
+    constexpr int frames = 16;
+    auto flat = makeConstant(frames, 1.0f);
+
+    SampleVoice voice;
+    voice.prepare(1000.0); // 1 kHz makes the attack land on whole samples
+    voice.setSample(flat.data(), flat.numChannels(), flat.numFrames(), 1000.0);
+    voice.setAmpEnvelope(0.004f, 0.0f, 1.0f, 0.0f); // 4-sample attack, sustain at 1
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+
+    auto out = render(voice, 8);
+    const float expected[] = {0.25f, 0.5f, 0.75f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    for (int n = 0; n < 8; ++n)
+        REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(expected[n], 1e-4));
+}
+
+TEST_CASE("SampleVoice release from stopNote fades out then frees", "[samplevoice][dsp][unit][env]")
+{
+    constexpr int frames = 64;
+    auto flat = makeConstant(frames, 1.0f);
+
+    SampleVoice voice;
+    voice.prepare(1000.0);
+    voice.setSample(flat.data(), flat.numChannels(), flat.numFrames(), 1000.0);
+    voice.setAmpEnvelope(0.0f, 0.0f, 1.0f, 0.004f); // instant on, 4-sample release
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+
+    render(voice, 4); // sustaining at 1.0
+    REQUIRE(voice.isActive());
+
+    voice.stopNote(); // begin release; a positive release keeps the voice alive
+    REQUIRE(voice.isActive());
+
+    auto tail = render(voice, 6);
+    const float expected[] = {0.75f, 0.5f, 0.25f, 0.0f, 0.0f, 0.0f};
+    for (int n = 0; n < 6; ++n)
+        REQUIRE_THAT(tail[static_cast<size_t>(n)], WithinAbs(expected[n], 1e-4));
+
+    REQUIRE_FALSE(voice.isActive()); // freed once the release completed
 }
 
 TEST_CASE("SampleVoice velocity scales output gain", "[samplevoice][dsp][unit]")
