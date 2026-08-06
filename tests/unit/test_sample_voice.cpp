@@ -210,6 +210,81 @@ TEST_CASE("SampleVoice mono source fans out to all output channels", "[samplevoi
     }
 }
 
+TEST_CASE("SampleVoice forward loop wraps at the loop end", "[samplevoice][dsp][unit][loop]")
+{
+    constexpr int frames = 8;
+    auto ramp = makeRamp(frames); // 0,1,2,3,4,5,6,7
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+    voice.setLoopMode(SampleVoice::LoopMode::Forward);
+    voice.setLoopPoints(2, 6); // loop region [2, 6): frames 2,3,4,5
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+
+    auto out = render(voice, 12);
+    const float expected[] = {0, 1, 2, 3, 4, 5, 2, 3, 4, 5, 2, 3};
+    for (int n = 0; n < 12; ++n)
+        REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(expected[n], 1e-4));
+
+    // A looping voice never frees itself.
+    REQUIRE(voice.isActive());
+}
+
+TEST_CASE("SampleVoice loop speed follows pitch", "[samplevoice][dsp][unit][loop]")
+{
+    constexpr int frames = 8;
+    auto ramp = makeRamp(frames);
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+    voice.setLoopMode(SampleVoice::LoopMode::Forward);
+    voice.setLoopPoints(0, 4); // loop region [0, 4): length 4
+    // One octave up: step 2, so the same loop is traversed twice as fast.
+    voice.startNote(kRootNote + 12, 1.0f, kRootNote);
+
+    auto out = render(voice, 6);
+    const float expected[] = {0, 2, 0, 2, 0, 2};
+    for (int n = 0; n < 6; ++n)
+        REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(expected[n], 1e-4));
+}
+
+TEST_CASE("SampleVoice ping-pong bounces between loop points", "[samplevoice][dsp][unit][loop]")
+{
+    constexpr int frames = 8;
+    auto ramp = makeRamp(frames);
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+    voice.setLoopMode(SampleVoice::LoopMode::PingPong);
+    voice.setLoopPoints(0, 4); // turn around at 0 and 4
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+
+    auto out = render(voice, 11);
+    const float expected[] = {0, 1, 2, 3, 4, 3, 2, 1, 0, 1, 2};
+    for (int n = 0; n < 11; ++n)
+        REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(expected[n], 1e-4));
+
+    REQUIRE(voice.isActive());
+}
+
+TEST_CASE("SampleVoice one-shot is the default loop mode", "[samplevoice][dsp][unit][loop]")
+{
+    constexpr int frames = 8;
+    auto ramp = makeRamp(frames);
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+    REQUIRE(voice.loopMode() == SampleVoice::LoopMode::OneShot);
+
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+    render(voice, frames + 4);
+    REQUIRE_FALSE(voice.isActive());
+}
+
 TEST_CASE("SampleVoice velocity scales output gain", "[samplevoice][dsp][unit]")
 {
     constexpr int frames = 16;

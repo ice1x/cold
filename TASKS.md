@@ -36,8 +36,8 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000007 — Implement `io/SampleLoader` via `juce::AudioFormatManager` (wav/aiff/mp3)
 - [x] 000008 — Tests: one-shot voice playback (read position, pitch ratio from MIDI note, end-of-sample)
 - [x] 000009 — Implement `dsp/SampleVoice` repitch/varispeed playback + MIDI-note trigger
-- [ ] 000010 — Tests: looping modes (one-shot / forward loop / ping-pong, loop speed follows pitch)
-- [ ] 000011 — Implement looping (loopStart/loopEnd, modes) in `SampleVoice`
+- [x] 000010 — Tests: looping modes (one-shot / forward loop / ping-pong, loop speed follows pitch)
+- [x] 000011 — Implement looping (loopStart/loopEnd, modes) in `SampleVoice`
 - [ ] 000012 — Tests: polyphonic voice allocation (chords, voice stealing)
 - [ ] 000013 — Implement `dsp/Engine` voice pool + polyphony (play chords with one sample)
 - [ ] 000014 — Tests: amp envelope (ADSR shape, sample-accurate stages, retrigger)
