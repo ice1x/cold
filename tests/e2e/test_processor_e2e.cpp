@@ -137,8 +137,9 @@ TEST_CASE("Cold processor plays a loaded sample on a MIDI note", "[processor][e2
 TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
 {
     ColdAudioProcessor proc;
-    for (const auto* id : {"gain", "polyphony", "loopMode", "loopStart", "loopEnd", "rootNote",
-                           "ampAttack", "ampDecay", "ampSustain", "ampRelease"})
+    for (const auto* id :
+         {"gain", "polyphony", "loopMode", "loopStart", "loopEnd", "rootNote", "ampAttack",
+          "ampDecay", "ampSustain", "ampRelease", "filterCutoff", "filterResonance", "filterType"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 

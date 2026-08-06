@@ -40,6 +40,10 @@ public:
     void setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
                         float releaseSeconds);
 
+    // Per-voice morph filter shared by every voice (cutoff Hz, resonance/Q, type
+    // in [0, 1]). Enables the filter on the whole pool.
+    void setFilter(float cutoffHz, float resonance, float type);
+
     // Trigger / release notes. rootNote is the MIDI note of native pitch.
     void noteOn(int midiNote, float velocity = 1.0f, int rootNote = 60);
     void noteOff(int midiNote);
@@ -78,6 +82,11 @@ private:
     float ampDecay = 0.0f;
     float ampSustain = 1.0f;
     float ampRelease = 0.0f;
+
+    bool filterEnabled = false;
+    float filterCutoff = 20000.0f;
+    float filterResonance = 0.707f;
+    float filterType = 0.0f;
 };
 
 } // namespace cold::dsp
