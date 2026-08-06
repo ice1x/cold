@@ -4,10 +4,13 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <memory>
+
 namespace cold
 {
 
-// Placeholder editor (M0). A real UI arrives with the sampler params (M1+).
+// Minimal M1 UI: a "Load Sample…" button + the loaded file name on top, with
+// JUCE's generic parameter panel (auto-built from the APVTS) filling the rest.
 class ColdAudioProcessorEditor : public juce::AudioProcessorEditor
 {
 public:
@@ -18,7 +21,14 @@ public:
     void resized() override;
 
 private:
-    [[maybe_unused]] ColdAudioProcessor& processorRef;
+    void chooseSample();
+
+    ColdAudioProcessor& processorRef;
+
+    juce::TextButton loadButton{"Load Sample…"};
+    juce::Label sampleNameLabel;
+    juce::GenericAudioProcessorEditor genericEditor{processorRef};
+    std::unique_ptr<juce::FileChooser> chooser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ColdAudioProcessorEditor)
 };

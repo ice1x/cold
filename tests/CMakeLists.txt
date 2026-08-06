@@ -69,6 +69,7 @@ target_compile_definitions(ColdE2ETests PRIVATE
 target_link_libraries(ColdE2ETests PRIVATE
     cold_dsp
     cold_io
+    cold_test_support
     juce::juce_audio_utils
     Catch2::Catch2WithMain
     ${COLD_TEST_JUCE_FLAGS})

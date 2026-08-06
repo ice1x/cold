@@ -7,7 +7,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "PluginProcessor.h"
+#include "support/SignalFixtures.h"
 
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <cmath>
@@ -30,6 +32,15 @@ bool bufferIsFinite(const juce::AudioBuffer<float>& buffer)
 void renderBlock(ColdAudioProcessor& proc, juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     proc.processBlock(buffer, midi);
+}
+
+// Write a short known WAV to a temp file and return it (caller deletes).
+juce::File writeTempWav(double sampleRate, int numChannels, int numFrames)
+{
+    auto file = juce::File::createTempFile(".wav");
+    juce::WavAudioFormat wav;
+    cold::test::writeKnownSignal(wav, file, sampleRate, numChannels, numFrames);
+    return file;
 }
 
 } // namespace
@@ -62,7 +73,7 @@ TEST_CASE("Cold processor accepts mono and stereo output layouts", "[processor][
     REQUIRE_FALSE(proc.checkBusesLayoutSupported(surround));
 }
 
-TEST_CASE("Cold processor renders finite, silent output and survives MIDI (M0)", "[processor][e2e]")
+TEST_CASE("Cold processor is silent with no sample loaded", "[processor][e2e]")
 {
     constexpr double sampleRate = 44100.0;
     constexpr int blockSize = 512;
@@ -72,37 +83,63 @@ TEST_CASE("Cold processor renders finite, silent output and survives MIDI (M0)",
     proc.prepareToPlay(sampleRate, blockSize);
 
     juce::AudioBuffer<float> buffer(2, blockSize);
+    buffer.clear();
 
-    SECTION("empty MIDI -> silence")
+    // A chord with no sample must still be finite silence (nothing to play).
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+    midi.addEvent(juce::MidiMessage::noteOn(1, 64, 1.0f), 0);
+    renderBlock(proc, buffer, midi);
+
+    REQUIRE(bufferIsFinite(buffer));
+    REQUIRE(buffer.getMagnitude(0, blockSize) == 0.0f);
+
+    proc.releaseResources();
+}
+
+TEST_CASE("Cold processor plays a loaded sample on a MIDI note", "[processor][e2e]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    auto wav = writeTempWav(sampleRate, 2, blockSize);
+    REQUIRE(proc.loadSampleFile(wav));
+    wav.deleteFile();
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+
+    SECTION("a note at the root produces non-silent, finite output")
     {
         buffer.clear();
-        for (int n = 0; n < blockSize; ++n) // dirty the buffer first
-            buffer.setSample(0, n, 0.123f);
-
         juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0); // root note default 60
         renderBlock(proc, buffer, midi);
 
         REQUIRE(bufferIsFinite(buffer));
-        REQUIRE(buffer.getMagnitude(0, blockSize) == 0.0f); // M0 is silent
+        REQUIRE(buffer.getMagnitude(0, blockSize) > 0.0f);
     }
 
-    SECTION("a played chord does not crash or denormalise (still silent in M0)")
+    SECTION("no note -> the loaded sample stays silent until triggered")
     {
+        buffer.clear();
         juce::MidiBuffer midi;
-        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
-        midi.addEvent(juce::MidiMessage::noteOn(1, 64, 1.0f), 0);
-        midi.addEvent(juce::MidiMessage::noteOn(1, 67, 1.0f), 0);
-
-        for (int block = 0; block < 8; ++block)
-        {
-            buffer.clear();
-            renderBlock(proc, buffer, midi);
-            REQUIRE(bufferIsFinite(buffer));
-            midi.clear();
-        }
+        renderBlock(proc, buffer, midi);
+        REQUIRE(buffer.getMagnitude(0, blockSize) == 0.0f);
     }
 
     proc.releaseResources();
+}
+
+TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
+{
+    ColdAudioProcessor proc;
+    for (const auto* id : {"gain", "polyphony", "loopMode", "loopStart", "loopEnd", "rootNote",
+                           "ampAttack", "ampDecay", "ampSustain", "ampRelease"})
+        REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 
 TEST_CASE("Cold processor state save/restore round-trips", "[processor][e2e]")

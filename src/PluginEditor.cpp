@@ -6,22 +6,56 @@ namespace cold
 ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     : AudioProcessorEditor(&p), processorRef(p)
 {
-    setSize(400, 220);
+    addAndMakeVisible(loadButton);
+    loadButton.onClick = [this] { chooseSample(); };
+
+    sampleNameLabel.setJustificationType(juce::Justification::centredLeft);
+    sampleNameLabel.setText(processorRef.loadedSampleName(), juce::dontSendNotification);
+    addAndMakeVisible(sampleNameLabel);
+
+    addAndMakeVisible(genericEditor);
+
+    setSize(460, 420);
+}
+
+void ColdAudioProcessorEditor::chooseSample()
+{
+    chooser = std::make_unique<juce::FileChooser>("Load a sample", juce::File{},
+                                                  "*.wav;*.aiff;*.aif;*.mp3");
+    const auto flags =
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+    chooser->launchAsync(flags,
+                         [this](const juce::FileChooser& fc)
+                         {
+                             const auto file = fc.getResult();
+                             if (file == juce::File{})
+                                 return;
+
+                             const bool ok = processorRef.loadSampleFile(file);
+                             sampleNameLabel.setText(ok ? processorRef.loadedSampleName()
+                                                        : juce::String("failed to load: ") +
+                                                              file.getFileName(),
+                                                     juce::dontSendNotification);
+                         });
 }
 
 void ColdAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xff101216));
-    g.setColour(juce::Colours::white);
-    g.setFont(juce::FontOptions(28.0f, juce::Font::bold));
-    g.drawFittedText("COLD", getLocalBounds().removeFromTop(140), juce::Justification::centred, 1);
-
-    g.setColour(juce::Colours::grey);
-    g.setFont(juce::FontOptions(13.0f));
-    g.drawFittedText("polyphonic sampler - scaffold (M0)",
-                     getLocalBounds().removeFromBottom(80), juce::Justification::centred, 1);
 }
 
-void ColdAudioProcessorEditor::resized() {}
+void ColdAudioProcessorEditor::resized()
+{
+    auto area = getLocalBounds().reduced(8);
+
+    auto top = area.removeFromTop(28);
+    loadButton.setBounds(top.removeFromLeft(140));
+    top.removeFromLeft(8);
+    sampleNameLabel.setBounds(top);
+
+    area.removeFromTop(8);
+    genericEditor.setBounds(area);
+}
 
 } // namespace cold
