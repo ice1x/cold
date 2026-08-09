@@ -183,7 +183,7 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000100 — Integrate Envelope as amp + add a 2nd (mod) envelope per voice; env→filter routing
 - [x] 000101 — Flexible LFO: custom multi-step shape (designer) + trig modes (free/trig/hold/one-shot)
 - [x] 000102 — Generalize mod matrix: sources (LFO + envelopes), destinations incl. pitch
-- [ ] 000103 — **LFO/mod → sample-select** (per-trig sample-lock) — pick slot/layer at trig
+- [x] 000103 — **LFO/mod → sample-select** (per-trig sample-lock) — pick slot/layer at trig
 - [ ] 000104 — Expose envelope/LFO/mod params + UI; Logic smoke test of the modulation set
 
 ## Backlog (later; assign IDs when scheduled)
