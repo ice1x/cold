@@ -33,6 +33,10 @@ constexpr auto kLfoSyncId = "lfoSync";
 constexpr auto kLfoDivisionId = "lfoDivision";
 constexpr auto kLfoToCutoffId = "lfoToCutoff";
 constexpr auto kLfoToTypeId = "lfoToType";
+constexpr auto kSlotId = "slot";
+
+// Number of sample-bank slots exposed in M4.
+constexpr int kNumSlots = 16;
 
 // Host-sync divisions (parallel to the lfoDivision choice list), in quarter-note
 // beats per LFO cycle: "1/16" = 0.25 beats ... "4 bars" = 16 beats.
@@ -118,12 +122,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         juce::ParameterID{kLfoToTypeId, 1}, "LFO -> Filter Type",
         juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
 
+    // Active sample-bank slot (the sample fed to the engine).
+    layout.add(std::make_unique<AudioParameterInt>(juce::ParameterID{kSlotId, 1}, "Slot", 0,
+                                                   kNumSlots - 1, 0));
+
     return layout;
 }
 
 ColdAudioProcessor::ColdAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts(*this, nullptr, "PARAMS", createParameterLayout())
+      apvts(*this, nullptr, "PARAMS", createParameterLayout()), bank(kNumSlots)
 {
     gainParam = apvts.getRawParameterValue(kGainId);
     polyphonyParam = apvts.getRawParameterValue(kPolyphonyId);
@@ -145,6 +153,7 @@ ColdAudioProcessor::ColdAudioProcessor()
     lfoDivisionParam = apvts.getRawParameterValue(kLfoDivisionId);
     lfoToCutoffParam = apvts.getRawParameterValue(kLfoToCutoffId);
     lfoToTypeParam = apvts.getRawParameterValue(kLfoToTypeId);
+    slotParam = apvts.getRawParameterValue(kSlotId);
 }
 
 void ColdAudioProcessor::prepareToPlay(double sampleRate, int)
@@ -165,6 +174,15 @@ bool ColdAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) cons
 
 void ColdAudioProcessor::updateEngineParameters()
 {
+    // A slot change (from the host/UI) swaps the sample fed to the engine.
+    const int slot = static_cast<int>(slotParam->load());
+    if (slot != lastSlot)
+    {
+        currentSlot = slot;
+        lastSlot = slot;
+        pushSlotToEngine();
+    }
+
     const int poly = static_cast<int>(polyphonyParam->load());
     if (poly != lastPolyphony)
     {
@@ -264,33 +282,86 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     buffer.applyGain(gainLinear);
 }
 
+void ColdAudioProcessor::pushSlotToEngine()
+{
+    const auto& s = bank.slot(currentSlot);
+    channelPtrs.clear();
+
+    if (!s.isLoaded())
+    {
+        currentNumFrames = 0;
+        engine.setSample(nullptr, 0, 0, 0.0); // nothing selected -> silent
+        lastPolyphony = -1;
+        return;
+    }
+
+    // Offset each channel pointer by the slot's start window and pass its length,
+    // so the engine plays exactly the [start, start+length) region.
+    const int start = s.effectiveStart();
+    const int length = s.effectiveLength();
+    for (const auto& ch : s.data.channels)
+        channelPtrs.push_back(ch.data() + start);
+    currentNumFrames = length;
+
+    engine.setSample(channelPtrs.data(), s.data.numChannels(), length, s.data.sampleRate);
+    lastPolyphony = -1; // setSample reset the pool; force a param re-apply next block
+}
+
+bool ColdAudioProcessor::loadSampleToSlot(int slot, const juce::File& file)
+{
+    const juce::ScopedLock sl(engineLock);
+    if (!bank.loadSlot(slot, file))
+        return false;
+    if (slot == currentSlot)
+        pushSlotToEngine();
+    return true;
+}
+
 bool ColdAudioProcessor::loadSampleFile(const juce::File& file)
 {
-    auto decoded = loader.loadFile(file);
-    if (!decoded.has_value() || decoded->isEmpty())
-        return false;
+    return loadSampleToSlot(currentSlot, file);
+}
+
+int ColdAudioProcessor::loadFolder(const juce::File& directory)
+{
+    if (!directory.isDirectory())
+        return 0;
+
+    auto files = directory.findChildFiles(juce::File::findFiles, false, "*.wav;*.aiff;*.aif;*.mp3");
+    files.sort();
+
+    int loaded = 0;
+    for (const auto& file : files)
+    {
+        if (loaded >= bank.numSlots())
+            break;
+        if (loadSampleToSlot(loaded, file))
+            ++loaded;
+    }
+    return loaded;
+}
+
+void ColdAudioProcessor::selectSlot(int slot)
+{
+    slot = juce::jlimit(0, bank.numSlots() - 1, slot);
+    if (auto* p = apvts.getParameter("slot"))
+        p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(slot)));
 
     const juce::ScopedLock sl(engineLock);
-    sampleData = std::move(*decoded);
+    currentSlot = slot;
+    lastSlot = slot;
+    pushSlotToEngine();
+}
 
-    channelPtrs.clear();
-    for (const auto& ch : sampleData.channels)
-        channelPtrs.push_back(ch.data());
-    currentNumFrames = sampleData.numFrames();
-    sampleFilePath = file.getFullPathName();
-
-    engine.setSample(channelPtrs.data(), sampleData.numChannels(), currentNumFrames,
-                     sampleData.sampleRate);
-    // setSample cleared the loop window; re-apply the current parameter state.
-    lastPolyphony = -1;
-    updateEngineParameters();
-    return true;
+int ColdAudioProcessor::numSlots() const
+{
+    return bank.numSlots();
 }
 
 juce::String ColdAudioProcessor::loadedSampleName() const
 {
-    return sampleFilePath.isEmpty() ? juce::String("(no sample)")
-                                    : juce::File(sampleFilePath).getFileName();
+    const auto& s = bank.slot(currentSlot);
+    return s.isLoaded() ? s.name : juce::String("(no sample)");
 }
 
 juce::AudioProcessorEditor* ColdAudioProcessor::createEditor()
@@ -300,11 +371,27 @@ juce::AudioProcessorEditor* ColdAudioProcessor::createEditor()
 
 void ColdAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-    auto state = apvts.copyState();
-    if (sampleFilePath.isNotEmpty())
-        state.setProperty("samplePath", sampleFilePath, nullptr);
+    // Wrapper: the APVTS params and the bank live as sibling children so the bank
+    // never leaks into (and duplicates within) the parameter tree across saves.
+    juce::ValueTree root("ColdState");
+    root.appendChild(apvts.copyState(), nullptr);
 
-    if (auto xml = state.createXml())
+    juce::ValueTree bankTree("bank");
+    for (int i = 0; i < bank.numSlots(); ++i)
+    {
+        const auto& s = bank.slot(i);
+        if (!s.isLoaded() || s.path.isEmpty())
+            continue;
+        juce::ValueTree slotTree("slot");
+        slotTree.setProperty("index", i, nullptr);
+        slotTree.setProperty("path", s.path, nullptr);
+        slotTree.setProperty("start", s.start, nullptr);
+        slotTree.setProperty("length", s.length, nullptr);
+        bankTree.appendChild(slotTree, nullptr);
+    }
+    root.appendChild(bankTree, nullptr);
+
+    if (auto xml = root.createXml())
         copyXmlToBinary(*xml, destData);
 }
 
@@ -314,15 +401,32 @@ void ColdAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
     if (xml == nullptr)
         return;
 
-    auto tree = juce::ValueTree::fromXml(*xml);
-    if (!tree.isValid())
+    auto root = juce::ValueTree::fromXml(*xml);
+    if (!root.isValid())
         return;
 
-    const juce::String path = tree.getProperty("samplePath", juce::String()).toString();
-    apvts.replaceState(tree);
+    if (auto params = root.getChildWithName(apvts.state.getType()); params.isValid())
+        apvts.replaceState(params);
 
-    if (path.isNotEmpty())
-        loadSampleFile(juce::File(path));
+    if (auto bankTree = root.getChildWithName("bank"); bankTree.isValid())
+    {
+        for (int c = 0; c < bankTree.getNumChildren(); ++c)
+        {
+            const auto slotTree = bankTree.getChild(c);
+            const int index = slotTree.getProperty("index", -1);
+            const juce::String path = slotTree.getProperty("path", juce::String()).toString();
+            if (index < 0 || path.isEmpty())
+                continue;
+            if (bank.loadSlot(index, juce::File(path)))
+            {
+                bank.setSlotStart(index, slotTree.getProperty("start", 0));
+                bank.setSlotLength(index, slotTree.getProperty("length", 0));
+            }
+        }
+    }
+
+    // Re-select the (restored) current slot to feed the engine.
+    selectSlot(static_cast<int>(slotParam != nullptr ? slotParam->load() : 0.0f));
 }
 
 } // namespace cold
