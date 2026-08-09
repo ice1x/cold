@@ -1,0 +1,65 @@
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+
+#include "dsp/ModMatrix.h"
+
+using Catch::Matchers::WithinAbs;
+using cold::dsp::ModDestination;
+using cold::dsp::ModMatrix;
+
+TEST_CASE("ModMatrix with no routes passes the base values through", "[modmatrix][dsp][unit]")
+{
+    ModMatrix m;
+    const auto out = m.apply(1000.0f, 0.3f, 0.9f); // source ignored: no routes
+    REQUIRE_THAT(out.cutoffHz, WithinAbs(1000.0f, 1e-3));
+    REQUIRE_THAT(out.type, WithinAbs(0.3f, 1e-6));
+}
+
+TEST_CASE("ModMatrix routes an LFO to filter cutoff exponentially", "[modmatrix][dsp][unit]")
+{
+    ModMatrix m;
+    m.addRoute(ModDestination::FilterCutoff, 1.0f); // +/- 1 octave at full source
+
+    // +1 source -> up an octave; -1 -> down an octave; 0 -> unchanged.
+    REQUIRE_THAT(m.apply(1000.0f, 0.0f, 1.0f).cutoffHz, WithinAbs(2000.0f, 1e-2));
+    REQUIRE_THAT(m.apply(1000.0f, 0.0f, -1.0f).cutoffHz, WithinAbs(500.0f, 1e-2));
+    REQUIRE_THAT(m.apply(1000.0f, 0.0f, 0.0f).cutoffHz, WithinAbs(1000.0f, 1e-3));
+}
+
+TEST_CASE("ModMatrix routes an LFO to the filter morph type", "[modmatrix][dsp][unit][morph]")
+{
+    ModMatrix m;
+    m.addRoute(ModDestination::FilterType, 0.5f);
+
+    REQUIRE_THAT(m.apply(1000.0f, 0.2f, 1.0f).type, WithinAbs(0.7f, 1e-5));  // 0.2 + 0.5
+    REQUIRE_THAT(m.apply(1000.0f, 0.2f, -1.0f).type, WithinAbs(0.0f, 1e-5)); // 0.2 - 0.5 clamped
+}
+
+TEST_CASE("ModMatrix clamps the morph type to [0,1]", "[modmatrix][dsp][unit]")
+{
+    ModMatrix m;
+    m.addRoute(ModDestination::FilterType, 1.0f);
+    REQUIRE_THAT(m.apply(1000.0f, 0.8f, 1.0f).type, WithinAbs(1.0f, 1e-6));  // clamped high
+    REQUIRE_THAT(m.apply(1000.0f, 0.1f, -1.0f).type, WithinAbs(0.0f, 1e-6)); // clamped low
+}
+
+TEST_CASE("ModMatrix applies cutoff and type routes independently", "[modmatrix][dsp][unit]")
+{
+    ModMatrix m;
+    m.addRoute(ModDestination::FilterCutoff, 1.0f);
+    m.addRoute(ModDestination::FilterType, 0.25f);
+
+    const auto out = m.apply(1000.0f, 0.5f, 1.0f);
+    REQUIRE_THAT(out.cutoffHz, WithinAbs(2000.0f, 1e-2)); // up an octave
+    REQUIRE_THAT(out.type, WithinAbs(0.75f, 1e-5));       // 0.5 + 0.25
+}
+
+TEST_CASE("ModMatrix clearRoutes removes all modulation", "[modmatrix][dsp][unit]")
+{
+    ModMatrix m;
+    m.addRoute(ModDestination::FilterCutoff, 1.0f);
+    REQUIRE(m.hasRoutes());
+    m.clearRoutes();
+    REQUIRE_FALSE(m.hasRoutes());
+    REQUIRE_THAT(m.apply(1000.0f, 0.3f, 1.0f).cutoffHz, WithinAbs(1000.0f, 1e-3));
+}

@@ -4,6 +4,10 @@
 
 #include "dsp/SampleVoice.h"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
+
 namespace cold
 {
 
@@ -22,6 +26,17 @@ constexpr auto kReleaseId = "ampRelease";
 constexpr auto kFilterCutoffId = "filterCutoff";
 constexpr auto kFilterResonanceId = "filterResonance";
 constexpr auto kFilterTypeId = "filterType";
+constexpr auto kLfoShapeId = "lfoShape";
+constexpr auto kLfoRateId = "lfoRate";
+constexpr auto kLfoDepthId = "lfoDepth";
+constexpr auto kLfoSyncId = "lfoSync";
+constexpr auto kLfoDivisionId = "lfoDivision";
+constexpr auto kLfoToCutoffId = "lfoToCutoff";
+constexpr auto kLfoToTypeId = "lfoToType";
+
+// Host-sync divisions (parallel to the lfoDivision choice list), in quarter-note
+// beats per LFO cycle: "1/16" = 0.25 beats ... "4 bars" = 16 beats.
+constexpr std::array<double, 7> kDivisionBeats{16.0, 8.0, 4.0, 2.0, 1.0, 0.5, 0.25};
 
 // A time range in seconds with a perceptual skew (more resolution near zero).
 juce::NormalisableRange<float> timeRange(float maxSeconds)
@@ -80,6 +95,29 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kFilterTypeId, 1},
                                                      "Filter Type", 0.0f, 1.0f, 0.0f));
 
+    // LFO: shape, free rate (Hz) or host-tempo sync + division, depth, and the two
+    // modulation amounts — to cutoff (octaves) and, distinctively, to filter type.
+    layout.add(std::make_unique<AudioParameterChoice>(
+        juce::ParameterID{kLfoShapeId, 1}, "LFO Shape",
+        juce::StringArray{"Sine", "Triangle", "Saw Up", "Saw Down", "Square", "Random"}, 0));
+    juce::NormalisableRange<float> rateRange(0.01f, 40.0f, 0.01f);
+    rateRange.setSkewForCentre(2.0f);
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kLfoRateId, 1}, "LFO Rate",
+                                                     rateRange, 2.0f));
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kLfoDepthId, 1}, "LFO Depth",
+                                                     0.0f, 1.0f, 1.0f));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{kLfoSyncId, 1},
+                                                          "LFO Sync", false));
+    layout.add(std::make_unique<AudioParameterChoice>(
+        juce::ParameterID{kLfoDivisionId, 1}, "LFO Division",
+        juce::StringArray{"4 bars", "2 bars", "1 bar", "1/2", "1/4", "1/8", "1/16"}, 4));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kLfoToCutoffId, 1}, "LFO -> Cutoff",
+        juce::NormalisableRange<float>(-4.0f, 4.0f, 0.01f), 0.0f));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kLfoToTypeId, 1}, "LFO -> Filter Type",
+        juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
+
     return layout;
 }
 
@@ -100,6 +138,13 @@ ColdAudioProcessor::ColdAudioProcessor()
     filterCutoffParam = apvts.getRawParameterValue(kFilterCutoffId);
     filterResonanceParam = apvts.getRawParameterValue(kFilterResonanceId);
     filterTypeParam = apvts.getRawParameterValue(kFilterTypeId);
+    lfoShapeParam = apvts.getRawParameterValue(kLfoShapeId);
+    lfoRateParam = apvts.getRawParameterValue(kLfoRateId);
+    lfoDepthParam = apvts.getRawParameterValue(kLfoDepthId);
+    lfoSyncParam = apvts.getRawParameterValue(kLfoSyncId);
+    lfoDivisionParam = apvts.getRawParameterValue(kLfoDivisionId);
+    lfoToCutoffParam = apvts.getRawParameterValue(kLfoToCutoffId);
+    lfoToTypeParam = apvts.getRawParameterValue(kLfoToTypeId);
 }
 
 void ColdAudioProcessor::prepareToPlay(double sampleRate, int)
@@ -146,6 +191,25 @@ void ColdAudioProcessor::updateEngineParameters()
 
     engine.setFilter(filterCutoffParam->load(), filterResonanceParam->load(),
                      filterTypeParam->load());
+
+    // LFO: free rate in Hz, or host-tempo synced via the selected division.
+    const auto shape = static_cast<dsp::LfoShape>(static_cast<int>(lfoShapeParam->load()));
+    float rateHz = lfoRateParam->load();
+    if (lfoSyncParam->load() > 0.5f)
+    {
+        const auto idx =
+            static_cast<size_t>(std::clamp(static_cast<int>(lfoDivisionParam->load()), 0,
+                                           static_cast<int>(kDivisionBeats.size()) - 1));
+        rateHz = static_cast<float>(dsp::Lfo::divisionToHz(hostBpm, kDivisionBeats[idx]));
+    }
+    engine.setLfo(shape, rateHz, lfoDepthParam->load());
+
+    // Rebuild the (small) route set from the two mod-amount params.
+    engine.clearModRoutes();
+    if (std::abs(lfoToCutoffParam->load()) > 1.0e-4f)
+        engine.addModRoute(dsp::ModDestination::FilterCutoff, lfoToCutoffParam->load());
+    if (std::abs(lfoToTypeParam->load()) > 1.0e-4f)
+        engine.addModRoute(dsp::ModDestination::FilterType, lfoToTypeParam->load());
 }
 
 void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -156,6 +220,12 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     const int numChannels = buffer.getNumChannels();
     const int numSamples = buffer.getNumSamples();
     buffer.clear();
+
+    // Capture the host tempo for LFO sync (falls back to the last known BPM).
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+            if (auto bpm = pos->getBpm())
+                hostBpm = *bpm;
 
     updateEngineParameters();
 

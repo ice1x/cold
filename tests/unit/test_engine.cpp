@@ -64,6 +64,31 @@ Engine makeEngine(const SourceSample& s, int polyphony)
     return engine;
 }
 
+// Render `total` samples in small blocks (like the host) so block-rate modulation
+// updates over the buffer. Returns the mono output.
+std::vector<float> renderChunked(Engine& engine, int total, int blockSize)
+{
+    std::vector<float> out(static_cast<size_t>(total), 0.0f);
+    int pos = 0;
+    while (pos < total)
+    {
+        const int n = std::min(blockSize, total - pos);
+        float* ptr = out.data() + pos;
+        engine.renderNextBlock(&ptr, 1, 0, n);
+        pos += n;
+    }
+    return out;
+}
+
+// RMS of a window [start, start+len).
+double windowRms(const std::vector<float>& buf, int start, int len)
+{
+    double sum = 0.0;
+    for (int n = start; n < start + len && n < static_cast<int>(buf.size()); ++n)
+        sum += static_cast<double>(buf[static_cast<size_t>(n)]) * buf[static_cast<size_t>(n)];
+    return std::sqrt(sum / len);
+}
+
 } // namespace
 
 TEST_CASE("Engine starts with no active voices", "[engine][dsp][unit]")
@@ -181,6 +206,62 @@ TEST_CASE("Engine setFilter puts a filter in every voice's path", "[engine][dsp]
     for (int n = frames - 1000; n < frames; ++n)
         peak = std::max(peak, std::abs(out[static_cast<size_t>(n)]));
     REQUIRE(peak < 0.2f);
+}
+
+TEST_CASE("Engine LFO->cutoff modulation makes the output sweep over time",
+          "[engine][dsp][unit][mod]")
+{
+    constexpr int frames = 48000;
+    // Bright alternating +1/-1 sample so cutoff changes are audible as level.
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] = (n % 2 == 0) ? 1.0f : -1.0f;
+    s.rebuild();
+
+    Engine engine;
+    engine.prepare(48000.0);
+    engine.setPolyphony(4);
+    engine.setSample(s.data(), s.numChannels(), s.numFrames(), 48000.0);
+    engine.setFilter(500.0f, 0.707f, 0.0f);                            // low-pass base
+    engine.setLfo(cold::dsp::LfoShape::Sine, 5.0f, 1.0f);              // slow 5 Hz sweep
+    engine.addModRoute(cold::dsp::ModDestination::FilterCutoff, 4.0f); // +/- 4 octaves
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    // ~2 LFO cycles at 5 Hz, rendered in host-sized blocks so the LFO updates.
+    auto out = renderChunked(engine, 19200, 64);
+
+    // Scan windowed RMS; the sweeping cutoff must produce clear level variation.
+    double lo = 1e9, hi = 0.0;
+    for (int start = 2000; start + 800 <= 19200; start += 800)
+    {
+        const double r = windowRms(out, start, 800);
+        lo = std::min(lo, r);
+        hi = std::max(hi, r);
+    }
+    REQUIRE(hi > 3.0 * lo); // amplitude clearly modulated by the LFO
+}
+
+TEST_CASE("Engine with no mod routes leaves the filter static", "[engine][dsp][unit][mod]")
+{
+    constexpr int frames = 48000;
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames), 0.25f));
+    s.rebuild();
+
+    Engine engine;
+    engine.prepare(48000.0);
+    engine.setSample(s.data(), s.numChannels(), s.numFrames(), 48000.0);
+    engine.setFilter(2000.0f, 0.707f, 0.0f);
+    engine.setLfo(cold::dsp::LfoShape::Sine, 5.0f, 1.0f); // LFO set but not routed
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    auto out = renderChunked(engine, 9600, 64);
+
+    // A constant DC-ish input through a static LP settles to a steady level.
+    const double early = windowRms(out, 4000, 800);
+    const double late = windowRms(out, 8000, 800);
+    REQUIRE_THAT(early, WithinAbs(late, 1e-3));
 }
 
 TEST_CASE("Engine reset frees every voice", "[engine][dsp][unit]")

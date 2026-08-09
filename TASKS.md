@@ -56,11 +56,11 @@ Distinctive goals beyond a plain Digitakt clone:
 
 ## M3 — LFO + modulation (filter type as a destination)
 
-- [ ] 000024 — Tests: LFO shapes/rate/depth/output range (+ host-sync division)
-- [ ] 000025 — Implement `dsp/Lfo` (sine/tri/saw/square/random)
-- [ ] 000026 — Tests: modulation routing LFO→cutoff and LFO→filter-type
-- [ ] 000027 — Implement modulation matrix with **filter type as a destination**
-- [ ] 000028 — Expose LFO params + destination select; Logic smoke test of both routings
+- [x] 000024 — Tests: LFO shapes/rate/depth/output range (+ host-sync division)
+- [x] 000025 — Implement `dsp/Lfo` (sine/tri/saw/square/random)
+- [x] 000026 — Tests: modulation routing LFO→cutoff and LFO→filter-type
+- [x] 000027 — Implement modulation matrix with **filter type as a destination**
+- [~] 000028 — Expose LFO params + destination select; Logic smoke test of both routings  _(params + routing shipped; in-DAW smoke test pending owner)_
 
 ## M4 — Sample bank
 
