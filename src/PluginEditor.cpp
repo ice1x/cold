@@ -13,7 +13,9 @@ ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     loadFolderButton.onClick = [this] { chooseFolder(); };
 
     sampleNameLabel.setJustificationType(juce::Justification::centredLeft);
-    sampleNameLabel.setText(processorRef.loadedSampleName(), juce::dontSendNotification);
+    sampleNameLabel.setText("Track " + juce::String(processorRef.selectedTrack() + 1) + ": " +
+                                processorRef.loadedSampleName(),
+                            juce::dontSendNotification);
     addAndMakeVisible(sampleNameLabel);
 
     addAndMakeVisible(genericEditor);
@@ -36,10 +38,11 @@ void ColdAudioProcessorEditor::chooseSample()
                                  return;
 
                              const bool ok = processorRef.loadSampleFile(file);
-                             sampleNameLabel.setText(ok ? processorRef.loadedSampleName()
-                                                        : juce::String("failed to load: ") +
-                                                              file.getFileName(),
-                                                     juce::dontSendNotification);
+                             sampleNameLabel.setText(
+                                 ok ? "Track " + juce::String(processorRef.selectedTrack() + 1) +
+                                          ": " + processorRef.loadedSampleName()
+                                    : juce::String("failed to load: ") + file.getFileName(),
+                                 juce::dontSendNotification);
                          });
 }
 

@@ -134,7 +134,7 @@ TEST_CASE("Cold processor plays a loaded sample on a MIDI note", "[processor][e2
     proc.releaseResources();
 }
 
-TEST_CASE("Cold processor plays the selected bank slot", "[processor][e2e][bank]")
+TEST_CASE("Cold processor routes MIDI channels to tracks", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
     constexpr int blockSize = 512;
@@ -143,28 +143,27 @@ TEST_CASE("Cold processor plays the selected bank slot", "[processor][e2e][bank]
     proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
     proc.prepareToPlay(sampleRate, blockSize);
 
+    // Bank slot 2 feeds track 2, which is driven by MIDI channel 3.
     auto wav = writeTempWav(sampleRate, 2, blockSize);
     REQUIRE(proc.loadSampleToSlot(2, wav));
     wav.deleteFile();
 
     juce::AudioBuffer<float> buffer(2, blockSize);
 
-    SECTION("selecting the loaded slot plays it")
+    SECTION("the channel mapped to the loaded track plays")
     {
-        proc.selectSlot(2);
         buffer.clear();
         juce::MidiBuffer midi;
-        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(3, 60, 1.0f), 0); // channel 3 -> track 2
         renderBlock(proc, buffer, midi);
         REQUIRE(buffer.getMagnitude(0, blockSize) > 0.0f);
     }
 
-    SECTION("selecting an empty slot is silent")
+    SECTION("a channel mapped to an empty track is silent")
     {
-        proc.selectSlot(5); // never loaded
         buffer.clear();
         juce::MidiBuffer midi;
-        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0); // channel 1 -> track 0 (empty)
         renderBlock(proc, buffer, midi);
         REQUIRE(buffer.getMagnitude(0, blockSize) == 0.0f);
     }
@@ -201,7 +200,7 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
          {"gain",        "polyphony", "loopMode",   "loopStart",  "loopEnd",      "rootNote",
           "ampAttack",   "ampDecay",  "ampSustain", "ampRelease", "filterCutoff", "filterResonance",
           "filterType",  "lfoShape",  "lfoRate",    "lfoDepth",   "lfoSync",      "lfoDivision",
-          "lfoToCutoff", "lfoToType", "slot"})
+          "lfoToCutoff", "lfoToType", "track"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 
