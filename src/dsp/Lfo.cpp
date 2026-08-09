@@ -164,6 +164,13 @@ float Lfo::getNextSample()
     return out;
 }
 
+float Lfo::peek() const
+{
+    if (trigMode == LfoTrigMode::Hold || (trigMode == LfoTrigMode::OneShot && !running))
+        return latched;
+    return shapeValue(phase) * depth;
+}
+
 float Lfo::advance(int numSamples)
 {
     const float out = getNextSample();
