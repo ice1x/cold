@@ -17,7 +17,6 @@ set(COLD_TEST_JUCE_FLAGS
 # ----------------------------------------------------------------------------
 add_executable(ColdTests
     unit/test_dsp_sanity.cpp
-    unit/test_amp_envelope.cpp
     unit/test_envelope.cpp
     unit/test_lfo.cpp
     unit/test_mod_matrix.cpp

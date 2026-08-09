@@ -102,6 +102,25 @@ void Engine::clearModRoutes()
     modMatrix.clearRoutes();
 }
 
+void Engine::setModEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
+                            float releaseSeconds)
+{
+    modAttack = attackSeconds;
+    modDecay = decaySeconds;
+    modSustain = sustainLevel;
+    modRelease = releaseSeconds;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setModEnvelope(modAttack, modDecay, modSustain, modRelease);
+}
+
+void Engine::setModRouting(float toCutoffOctaves, float toTypeOffset)
+{
+    modToCutoff = toCutoffOctaves;
+    modToType = toTypeOffset;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setModRouting(modToCutoff, modToType);
+}
+
 void Engine::applyConfigToVoice(int index)
 {
     auto& voice = voices[static_cast<size_t>(index)];
@@ -112,6 +131,8 @@ void Engine::applyConfigToVoice(int index)
     if (loopEndFrame > loopStartFrame)
         voice.setLoopPoints(loopStartFrame, loopEndFrame);
     voice.setAmpEnvelope(ampAttack, ampDecay, ampSustain, ampRelease);
+    voice.setModEnvelope(modAttack, modDecay, modSustain, modRelease);
+    voice.setModRouting(modToCutoff, modToType);
     voice.setFilterEnabled(filterEnabled);
     if (filterEnabled)
         voice.setFilter(filterCutoff, filterResonance, filterType);
