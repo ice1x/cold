@@ -45,6 +45,19 @@ SourceSample makeConstant(int numFrames, float value = 1.0f)
     return s;
 }
 
+// A single-channel sine of `freqHz` (bright but below Nyquist, so a low-pass can
+// actually open up to let it through).
+SourceSample makeSine(int numFrames, double freqHz, double sampleRate)
+{
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(numFrames)));
+    for (int n = 0; n < numFrames; ++n)
+        s.channels[0][static_cast<size_t>(n)] =
+            static_cast<float>(std::sin(2.0 * 3.14159265358979 * freqHz * n / sampleRate));
+    s.rebuild();
+    return s;
+}
+
 // A single-channel Nyquist-ish alternating +1/-1 sample (bright, high-frequency).
 SourceSample makeAlternating(int numFrames)
 {
@@ -398,6 +411,51 @@ TEST_CASE("SampleVoice low-pass filter attenuates a bright sample",
 
     REQUIRE(rawPeak > 0.9f);
     REQUIRE(filtPeak < 0.1f * rawPeak); // heavily attenuated
+}
+
+TEST_CASE("SampleVoice mod envelope opens the filter over the note",
+          "[samplevoice][dsp][unit][modenv]")
+{
+    constexpr int frames = 8000;
+    auto sine = makeSine(frames, 6000.0, 48000.0); // 6 kHz: bright but below Nyquist
+
+    SampleVoice voice;
+    voice.prepare(48000.0);
+    voice.setSample(sine.data(), sine.numChannels(), sine.numFrames(), 48000.0);
+    voice.setFilter(300.0f, 0.707f, 0.0f);         // low LP: 6 kHz muted at first
+    voice.setModEnvelope(0.05f, 0.0f, 1.0f, 0.0f); // ~2400-sample attack to full
+    voice.setModRouting(6.0f, 0.0f);               // env -> +6 octaves of cutoff
+    REQUIRE(voice.modEnvelopeActive());
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+
+    auto out = render(voice, frames);
+    auto peak = [&out](int start, int len)
+    {
+        float p = 0.0f;
+        for (int n = start; n < start + len; ++n)
+            p = std::max(p, std::abs(out[static_cast<size_t>(n)]));
+        return p;
+    };
+    const float early = peak(100, 400);         // filter still closed
+    const float late = peak(frames - 500, 400); // filter opened by the envelope
+    REQUIRE(late > 4.0f * early);
+}
+
+TEST_CASE("SampleVoice mod envelope is inert without routing", "[samplevoice][dsp][unit][modenv]")
+{
+    constexpr int frames = 16;
+    auto ramp = makeRamp(frames);
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+    voice.setModEnvelope(0.01f, 0.0f, 1.0f, 0.0f); // configured but not routed
+    REQUIRE_FALSE(voice.modEnvelopeActive());
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+
+    auto out = render(voice, frames);
+    for (int n = 0; n < frames; ++n)
+        REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(static_cast<float>(n), 1e-4));
 }
 
 TEST_CASE("SampleVoice velocity scales output gain", "[samplevoice][dsp][unit]")

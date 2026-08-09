@@ -15,7 +15,8 @@ void SampleVoice::prepare(double newHostSampleRate)
 {
     if (newHostSampleRate > 0.0)
         hostSampleRate = newHostSampleRate;
-    env.setSampleRate(hostSampleRate);
+    ampEnv.setSampleRate(hostSampleRate);
+    modEnv.setSampleRate(hostSampleRate);
     for (auto& f : filters)
         f.prepare(hostSampleRate);
 }
@@ -23,11 +24,27 @@ void SampleVoice::prepare(double newHostSampleRate)
 void SampleVoice::setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
                                  float releaseSeconds)
 {
-    env.setParameters(attackSeconds, decaySeconds, sustainLevel, releaseSeconds);
+    // Map the simple ADSR onto the DAHDSR envelope (no delay/hold, linear).
+    ampEnv.setParameters(0.0f, attackSeconds, 0.0f, decaySeconds, sustainLevel, releaseSeconds);
+}
+
+void SampleVoice::setModEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
+                                 float releaseSeconds)
+{
+    modEnv.setParameters(0.0f, attackSeconds, 0.0f, decaySeconds, sustainLevel, releaseSeconds);
+}
+
+void SampleVoice::setModRouting(float toCutoffOctaves, float toTypeOffset)
+{
+    modToCutoff = toCutoffOctaves;
+    modToType = toTypeOffset;
+    useModEnv = std::abs(modToCutoff) > 1.0e-6f || std::abs(modToType) > 1.0e-6f;
 }
 
 void SampleVoice::setFilter(float cutoffHz, float resonance, float type)
 {
+    baseCutoff = cutoffHz;
+    baseType = type;
     for (auto& f : filters)
     {
         f.setCutoff(cutoffHz);
@@ -98,7 +115,9 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
     const double rateCorrection = sourceSampleRate / hostSampleRate;
     step = noteToRatio(newMidiNote, rootNote) * rateCorrection;
 
-    env.noteOn();
+    ampEnv.noteOn(gain);
+    if (useModEnv)
+        modEnv.noteOn(gain);
     // Clear filter state so a new note doesn't inherit the previous one's ring.
     for (auto& f : filters)
         f.reset();
@@ -108,8 +127,9 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
 void SampleVoice::stopNote()
 {
     // Enter the amp release; a zero-length release frees the voice at once.
-    env.noteOff();
-    if (!env.isActive())
+    ampEnv.noteOff();
+    modEnv.noteOff();
+    if (!ampEnv.isActive())
         active = false;
 }
 
@@ -120,7 +140,8 @@ void SampleVoice::reset()
     position = 0.0;
     step = 1.0;
     direction = 1;
-    env.reset();
+    ampEnv.reset();
+    modEnv.reset();
 }
 
 float SampleVoice::readInterpolated(int channel, double pos) const
@@ -150,8 +171,21 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
             break;
         }
 
-        const float envGain = env.getNextSample();
+        const float envGain = ampEnv.getNextSample();
         const float voiceGain = gain * envGain;
+
+        // Modulation envelope steers this voice's filter (env -> cutoff / type).
+        if (useFilter && useModEnv)
+        {
+            const float m = modEnv.getNextSample();
+            const float modCutoff = baseCutoff * std::pow(2.0f, modToCutoff * m);
+            const float modType = std::clamp(baseType + modToType * m, 0.0f, 1.0f);
+            for (auto& f : filters)
+            {
+                f.setCutoff(modCutoff);
+                f.setFilterType(modType);
+            }
+        }
 
         const int dest = startSample + n;
         for (int ch = 0; ch < numOutChannels; ++ch)
@@ -170,7 +204,7 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
 
         // A finished amp release frees the voice (a transparent env never idles
         // on its own; it is ended by stopNote or by the one-shot running out).
-        if (!env.isActive())
+        if (!ampEnv.isActive())
         {
             active = false;
             break;
