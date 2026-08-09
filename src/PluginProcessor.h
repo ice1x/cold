@@ -104,6 +104,18 @@ private:
     std::atomic<float>* lfoToCutoffParam = nullptr;
     std::atomic<float>* lfoToTypeParam = nullptr;
     std::atomic<float>* trackParam = nullptr;
+    std::atomic<float>* ampDelayParam = nullptr;
+    std::atomic<float>* ampHoldParam = nullptr;
+    std::atomic<float>* ampAtkCurveParam = nullptr;
+    std::atomic<float>* ampDecCurveParam = nullptr;
+    std::atomic<float>* ampRelCurveParam = nullptr;
+    std::atomic<float>* ampVelParam = nullptr;
+    std::atomic<float>* modAttackParam = nullptr;
+    std::atomic<float>* modDecayParam = nullptr;
+    std::atomic<float>* modSustainParam = nullptr;
+    std::atomic<float>* modReleaseParam = nullptr;
+    std::atomic<float>* modToCutoffParam = nullptr;
+    std::atomic<float>* modToTypeParam = nullptr;
 
     double hostBpm = 120.0; // last known host tempo (for LFO sync)
 

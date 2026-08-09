@@ -85,6 +85,30 @@ void Engine::setAmpEnvelope(float attackSeconds, float decaySeconds, float susta
         voices[static_cast<size_t>(i)].setAmpEnvelope(ampAttack, ampDecay, ampSustain, ampRelease);
 }
 
+void Engine::setAmpEnvelopeDAH(float delaySeconds, float holdSeconds)
+{
+    ampDelay = delaySeconds;
+    ampHold = holdSeconds;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setAmpEnvelopeDAH(ampDelay, ampHold);
+}
+
+void Engine::setAmpCurves(float attackCurve, float decayCurve, float releaseCurve)
+{
+    ampAttackCurve = attackCurve;
+    ampDecayCurve = decayCurve;
+    ampReleaseCurve = releaseCurve;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setAmpCurves(ampAttackCurve, ampDecayCurve, ampReleaseCurve);
+}
+
+void Engine::setAmpVelocity(float sensitivity)
+{
+    ampVelocity = sensitivity;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setAmpVelocity(ampVelocity);
+}
+
 void Engine::setFilter(float cutoffHz, float resonance, float type)
 {
     filterEnabled = true;
@@ -149,6 +173,9 @@ void Engine::configureVoice(int voiceIndex, int sampleIndex)
     if (loopEndFrame > loopStartFrame)
         voice.setLoopPoints(loopStartFrame, loopEndFrame);
     voice.setAmpEnvelope(ampAttack, ampDecay, ampSustain, ampRelease);
+    voice.setAmpEnvelopeDAH(ampDelay, ampHold);
+    voice.setAmpCurves(ampAttackCurve, ampDecayCurve, ampReleaseCurve);
+    voice.setAmpVelocity(ampVelocity);
     voice.setModEnvelope(modAttack, modDecay, modSustain, modRelease);
     voice.setModRouting(modToCutoff, modToType);
     voice.setFilterEnabled(filterEnabled);
