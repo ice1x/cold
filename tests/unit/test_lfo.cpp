@@ -153,6 +153,84 @@ TEST_CASE("Lfo retrigger restarts the phase", "[lfo][dsp][unit]")
     REQUIRE_THAT(lfo.getNextSample(), WithinAbs(-1.0f, 1e-4)); // back to phase 0
 }
 
+TEST_CASE("Lfo custom designer shape interpolates its points", "[lfo][dsp][unit][custom]")
+{
+    Lfo lfo;
+    lfo.setSampleRate(kSr);
+    lfo.setRate(10.0f); // 100 samples / cycle
+    lfo.setDepth(1.0f);
+    const float points[] = {-1.0f, 1.0f}; // 2-point designer waveform
+    lfo.setCustomShape(points, 2);
+    lfo.reset();
+
+    REQUIRE_THAT(lfo.getNextSample(), WithinAbs(-1.0f, 1e-5)); // phase 0 -> point 0
+    for (int i = 0; i < 24; ++i)
+        lfo.getNextSample();
+    REQUIRE_THAT(lfo.getNextSample(), WithinAbs(0.0f, 0.03f)); // phase 0.25 -> midway
+    for (int i = 0; i < 24; ++i)
+        lfo.getNextSample();
+    REQUIRE_THAT(lfo.getNextSample(), WithinAbs(1.0f, 1e-4)); // phase 0.5 -> point 1
+}
+
+TEST_CASE("Lfo trig mode Trig restarts phase on note, Free does not", "[lfo][dsp][unit][trigmode]")
+{
+    SECTION("Trig resets to the phase start")
+    {
+        auto lfo = makeLfo(LfoShape::SawUp, 10.0f);
+        lfo.setTrigMode(cold::dsp::LfoTrigMode::Trig);
+        for (int i = 0; i < 30; ++i)
+            lfo.getNextSample(); // ramp partway up
+        lfo.noteTrigger();
+        REQUIRE_THAT(lfo.getNextSample(), WithinAbs(-1.0f, 1e-4)); // back to start
+    }
+
+    SECTION("Free ignores the trig")
+    {
+        auto lfo = makeLfo(LfoShape::SawUp, 10.0f);
+        lfo.setTrigMode(cold::dsp::LfoTrigMode::Free);
+        for (int i = 0; i < 30; ++i)
+            lfo.getNextSample();
+        lfo.noteTrigger();
+        REQUIRE(lfo.getNextSample() > -0.9f); // kept advancing, not reset
+    }
+}
+
+TEST_CASE("Lfo trig mode Hold latches the output at the trig", "[lfo][dsp][unit][trigmode]")
+{
+    auto lfo = makeLfo(LfoShape::Sine, 10.0f);
+    for (int i = 0; i < 25; ++i)
+        lfo.getNextSample(); // advance to ~peak (phase 0.25)
+
+    lfo.setTrigMode(cold::dsp::LfoTrigMode::Hold);
+    lfo.noteTrigger(); // latch the current value
+    const float held = lfo.getNextSample();
+    REQUIRE_THAT(held, WithinAbs(1.0f, 0.05f)); // near the sine peak
+    for (int i = 0; i < 20; ++i)
+        REQUIRE_THAT(lfo.getNextSample(), WithinAbs(held, 1e-6)); // frozen
+}
+
+TEST_CASE("Lfo trig mode OneShot runs one cycle then freezes", "[lfo][dsp][unit][trigmode]")
+{
+    auto lfo = makeLfo(LfoShape::SawUp, 10.0f); // 100 samples / cycle
+    lfo.setTrigMode(cold::dsp::LfoTrigMode::OneShot);
+    lfo.noteTrigger();
+
+    float prev = lfo.getNextSample();
+    bool moved = false;
+    for (int i = 0; i < 99; ++i)
+    {
+        const float v = lfo.getNextSample();
+        if (std::abs(v - prev) > 1e-4f)
+            moved = true;
+        prev = v;
+    }
+    REQUIRE(moved); // it oscillated during the single cycle
+
+    const float a = lfo.getNextSample();
+    const float b = lfo.getNextSample();
+    REQUIRE_THAT(a, WithinAbs(b, 1e-6)); // frozen after one cycle
+}
+
 TEST_CASE("Lfo converts host tempo divisions to Hz", "[lfo][dsp][unit]")
 {
     // 120 BPM: one cycle per beat = 2 Hz; per whole note (4 beats) = 0.5 Hz.
