@@ -1,7 +1,7 @@
 #pragma once
 
 #include "dsp/Engine.h"
-#include "io/SampleLoader.h"
+#include "io/SampleBank.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -45,9 +45,22 @@ public:
     // Decode a file and hand it to the engine. Thread-safe against the audio
     // thread (guards the engine while the sample buffers are swapped). Returns
     // false if the file could not be decoded. Called from the UI / state restore.
+    // Load a file into the currently selected slot and play it.
     bool loadSampleFile(const juce::File& file);
 
-    [[nodiscard]] juce::String loadedSampleName() const;
+    // Load a file into a specific bank slot. If it is the selected slot, the
+    // engine starts playing it. Returns false on decode failure / bad index.
+    bool loadSampleToSlot(int slot, const juce::File& file);
+
+    // Load every decodable audio file in a folder into consecutive slots from 0.
+    // Returns how many slots were filled.
+    int loadFolder(const juce::File& directory);
+
+    // Make `slot` the active sample (fed to the engine). Clamped to the bank.
+    void selectSlot(int slot);
+
+    [[nodiscard]] int numSlots() const;
+    [[nodiscard]] juce::String loadedSampleName() const; // current slot's name
 
     juce::AudioProcessorValueTreeState apvts;
 
@@ -55,14 +68,16 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void updateEngineParameters();
 
-    dsp::Engine engine;
-    io::SampleLoader loader;
+    void pushSlotToEngine(); // feed the selected slot's windowed data to the engine
 
-    // Owned decoded sample + the channel-pointer view handed to the engine.
-    io::SampleData sampleData;
+    dsp::Engine engine;
+    io::SampleBank bank;
+
+    // Channel-pointer view (into the selected slot's buffers, offset by its start
+    // window) handed to the engine.
     std::vector<const float*> channelPtrs;
     int currentNumFrames = 0;
-    juce::String sampleFilePath;
+    int currentSlot = 0;
 
     // Cached parameter handles (avoid string lookups on the audio thread).
     std::atomic<float>* gainParam = nullptr;
@@ -85,6 +100,9 @@ private:
     std::atomic<float>* lfoDivisionParam = nullptr;
     std::atomic<float>* lfoToCutoffParam = nullptr;
     std::atomic<float>* lfoToTypeParam = nullptr;
+    std::atomic<float>* slotParam = nullptr;
+
+    int lastSlot = -1;
 
     double hostBpm = 120.0; // last known host tempo (for LFO sync)
 
