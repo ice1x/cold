@@ -8,6 +8,8 @@
 // mode / points and the assigned sample are shared configuration applied to every
 // voice; each note gets its own read position and pitch.
 
+#include "dsp/Lfo.h"
+#include "dsp/ModMatrix.h"
 #include "dsp/SampleVoice.h"
 
 #include <cstdint>
@@ -43,6 +45,15 @@ public:
     // Per-voice morph filter shared by every voice (cutoff Hz, resonance/Q, type
     // in [0, 1]). Enables the filter on the whole pool.
     void setFilter(float cutoffHz, float resonance, float type);
+
+    // LFO modulation source shared by the pool (shape, rate Hz, depth in [0,1]).
+    void setLfo(LfoShape shape, float rateHz, float depth);
+
+    // Modulation routes. Destinations include the filter morph type, so an LFO
+    // can sweep the filter character (the distinctive M3 feature). Modulation is
+    // applied block-rate to the (smoothed) per-voice filters when the filter is on.
+    void addModRoute(ModDestination destination, float amount);
+    void clearModRoutes();
 
     // Trigger / release notes. rootNote is the MIDI note of native pitch.
     void noteOn(int midiNote, float velocity = 1.0f, int rootNote = 60);
@@ -87,6 +98,9 @@ private:
     float filterCutoff = 20000.0f;
     float filterResonance = 0.707f;
     float filterType = 0.0f;
+
+    Lfo lfo;
+    ModMatrix modMatrix;
 };
 
 } // namespace cold::dsp
