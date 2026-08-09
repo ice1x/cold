@@ -171,6 +171,21 @@ Distinctive goals beyond a plain Digitakt clone:
 - [ ] 000096 — Implement retrig
 - [ ] 000097 — Sequencer UI for conditions/retrig; Logic smoke test of conditional + retrig patterns
 
+## M16 — Modulation overhaul (layering focus): quality envelopes, flexible LFO, creative destinations
+
+> Repositioned as a **layering instrument**. Priority: a high-quality, deeply
+> modulatable voice. Pulls the backlog's *separate filter envelope* and *per-trig
+> sample-lock* forward. Digitakt "killer" destinations: **LFO→filter type** (done in
+> M3) and **LFO→sample select**.
+
+- [x] 000098 — Tests: `dsp/Envelope` (DAHDSR stages, per-segment curves, velocity)
+- [x] 000099 — Implement `dsp/Envelope` (curved DAHDSR, velocity, usable as a mod source)
+- [ ] 000100 — Integrate Envelope as amp + add a 2nd (mod) envelope per voice; env→filter routing
+- [ ] 000101 — Flexible LFO: custom multi-step shape (designer) + trig modes (free/trig/hold/one-shot)
+- [ ] 000102 — Generalize mod matrix: sources (LFO + envelopes), destinations incl. pitch
+- [ ] 000103 — **LFO/mod → sample-select** (per-trig sample-lock) — pick slot/layer at trig
+- [ ] 000104 — Expose envelope/LFO/mod params + UI; Logic smoke test of the modulation set
+
 ## Backlog (later; assign IDs when scheduled)
 
 Pattern chains, separate filter envelope, preset/kit management, higher-quality
