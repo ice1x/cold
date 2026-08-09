@@ -59,9 +59,13 @@ public:
     void setLoopMode(SampleVoice::LoopMode mode);
     void setLoopPoints(int startFrame, int endFrame);
 
-    // Amp ADSR shared by every voice (seconds; sustain in [0, 1]).
+    // Amp ADSR shared by every voice (seconds; sustain in [0, 1]), plus the extra
+    // DAHDSR stages, per-segment curves and velocity sensitivity.
     void setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
                         float releaseSeconds);
+    void setAmpEnvelopeDAH(float delaySeconds, float holdSeconds);
+    void setAmpCurves(float attackCurve, float decayCurve, float releaseCurve);
+    void setAmpVelocity(float sensitivity);
 
     // Second (modulation) envelope + its routing to the filter, shared by every
     // voice: env -> cutoff (octaves) and env -> morph type (offset).
@@ -121,6 +125,12 @@ private:
     float ampDecay = 0.0f;
     float ampSustain = 1.0f;
     float ampRelease = 0.0f;
+    float ampDelay = 0.0f;
+    float ampHold = 0.0f;
+    float ampAttackCurve = 0.0f;
+    float ampDecayCurve = 0.0f;
+    float ampReleaseCurve = 0.0f;
+    float ampVelocity = 0.0f;
 
     float modAttack = 0.0f;
     float modDecay = 0.0f;

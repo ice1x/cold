@@ -24,8 +24,28 @@ void SampleVoice::prepare(double newHostSampleRate)
 void SampleVoice::setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
                                  float releaseSeconds)
 {
-    // Map the simple ADSR onto the DAHDSR envelope (no delay/hold, linear).
-    ampEnv.setParameters(0.0f, attackSeconds, 0.0f, decaySeconds, sustainLevel, releaseSeconds);
+    ampAttack = attackSeconds;
+    ampDecay = decaySeconds;
+    ampSustain = sustainLevel;
+    ampRelease = releaseSeconds;
+    ampEnv.setParameters(ampDelay, ampAttack, ampHold, ampDecay, ampSustain, ampRelease);
+}
+
+void SampleVoice::setAmpEnvelopeDAH(float delaySeconds, float holdSeconds)
+{
+    ampDelay = delaySeconds;
+    ampHold = holdSeconds;
+    ampEnv.setParameters(ampDelay, ampAttack, ampHold, ampDecay, ampSustain, ampRelease);
+}
+
+void SampleVoice::setAmpCurves(float attackCurve, float decayCurve, float releaseCurve)
+{
+    ampEnv.setCurves(attackCurve, decayCurve, releaseCurve);
+}
+
+void SampleVoice::setAmpVelocity(float sensitivity)
+{
+    ampEnv.setVelocitySensitivity(sensitivity);
 }
 
 void SampleVoice::setModEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
