@@ -66,6 +66,10 @@ public:
 
     [[nodiscard]] float currentPhase() const noexcept { return static_cast<float>(phase); }
 
+    // The output at the current phase without advancing (used to read the source
+    // at a note trig, e.g. for sample-select). Honors Hold/OneShot latching.
+    [[nodiscard]] float peek() const;
+
     // Convert a host tempo (BPM) and cycle length in beats to a rate in Hz.
     // beatsPerCycle = 1 -> one cycle per quarter note; 4 -> per whole note.
     [[nodiscard]] static double divisionToHz(double bpm, double beatsPerCycle);

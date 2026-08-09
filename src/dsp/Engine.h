@@ -29,11 +29,32 @@ public:
     // Resize the voice pool. Clamped to at least 1 (1 = Digitakt-style mono).
     void setPolyphony(int numVoices);
 
-    // Assign the sample every voice reads from. Non-owning: the channel pointers
-    // and their data must outlive playback. Resets the loop region to the whole
-    // sample unless narrowed afterwards with setLoopPoints.
+    // A non-owning reference to one decoded sample (channels/data must outlive
+    // playback). The engine holds a list of these for sample-select modulation.
+    struct SampleRef
+    {
+        const float* const* channels = nullptr;
+        int numChannels = 0;
+        int numFrames = 0;
+        double sampleRate = 0.0;
+
+        [[nodiscard]] bool valid() const
+        {
+            return channels != nullptr && numChannels > 0 && numFrames > 0;
+        }
+    };
+
+    // Assign the single sample every voice reads from (the common case).
     void setSample(const float* const* channels, int numChannels, int numFrames,
                    double sourceSampleRate);
+
+    // Assign a list of samples for sample-select modulation; note-on picks one by
+    // index. Index 0 is the default; the LFO/mod offset shifts around baseIndex.
+    void setSampleList(const std::vector<SampleRef>& sampleList);
+    void setBaseSampleIndex(int index);
+
+    [[nodiscard]] int sampleCount() const noexcept { return static_cast<int>(samples.size()); }
+    [[nodiscard]] int currentSampleIndex() const noexcept { return currentIndex; }
 
     void setLoopMode(SampleVoice::LoopMode mode);
     void setLoopPoints(int startFrame, int endFrame);
@@ -77,7 +98,8 @@ public:
 
 private:
     [[nodiscard]] int allocateVoice();
-    void applyConfigToVoice(int index);
+    void configureVoice(int voiceIndex, int sampleIndex);
+    [[nodiscard]] int selectSampleIndex() const; // note-time index from the LFO/mod
 
     std::vector<SampleVoice> voices;
     std::vector<int> voiceNote;          // MIDI note each voice was triggered with (-1 idle)
@@ -87,10 +109,10 @@ private:
 
     // Shared configuration applied to each voice.
     double hostSampleRate = 44100.0;
-    const float* const* sourceChannels = nullptr;
-    int sourceNumChannels = 0;
-    int sourceNumFrames = 0;
-    double sourceSampleRate = 0.0;
+    std::vector<SampleRef> samples; // sample-select set; index 0 is the primary
+    int baseSampleIndex = 0;
+    int currentIndex = 0;
+    float lfoToSampleSelect = 0.0f; // SampleSelect route amount, cached for note-time
     SampleVoice::LoopMode loopMode = SampleVoice::LoopMode::OneShot;
     int loopStartFrame = 0;
     int loopEndFrame = 0; // 0 => leave voice default (whole sample)

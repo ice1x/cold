@@ -1,6 +1,7 @@
 #include "dsp/Engine.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace cold::dsp
 {
@@ -18,7 +19,7 @@ void Engine::prepare(double newHostSampleRate)
     lfo.setSampleRate(hostSampleRate);
 
     for (int i = 0; i < polyphony(); ++i)
-        applyConfigToVoice(i);
+        configureVoice(i, currentIndex);
 }
 
 void Engine::setPolyphony(int numVoices)
@@ -29,24 +30,33 @@ void Engine::setPolyphony(int numVoices)
     voiceAge.resize(count, 0);
 
     for (size_t i = 0; i < count; ++i)
-        applyConfigToVoice(static_cast<int>(i));
+        configureVoice(static_cast<int>(i), currentIndex);
 }
 
 void Engine::setSample(const float* const* channels, int numChannels, int numFrames,
                        double newSourceSampleRate)
 {
-    sourceChannels = channels;
-    sourceNumChannels = numChannels;
-    sourceNumFrames = numFrames;
-    sourceSampleRate = newSourceSampleRate;
+    setSampleList({SampleRef{channels, numChannels, numFrames, newSourceSampleRate}});
+}
 
-    // A new sample invalidates the loop window and every in-flight note.
+void Engine::setSampleList(const std::vector<SampleRef>& sampleList)
+{
+    samples = sampleList;
+    baseSampleIndex = std::clamp(baseSampleIndex, 0, std::max(0, sampleCount() - 1));
+    currentIndex = baseSampleIndex;
+
+    // A new sample set invalidates the loop window and every in-flight note.
     loopStartFrame = 0;
     loopEndFrame = 0;
     reset();
 
     for (int i = 0; i < polyphony(); ++i)
-        applyConfigToVoice(i);
+        configureVoice(i, currentIndex);
+}
+
+void Engine::setBaseSampleIndex(int index)
+{
+    baseSampleIndex = std::clamp(index, 0, std::max(0, sampleCount() - 1));
 }
 
 void Engine::setLoopMode(SampleVoice::LoopMode mode)
@@ -95,11 +105,14 @@ void Engine::setLfo(LfoShape shape, float rateHz, float depth)
 void Engine::addModRoute(ModDestination destination, float amount)
 {
     modMatrix.addRoute(destination, amount);
+    if (destination == ModDestination::SampleSelect)
+        lfoToSampleSelect = amount; // cached for note-time sample selection
 }
 
 void Engine::clearModRoutes()
 {
     modMatrix.clearRoutes();
+    lfoToSampleSelect = 0.0f;
 }
 
 void Engine::setModEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
@@ -121,12 +134,17 @@ void Engine::setModRouting(float toCutoffOctaves, float toTypeOffset)
         voices[static_cast<size_t>(i)].setModRouting(modToCutoff, modToType);
 }
 
-void Engine::applyConfigToVoice(int index)
+void Engine::configureVoice(int voiceIndex, int sampleIndex)
 {
-    auto& voice = voices[static_cast<size_t>(index)];
+    auto& voice = voices[static_cast<size_t>(voiceIndex)];
     voice.prepare(hostSampleRate);
-    if (sourceChannels != nullptr)
-        voice.setSample(sourceChannels, sourceNumChannels, sourceNumFrames, sourceSampleRate);
+
+    if (sampleIndex >= 0 && sampleIndex < sampleCount() &&
+        samples[static_cast<size_t>(sampleIndex)].valid())
+    {
+        const auto& s = samples[static_cast<size_t>(sampleIndex)];
+        voice.setSample(s.channels, s.numChannels, s.numFrames, s.sampleRate);
+    }
     voice.setLoopMode(loopMode);
     if (loopEndFrame > loopStartFrame)
         voice.setLoopPoints(loopStartFrame, loopEndFrame);
@@ -136,6 +154,17 @@ void Engine::applyConfigToVoice(int index)
     voice.setFilterEnabled(filterEnabled);
     if (filterEnabled)
         voice.setFilter(filterCutoff, filterResonance, filterType);
+}
+
+int Engine::selectSampleIndex() const
+{
+    if (sampleCount() <= 1 || std::abs(lfoToSampleSelect) < 1.0e-6f)
+        return std::clamp(baseSampleIndex, 0, std::max(0, sampleCount() - 1));
+
+    // Read the LFO at the trig and offset the base index (per-trig sample-lock).
+    const float offset = lfo.peek() * lfoToSampleSelect;
+    const int idx = baseSampleIndex + static_cast<int>(std::lround(offset));
+    return std::clamp(idx, 0, sampleCount() - 1);
 }
 
 int Engine::allocateVoice()
@@ -155,10 +184,15 @@ int Engine::allocateVoice()
 
 void Engine::noteOn(int midiNote, float velocity, int rootNote)
 {
-    if (sourceChannels == nullptr || sourceNumFrames == 0)
+    if (samples.empty() || !samples.front().valid())
         return;
 
+    // Pick the sample for this trig (LFO/mod -> sample-select) and hand it to the
+    // allocated voice, re-applying the voice config for the chosen sample.
+    currentIndex = selectSampleIndex();
+
     const int index = allocateVoice();
+    configureVoice(index, currentIndex);
     voiceNote[static_cast<size_t>(index)] = midiNote;
     voiceAge[static_cast<size_t>(index)] = ++noteCounter;
     voices[static_cast<size_t>(index)].startNote(midiNote, velocity, rootNote);
@@ -190,14 +224,17 @@ void Engine::reset()
 
 void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSample, int numSamples)
 {
-    // Block-rate modulation: take one LFO value for this chunk and steer the
-    // (smoothed) per-voice filters. Only meaningful when the filter is engaged.
-    if (filterEnabled && modMatrix.hasRoutes())
+    // Advance the LFO whenever anything is routed (so sample-select's note-time
+    // peek keeps moving), and steer the per-voice filters when the filter is on.
+    if (modMatrix.hasRoutes())
     {
         const float source = lfo.advance(numSamples);
-        const auto mod = modMatrix.apply(filterCutoff, filterType, source);
-        for (int i = 0; i < polyphony(); ++i)
-            voices[static_cast<size_t>(i)].setFilter(mod.cutoffHz, filterResonance, mod.type);
+        if (filterEnabled)
+        {
+            const auto mod = modMatrix.apply(filterCutoff, filterType, source);
+            for (int i = 0; i < polyphony(); ++i)
+                voices[static_cast<size_t>(i)].setFilter(mod.cutoffHz, filterResonance, mod.type);
+        }
     }
 
     for (auto& voice : voices)
