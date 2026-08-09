@@ -75,8 +75,8 @@ Distinctive goals beyond a plain Digitakt clone:
 
 - [x] 000035 — Tests: 8-track engine (per-track sample + amp + filter + LFO + voice pool)
 - [x] 000036 — Implement 8-track architecture (track = full polyphonic voice chain)
-- [ ] 000037 — Implement MIDI-channel→track routing (Digitakt-style)
-- [ ] 000038 — Per-track UI with track selector
+- [x] 000037 — Implement MIDI-channel→track routing (Digitakt-style)
+- [x] 000038 — Per-track UI with track selector
 - [ ] 000039 — Logic smoke test: 8 tracks playable via MIDI channels
 
 ## M6 — Step sequencer + parameter locks (Digitakt core)
