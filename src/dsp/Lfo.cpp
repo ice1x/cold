@@ -26,6 +26,18 @@ void Lfo::setShape(LfoShape newShape)
     shape = newShape;
 }
 
+void Lfo::setTrigMode(LfoTrigMode mode)
+{
+    trigMode = mode;
+}
+
+void Lfo::setCustomShape(const float* points, int count)
+{
+    customPoints.assign(points, points + std::max(0, count));
+    if (!customPoints.empty())
+        shape = LfoShape::Custom;
+}
+
 void Lfo::setRate(float hz)
 {
     rateHz = std::max(0.0f, hz);
@@ -47,11 +59,32 @@ void Lfo::reset()
     phase = phaseOffset;
     rngState = kSeed;
     heldRandom = nextRandom();
+    latched = 0.0f;
+    running = true;
 }
 
 void Lfo::retrigger()
 {
     phase = phaseOffset;
+}
+
+void Lfo::noteTrigger()
+{
+    switch (trigMode)
+    {
+    case LfoTrigMode::Free:
+        break; // keep free-running
+    case LfoTrigMode::Trig:
+        phase = phaseOffset;
+        break;
+    case LfoTrigMode::Hold:
+        latched = shapeValue(phase) * depth; // sample the free-running value now
+        break;
+    case LfoTrigMode::OneShot:
+        phase = phaseOffset;
+        running = true;
+        break;
+    }
 }
 
 double Lfo::divisionToHz(double bpm, double beatsPerCycle)
@@ -87,37 +120,55 @@ float Lfo::shapeValue(double p) const
         return p < 0.5 ? 1.0f : -1.0f;
     case LfoShape::Random:
         return heldRandom;
+    case LfoShape::Custom:
+    {
+        if (customPoints.empty())
+            return 0.0f;
+        const auto count = static_cast<double>(customPoints.size());
+        const double x = std::clamp(p, 0.0, 1.0) * count;
+        const auto i0 = static_cast<int>(x) % static_cast<int>(count);
+        const int i1 = (i0 + 1) % static_cast<int>(count);
+        const auto frac = static_cast<float>(x - std::floor(x));
+        return customPoints[static_cast<size_t>(i0)] * (1.0f - frac) +
+               customPoints[static_cast<size_t>(i1)] * frac;
+    }
     }
     return 0.0f;
 }
 
-float Lfo::getNextSample()
+void Lfo::advancePhase()
 {
-    const float out = shapeValue(phase) * depth;
-
     phase += phaseInc;
     if (phase >= 1.0)
     {
         phase -= 1.0;
-        // A new sample-and-hold value at each cycle boundary.
         heldRandom = nextRandom();
+        if (trigMode == LfoTrigMode::OneShot)
+            running = false; // one cycle done -> freeze the last value
     }
+}
 
+float Lfo::getNextSample()
+{
+    if (trigMode == LfoTrigMode::Hold)
+    {
+        advancePhase(); // keep the internal phase moving so the next trig samples afresh
+        return latched;
+    }
+    if (trigMode == LfoTrigMode::OneShot && !running)
+        return latched;
+
+    const float out = shapeValue(phase) * depth;
+    latched = out;
+    advancePhase();
     return out;
 }
 
 float Lfo::advance(int numSamples)
 {
-    const float out = shapeValue(phase) * depth;
-    for (int i = 0; i < numSamples; ++i)
-    {
-        phase += phaseInc;
-        if (phase >= 1.0)
-        {
-            phase -= 1.0;
-            heldRandom = nextRandom();
-        }
-    }
+    const float out = getNextSample();
+    for (int i = 1; i < numSamples; ++i)
+        getNextSample();
     return out;
 }
 
