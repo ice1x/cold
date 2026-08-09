@@ -59,11 +59,14 @@ public:
     [[nodiscard]] int loopStart() const noexcept { return loopStartFrame; }
     [[nodiscard]] int loopEnd() const noexcept { return loopEndFrame; }
 
-    // Amp envelope shaping this voice (curved DAHDSR under the hood). The simple
-    // ADSR overload maps to delay=hold=0, linear, velocity-independent — so a voice
-    // with no configured envelope plays flat (transparent default).
+    // Amp envelope shaping this voice (curved DAHDSR under the hood). setAmpEnvelope
+    // sets the ADSR core (delay/hold default to 0); the granular setters add the
+    // extra DAHDSR stages, per-segment curves, and velocity sensitivity.
     void setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
                         float releaseSeconds);
+    void setAmpEnvelopeDAH(float delaySeconds, float holdSeconds);
+    void setAmpCurves(float attackCurve, float decayCurve, float releaseCurve);
+    void setAmpVelocity(float sensitivity);
     [[nodiscard]] const Envelope& ampEnvelope() const noexcept { return ampEnv; }
 
     // Second (modulation) envelope routed to the filter: env -> cutoff (in octaves)
@@ -128,6 +131,14 @@ private:
 
     Envelope ampEnv;
     Envelope modEnv;
+
+    // Amp envelope parameter store (delay/hold added on top of the ADSR core).
+    float ampDelay = 0.0f;
+    float ampAttack = 0.0f;
+    float ampHold = 0.0f;
+    float ampDecay = 0.0f;
+    float ampSustain = 1.0f;
+    float ampRelease = 0.0f;
 
     // One filter per output channel (independent state); index 0/1 for L/R.
     std::array<MorphFilter, 2> filters;
