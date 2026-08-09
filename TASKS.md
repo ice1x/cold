@@ -73,8 +73,8 @@ Distinctive goals beyond a plain Digitakt clone:
 
 ## M5 — Multi-track engine (8 Digitakt-style tracks, each polyphonic)
 
-- [ ] 000035 — Tests: 8-track engine (per-track sample + amp + filter + LFO + voice pool)
-- [ ] 000036 — Implement 8-track architecture (track = full polyphonic voice chain)
+- [x] 000035 — Tests: 8-track engine (per-track sample + amp + filter + LFO + voice pool)
+- [x] 000036 — Implement 8-track architecture (track = full polyphonic voice chain)
 - [ ] 000037 — Implement MIDI-channel→track routing (Digitakt-style)
 - [ ] 000038 — Per-track UI with track selector
 - [ ] 000039 — Logic smoke test: 8 tracks playable via MIDI channels
