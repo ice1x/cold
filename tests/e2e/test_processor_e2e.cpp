@@ -134,14 +134,74 @@ TEST_CASE("Cold processor plays a loaded sample on a MIDI note", "[processor][e2
     proc.releaseResources();
 }
 
+TEST_CASE("Cold processor plays the selected bank slot", "[processor][e2e][bank]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    auto wav = writeTempWav(sampleRate, 2, blockSize);
+    REQUIRE(proc.loadSampleToSlot(2, wav));
+    wav.deleteFile();
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+
+    SECTION("selecting the loaded slot plays it")
+    {
+        proc.selectSlot(2);
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(buffer.getMagnitude(0, blockSize) > 0.0f);
+    }
+
+    SECTION("selecting an empty slot is silent")
+    {
+        proc.selectSlot(5); // never loaded
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(buffer.getMagnitude(0, blockSize) == 0.0f);
+    }
+
+    proc.releaseResources();
+}
+
+TEST_CASE("Cold processor loads a folder into consecutive slots", "[processor][e2e][bank]")
+{
+    constexpr double sampleRate = 44100.0;
+
+    auto dir = juce::File::createTempFile("_cold_bank");
+    dir.deleteFile();
+    REQUIRE(dir.createDirectory());
+    for (int i = 0; i < 3; ++i)
+    {
+        juce::WavAudioFormat wav;
+        cold::test::writeKnownSignal(wav, dir.getChildFile("s" + juce::String(i) + ".wav"),
+                                     sampleRate, 1, 128);
+    }
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, 512);
+    proc.prepareToPlay(sampleRate, 512);
+
+    REQUIRE(proc.loadFolder(dir) == 3);
+    dir.deleteRecursively();
+}
+
 TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
 {
     ColdAudioProcessor proc;
     for (const auto* id :
-         {"gain",         "polyphony",       "loopMode",    "loopStart",   "loopEnd",
-          "rootNote",     "ampAttack",       "ampDecay",    "ampSustain",  "ampRelease",
-          "filterCutoff", "filterResonance", "filterType",  "lfoShape",    "lfoRate",
-          "lfoDepth",     "lfoSync",         "lfoDivision", "lfoToCutoff", "lfoToType"})
+         {"gain",        "polyphony", "loopMode",   "loopStart",  "loopEnd",      "rootNote",
+          "ampAttack",   "ampDecay",  "ampSustain", "ampRelease", "filterCutoff", "filterResonance",
+          "filterType",  "lfoShape",  "lfoRate",    "lfoDepth",   "lfoSync",      "lfoDivision",
+          "lfoToCutoff", "lfoToType", "slot"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 

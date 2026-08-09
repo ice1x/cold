@@ -66,7 +66,7 @@ Distinctive goals beyond a plain Digitakt clone:
 
 - [x] 000029 — Tests: sample bank model (slots, load/replace, metadata)
 - [x] 000030 — Implement `io/SampleBank` (multiple samples)
-- [ ] 000031 — Sample browser UI: load a folder, assign samples to slots
+- [x] 000031 — Sample browser UI: load a folder, assign samples to slots
 - [x] 000032 — Tests: per-slot sample start/length
 - [x] 000033 — Implement sample start/length controls (per slot)
 - [ ] 000034 — Logic smoke test: load a bank, switch slots, trigger each

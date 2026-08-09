@@ -22,10 +22,12 @@ public:
 
 private:
     void chooseSample();
+    void chooseFolder();
 
     ColdAudioProcessor& processorRef;
 
     juce::TextButton loadButton{"Load Sample…"};
+    juce::TextButton loadFolderButton{"Load Folder…"};
     juce::Label sampleNameLabel;
     juce::GenericAudioProcessorEditor genericEditor{processorRef};
     std::unique_ptr<juce::FileChooser> chooser;

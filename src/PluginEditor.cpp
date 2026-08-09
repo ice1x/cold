@@ -9,6 +9,9 @@ ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     addAndMakeVisible(loadButton);
     loadButton.onClick = [this] { chooseSample(); };
 
+    addAndMakeVisible(loadFolderButton);
+    loadFolderButton.onClick = [this] { chooseFolder(); };
+
     sampleNameLabel.setJustificationType(juce::Justification::centredLeft);
     sampleNameLabel.setText(processorRef.loadedSampleName(), juce::dontSendNotification);
     addAndMakeVisible(sampleNameLabel);
@@ -40,6 +43,26 @@ void ColdAudioProcessorEditor::chooseSample()
                          });
 }
 
+void ColdAudioProcessorEditor::chooseFolder()
+{
+    chooser = std::make_unique<juce::FileChooser>("Load a folder of samples", juce::File{});
+    const auto flags =
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories;
+
+    chooser->launchAsync(flags,
+                         [this](const juce::FileChooser& fc)
+                         {
+                             const auto dir = fc.getResult();
+                             if (dir == juce::File{})
+                                 return;
+
+                             const int n = processorRef.loadFolder(dir);
+                             sampleNameLabel.setText(juce::String(n) + " sample(s) loaded — " +
+                                                         processorRef.loadedSampleName(),
+                                                     juce::dontSendNotification);
+                         });
+}
+
 void ColdAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xff101216));
@@ -50,7 +73,9 @@ void ColdAudioProcessorEditor::resized()
     auto area = getLocalBounds().reduced(8);
 
     auto top = area.removeFromTop(28);
-    loadButton.setBounds(top.removeFromLeft(140));
+    loadButton.setBounds(top.removeFromLeft(130));
+    top.removeFromLeft(6);
+    loadFolderButton.setBounds(top.removeFromLeft(130));
     top.removeFromLeft(8);
     sampleNameLabel.setBounds(top);
 
