@@ -78,6 +78,15 @@ private:
     std::atomic<float>* filterCutoffParam = nullptr;
     std::atomic<float>* filterResonanceParam = nullptr;
     std::atomic<float>* filterTypeParam = nullptr;
+    std::atomic<float>* lfoShapeParam = nullptr;
+    std::atomic<float>* lfoRateParam = nullptr;
+    std::atomic<float>* lfoDepthParam = nullptr;
+    std::atomic<float>* lfoSyncParam = nullptr;
+    std::atomic<float>* lfoDivisionParam = nullptr;
+    std::atomic<float>* lfoToCutoffParam = nullptr;
+    std::atomic<float>* lfoToTypeParam = nullptr;
+
+    double hostBpm = 120.0; // last known host tempo (for LFO sync)
 
     int lastPolyphony = -1;
 
