@@ -180,7 +180,7 @@ Distinctive goals beyond a plain Digitakt clone:
 
 - [x] 000098 — Tests: `dsp/Envelope` (DAHDSR stages, per-segment curves, velocity)
 - [x] 000099 — Implement `dsp/Envelope` (curved DAHDSR, velocity, usable as a mod source)
-- [ ] 000100 — Integrate Envelope as amp + add a 2nd (mod) envelope per voice; env→filter routing
+- [x] 000100 — Integrate Envelope as amp + add a 2nd (mod) envelope per voice; env→filter routing
 - [ ] 000101 — Flexible LFO: custom multi-step shape (designer) + trig modes (free/trig/hold/one-shot)
 - [ ] 000102 — Generalize mod matrix: sources (LFO + envelopes), destinations incl. pitch
 - [ ] 000103 — **LFO/mod → sample-select** (per-trig sample-lock) — pick slot/layer at trig

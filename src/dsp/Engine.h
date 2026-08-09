@@ -42,6 +42,12 @@ public:
     void setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
                         float releaseSeconds);
 
+    // Second (modulation) envelope + its routing to the filter, shared by every
+    // voice: env -> cutoff (octaves) and env -> morph type (offset).
+    void setModEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
+                        float releaseSeconds);
+    void setModRouting(float toCutoffOctaves, float toTypeOffset);
+
     // Per-voice morph filter shared by every voice (cutoff Hz, resonance/Q, type
     // in [0, 1]). Enables the filter on the whole pool.
     void setFilter(float cutoffHz, float resonance, float type);
@@ -93,6 +99,13 @@ private:
     float ampDecay = 0.0f;
     float ampSustain = 1.0f;
     float ampRelease = 0.0f;
+
+    float modAttack = 0.0f;
+    float modDecay = 0.0f;
+    float modSustain = 1.0f;
+    float modRelease = 0.0f;
+    float modToCutoff = 0.0f;
+    float modToType = 0.0f;
 
     bool filterEnabled = false;
     float filterCutoff = 20000.0f;

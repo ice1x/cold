@@ -3,7 +3,6 @@
 # Sources are added here as the engine grows (M1+).
 # ----------------------------------------------------------------------------
 add_library(cold_dsp STATIC
-    dsp/AmpEnvelope.cpp
     dsp/Envelope.cpp
     dsp/Lfo.cpp
     dsp/ModMatrix.cpp

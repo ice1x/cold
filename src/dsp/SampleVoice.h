@@ -7,7 +7,7 @@
 // the playback speed. Looping, the amp envelope and the morph filter are layered
 // on in later M1/M2 tasks; this class owns the read position and pitch math.
 
-#include "dsp/AmpEnvelope.h"
+#include "dsp/Envelope.h"
 #include "dsp/MorphFilter.h"
 
 #include <array>
@@ -59,11 +59,20 @@ public:
     [[nodiscard]] int loopStart() const noexcept { return loopStartFrame; }
     [[nodiscard]] int loopEnd() const noexcept { return loopEndFrame; }
 
-    // Amp ADSR shaping this voice. Defaults are transparent (instant on, hold at
-    // unity, instant off) so a voice with no configured envelope plays flat.
+    // Amp envelope shaping this voice (curved DAHDSR under the hood). The simple
+    // ADSR overload maps to delay=hold=0, linear, velocity-independent — so a voice
+    // with no configured envelope plays flat (transparent default).
     void setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
                         float releaseSeconds);
-    [[nodiscard]] const AmpEnvelope& ampEnvelope() const noexcept { return env; }
+    [[nodiscard]] const Envelope& ampEnvelope() const noexcept { return ampEnv; }
+
+    // Second (modulation) envelope routed to the filter: env -> cutoff (in octaves)
+    // and env -> morph type (offset). The envelope only runs when a routing amount
+    // is non-zero, so an unconfigured voice is unaffected.
+    void setModEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
+                        float releaseSeconds);
+    void setModRouting(float toCutoffOctaves, float toTypeOffset);
+    [[nodiscard]] bool modEnvelopeActive() const noexcept { return useModEnv; }
 
     // Per-voice morph filter, applied after the amp envelope (sample -> amp env ->
     // morph filter -> out). Calling setFilter enables it; it is bypassed by
@@ -117,11 +126,19 @@ private:
     int loopStartFrame = 0;
     int loopEndFrame = 0;
 
-    AmpEnvelope env;
+    Envelope ampEnv;
+    Envelope modEnv;
 
     // One filter per output channel (independent state); index 0/1 for L/R.
     std::array<MorphFilter, 2> filters;
     bool useFilter = false;
+
+    // Base filter targets captured from setFilter, modulated per sample by modEnv.
+    float baseCutoff = 1000.0f;
+    float baseType = 0.0f;
+    float modToCutoff = 0.0f; // octaves at full envelope
+    float modToType = 0.0f;   // morph-type offset at full envelope
+    bool useModEnv = false;
 };
 
 } // namespace cold::dsp
