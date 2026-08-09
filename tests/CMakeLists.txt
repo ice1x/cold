@@ -18,6 +18,7 @@ set(COLD_TEST_JUCE_FLAGS
 add_executable(ColdTests
     unit/test_dsp_sanity.cpp
     unit/test_amp_envelope.cpp
+    unit/test_lfo.cpp
     unit/test_morph_filter.cpp
     unit/test_sample_voice.cpp
     unit/test_engine.cpp)
