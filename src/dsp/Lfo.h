@@ -41,6 +41,10 @@ public:
     // Advance one sample; returns the depth-scaled bipolar output for this sample.
     float getNextSample();
 
+    // Return the output at the current phase, then advance `numSamples`. Used for
+    // block-rate modulation (one LFO value per rendered chunk, phase kept correct).
+    float advance(int numSamples);
+
     [[nodiscard]] float currentPhase() const noexcept { return static_cast<float>(phase); }
 
     // Convert a host tempo (BPM) and cycle length in beats to a rate in Hz.

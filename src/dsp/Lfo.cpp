@@ -106,4 +106,19 @@ float Lfo::getNextSample()
     return out;
 }
 
+float Lfo::advance(int numSamples)
+{
+    const float out = shapeValue(phase) * depth;
+    for (int i = 0; i < numSamples; ++i)
+    {
+        phase += phaseInc;
+        if (phase >= 1.0)
+        {
+            phase -= 1.0;
+            heldRandom = nextRandom();
+        }
+    }
+    return out;
+}
+
 } // namespace cold::dsp

@@ -15,6 +15,8 @@ void Engine::prepare(double newHostSampleRate)
     if (newHostSampleRate > 0.0)
         hostSampleRate = newHostSampleRate;
 
+    lfo.setSampleRate(hostSampleRate);
+
     for (int i = 0; i < polyphony(); ++i)
         applyConfigToVoice(i);
 }
@@ -81,6 +83,23 @@ void Engine::setFilter(float cutoffHz, float resonance, float type)
     filterType = type;
     for (int i = 0; i < polyphony(); ++i)
         voices[static_cast<size_t>(i)].setFilter(cutoffHz, resonance, type);
+}
+
+void Engine::setLfo(LfoShape shape, float rateHz, float depth)
+{
+    lfo.setShape(shape);
+    lfo.setRate(rateHz);
+    lfo.setDepth(depth);
+}
+
+void Engine::addModRoute(ModDestination destination, float amount)
+{
+    modMatrix.addRoute(destination, amount);
+}
+
+void Engine::clearModRoutes()
+{
+    modMatrix.clearRoutes();
 }
 
 void Engine::applyConfigToVoice(int index)
@@ -150,6 +169,16 @@ void Engine::reset()
 
 void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSample, int numSamples)
 {
+    // Block-rate modulation: take one LFO value for this chunk and steer the
+    // (smoothed) per-voice filters. Only meaningful when the filter is engaged.
+    if (filterEnabled && modMatrix.hasRoutes())
+    {
+        const float source = lfo.advance(numSamples);
+        const auto mod = modMatrix.apply(filterCutoff, filterType, source);
+        for (int i = 0; i < polyphony(); ++i)
+            voices[static_cast<size_t>(i)].setFilter(mod.cutoffHz, filterResonance, mod.type);
+    }
+
     for (auto& voice : voices)
         voice.renderNextBlock(out, numOutChannels, startSample, numSamples);
 }
