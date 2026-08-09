@@ -264,6 +264,55 @@ TEST_CASE("Engine with no mod routes leaves the filter static", "[engine][dsp][u
     REQUIRE_THAT(early, WithinAbs(late, 1e-3));
 }
 
+TEST_CASE("Engine plays the selected sample from its list", "[engine][dsp][unit][sampleselect]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.5f);
+    auto c = makeConstant(64, 1.0f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0},
+                          {c.data(), c.numChannels(), c.numFrames(), 44100.0}});
+    REQUIRE(engine.sampleCount() == 3);
+
+    SECTION("base index 0 plays the first sample")
+    {
+        engine.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE_THAT(render(engine, 4).front(), WithinAbs(0.2f, 1e-4));
+    }
+
+    SECTION("base index selects a different sample")
+    {
+        engine.setBaseSampleIndex(2);
+        engine.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE(engine.currentSampleIndex() == 2);
+        REQUIRE_THAT(render(engine, 4).front(), WithinAbs(1.0f, 1e-4));
+    }
+}
+
+TEST_CASE("Engine LFO drives sample-select at the trig", "[engine][dsp][unit][sampleselect]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.5f);
+    auto c = makeConstant(64, 1.0f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0},
+                          {c.data(), c.numChannels(), c.numFrames(), 44100.0}});
+    engine.setBaseSampleIndex(1);                           // middle sample by default
+    engine.setLfo(cold::dsp::LfoShape::Square, 1.0f, 1.0f); // phase 0 -> +1
+    engine.addModRoute(cold::dsp::ModDestination::SampleSelect, 1.0f);
+
+    // At the trig the square LFO reads +1 -> offset +1 -> index 2 (the 1.0 sample).
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(engine.currentSampleIndex() == 2);
+    REQUIRE_THAT(render(engine, 4).front(), WithinAbs(1.0f, 1e-4));
+}
+
 TEST_CASE("Engine reset frees every voice", "[engine][dsp][unit]")
 {
     auto s = makeConstant(64);
