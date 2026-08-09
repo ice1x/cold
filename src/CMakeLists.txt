@@ -4,6 +4,7 @@
 # ----------------------------------------------------------------------------
 add_library(cold_dsp STATIC
     dsp/AmpEnvelope.cpp
+    dsp/Envelope.cpp
     dsp/Lfo.cpp
     dsp/ModMatrix.cpp
     dsp/MorphFilter.cpp
