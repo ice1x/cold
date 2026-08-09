@@ -54,6 +54,28 @@ TEST_CASE("ModMatrix applies cutoff and type routes independently", "[modmatrix]
     REQUIRE_THAT(out.type, WithinAbs(0.75f, 1e-5));       // 0.5 + 0.25
 }
 
+TEST_CASE("ModMatrix routes to pitch in semitones", "[modmatrix][dsp][unit][pitch]")
+{
+    ModMatrix m;
+    m.addRoute(ModDestination::Pitch, 12.0f); // +/- an octave at full source
+
+    REQUIRE_THAT(m.apply(1000.0f, 0.0f, 1.0f).pitchSemitones, WithinAbs(12.0f, 1e-5));
+    REQUIRE_THAT(m.apply(1000.0f, 0.0f, -0.5f).pitchSemitones, WithinAbs(-6.0f, 1e-5));
+    REQUIRE_THAT(m.apply(1000.0f, 0.0f, 0.0f).pitchSemitones, WithinAbs(0.0f, 1e-6));
+}
+
+TEST_CASE("ModMatrix routes to sample select as an offset", "[modmatrix][dsp][unit][sampleselect]")
+{
+    ModMatrix m;
+    m.addRoute(ModDestination::SampleSelect, 4.0f); // up to +/-4 slots at full source
+
+    REQUIRE_THAT(m.apply(1000.0f, 0.0f, 1.0f).sampleOffset, WithinAbs(4.0f, 1e-5));
+    REQUIRE_THAT(m.apply(1000.0f, 0.0f, 0.5f).sampleOffset, WithinAbs(2.0f, 1e-5));
+    // Other destinations stay at their base when only sample-select is routed.
+    REQUIRE_THAT(m.apply(1000.0f, 0.3f, 1.0f).cutoffHz, WithinAbs(1000.0f, 1e-3));
+    REQUIRE_THAT(m.apply(1000.0f, 0.3f, 1.0f).type, WithinAbs(0.3f, 1e-6));
+}
+
 TEST_CASE("ModMatrix clearRoutes removes all modulation", "[modmatrix][dsp][unit]")
 {
     ModMatrix m;
