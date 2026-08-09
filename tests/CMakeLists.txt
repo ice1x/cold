@@ -33,7 +33,8 @@ catch_discover_tests(ColdTests PROPERTIES LABELS "unit")
 # UNIT — JUCE-backed I/O layer (SampleLoader decode), in isolation.
 # ----------------------------------------------------------------------------
 add_executable(ColdIoTests
-    unit/test_sample_loader.cpp)
+    unit/test_sample_loader.cpp
+    unit/test_sample_bank.cpp)
 target_link_libraries(ColdIoTests PRIVATE
     cold_io
     cold_test_support
