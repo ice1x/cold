@@ -53,6 +53,29 @@ public:
     void setSampleList(const std::vector<SampleRef>& sampleList);
     void setBaseSampleIndex(int index);
 
+    // How a note maps to the sample list.
+    //   Select — pick ONE sample per trig (LFO/mod -> sample-select; the default).
+    //   Stack  — trigger every enabled layer together (a drum built from layers).
+    enum class LayerMode
+    {
+        Select,
+        Stack
+    };
+
+    // One stacked layer: which sample it plays, plus per-layer gain (scales
+    // velocity) and tune (semitones, independent of pitch modulation).
+    struct Layer
+    {
+        int sampleIndex = 0;
+        float gain = 1.0f;
+        float tuneSemitones = 0.0f;
+        bool enabled = true;
+    };
+
+    void setLayerMode(LayerMode mode);
+    void setLayers(const std::vector<Layer>& newLayers);
+    [[nodiscard]] LayerMode layerMode() const noexcept { return layerStackMode; }
+
     [[nodiscard]] int sampleCount() const noexcept { return static_cast<int>(samples.size()); }
     [[nodiscard]] int currentSampleIndex() const noexcept { return currentIndex; }
 
@@ -111,6 +134,7 @@ public:
 private:
     [[nodiscard]] int allocateVoice();
     void configureVoice(int voiceIndex, int sampleIndex);
+    void triggerStack(int midiNote, float velocity, int rootNote); // Stack-mode note-on
     [[nodiscard]] int selectSampleIndex() const; // note-time index from the LFO/mod
 
     std::vector<SampleVoice> voices;
@@ -124,7 +148,9 @@ private:
     std::vector<SampleRef> samples; // sample-select set; index 0 is the primary
     int baseSampleIndex = 0;
     int currentIndex = 0;
-    float lfoToSampleSelect = 0.0f; // SampleSelect route amount, cached for note-time
+    LayerMode layerStackMode = LayerMode::Select; // Select (one) vs Stack (all layers)
+    std::vector<Layer> layers;                    // active layers in Stack mode
+    float lfoToSampleSelect = 0.0f;               // SampleSelect route amount, cached for note-time
     SampleVoice::LoopMode loopMode = SampleVoice::LoopMode::OneShot;
     int loopStartFrame = 0;
     int loopEndFrame = 0; // 0 => leave voice default (whole sample)

@@ -64,8 +64,21 @@ void SampleVoice::setModRouting(float toCutoffOctaves, float toTypeOffset)
 void SampleVoice::setPitchModSemitones(float semitones)
 {
     pitchMod = semitones;
-    // Restack the modulation on the note's captured base step (magnitude).
-    step = baseStep * std::pow(2.0, static_cast<double>(pitchMod) / 12.0);
+    updateStep();
+}
+
+void SampleVoice::setTuneSemitones(float semitones)
+{
+    tuneMod = semitones;
+    updateStep();
+}
+
+void SampleVoice::updateStep()
+{
+    // Both the block-rate pitch mod and the static per-note tune ride on the note's
+    // captured base step (magnitude), summed in semitones.
+    const double semis = static_cast<double>(pitchMod) + static_cast<double>(tuneMod);
+    step = baseStep * std::pow(2.0, semis / 12.0);
 }
 
 void SampleVoice::setFilter(float cutoffHz, float resonance, float type)
@@ -141,7 +154,7 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
 
     const double rateCorrection = sourceSampleRate / hostSampleRate;
     baseStep = noteToRatio(newMidiNote, rootNote) * rateCorrection;
-    step = baseStep * std::pow(2.0, static_cast<double>(pitchMod) / 12.0);
+    updateStep();
 
     ampEnv.noteOn(gain);
     if (useModEnv)
