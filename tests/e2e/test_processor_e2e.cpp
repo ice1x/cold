@@ -171,6 +171,64 @@ TEST_CASE("Cold processor routes MIDI channels to tracks", "[processor][e2e][mul
     proc.releaseResources();
 }
 
+TEST_CASE("Cold LFO->sample-select roams the bank for layering", "[processor][e2e][sampleselect]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    // Track 0's base slot 0 is a short one-shot (frees after 8 samples -> silent
+    // tail); its neighbour slot 1 is long (sounds across the whole block). Which
+    // one track 0 plays is therefore observable in the block's tail.
+    auto shortWav = writeTempWav(sampleRate, 1, 8);
+    auto longWav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToSlot(0, shortWav));
+    REQUIRE(proc.loadSampleToSlot(1, longWav));
+    shortWav.deleteFile();
+    longWav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+
+    auto tailPeak = [](const juce::AudioBuffer<float>& b)
+    {
+        float peak = 0.0f;
+        for (int n = 100; n < b.getNumSamples(); ++n)
+            peak = std::max(peak, std::abs(b.getSample(0, n)));
+        return peak;
+    };
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+
+    SECTION("with no sample-select the track plays its short base slot")
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0); // channel 1 -> track 0
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        REQUIRE(tailPeak(buffer) < 1.0e-4f); // short one-shot: tail is silent
+    }
+
+    SECTION("LFO->sample-select shifts the track onto the long neighbour slot")
+    {
+        setParam("lfoShape", 4.0f);          // Square -> reads +1 at phase 0
+        setParam("lfoToSampleSelect", 1.0f); // +1 slot offset at the trig
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0); // channel 1 -> track 0
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        REQUIRE(tailPeak(buffer) > 0.1f); // now sounding the long slot across the block
+    }
+}
+
 TEST_CASE("Cold processor loads a folder into consecutive slots", "[processor][e2e][bank]")
 {
     constexpr double sampleRate = 44100.0;
@@ -196,15 +254,16 @@ TEST_CASE("Cold processor loads a folder into consecutive slots", "[processor][e
 TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
 {
     ColdAudioProcessor proc;
-    for (const auto* id : {"gain",          "polyphony",       "loopMode",     "loopStart",
-                           "loopEnd",       "rootNote",        "ampAttack",    "ampDecay",
-                           "ampSustain",    "ampRelease",      "filterCutoff", "filterResonance",
-                           "filterType",    "lfoShape",        "lfoRate",      "lfoDepth",
-                           "lfoSync",       "lfoDivision",     "lfoToCutoff",  "lfoToType",
-                           "track",         "ampDelay",        "ampHold",      "ampAttackCurve",
-                           "ampDecayCurve", "ampReleaseCurve", "ampVelocity",  "modAttack",
-                           "modDecay",      "modSustain",      "modRelease",   "modToCutoff",
-                           "modToType",     "lfoToPitch"})
+    for (const auto* id :
+         {"gain",          "polyphony",       "loopMode",         "loopStart",
+          "loopEnd",       "rootNote",        "ampAttack",        "ampDecay",
+          "ampSustain",    "ampRelease",      "filterCutoff",     "filterResonance",
+          "filterType",    "lfoShape",        "lfoRate",          "lfoDepth",
+          "lfoSync",       "lfoDivision",     "lfoToCutoff",      "lfoToType",
+          "track",         "ampDelay",        "ampHold",          "ampAttackCurve",
+          "ampDecayCurve", "ampReleaseCurve", "ampVelocity",      "modAttack",
+          "modDecay",      "modSustain",      "modRelease",       "modToCutoff",
+          "modToType",     "lfoToPitch",      "lfoToSampleSelect"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 

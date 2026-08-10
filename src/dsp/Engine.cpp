@@ -211,12 +211,17 @@ int Engine::allocateVoice()
 
 void Engine::noteOn(int midiNote, float velocity, int rootNote)
 {
-    if (samples.empty() || !samples.front().valid())
+    if (samples.empty())
         return;
 
     // Pick the sample for this trig (LFO/mod -> sample-select) and hand it to the
-    // allocated voice, re-applying the voice config for the chosen sample.
+    // allocated voice, re-applying the voice config for the chosen sample. Gate on
+    // the *selected* slot (not slot 0): with layering, a track is fed the whole
+    // bank and earlier slots may be empty, but its base slot can still be loaded.
     currentIndex = selectSampleIndex();
+    if (currentIndex < 0 || currentIndex >= sampleCount() ||
+        !samples[static_cast<size_t>(currentIndex)].valid())
+        return;
 
     const int index = allocateVoice();
     configureVoice(index, currentIndex);

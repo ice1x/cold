@@ -186,6 +186,7 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000103 — **LFO/mod → sample-select** (per-trig sample-lock) — pick slot/layer at trig
 - [x] 000104 — Expose envelope/LFO/mod params + UI; Logic smoke test of the modulation set
 - [x] 000105 — **LFO/mod → pitch** playback wiring: apply the matrix's pitch offset to the voice ratio + `lfoToPitch` param
+- [x] 000106 — **Per-track sample list (layering)**: feed every track the whole bank + `lfoToSampleSelect` param so sample-select roams; fix `noteOn` to gate on the selected slot
 
 ## Backlog (later; assign IDs when scheduled)
 
