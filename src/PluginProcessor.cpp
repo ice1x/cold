@@ -64,6 +64,16 @@ juce::NormalisableRange<float> timeRange(float maxSeconds)
     range.setSkewForCentre(0.2f);
     return range;
 }
+
+// Per-track / per-layer parameter IDs: "t{track}_{base}" and "t{track}_lyr{layer}_{base}".
+juce::String trackParamId(int track, const char* base)
+{
+    return "t" + juce::String(track) + "_" + base;
+}
+juce::String layerParamId(int track, int layer, const char* base)
+{
+    return "t" + juce::String(track) + "_lyr" + juce::String(layer) + "_" + base;
+}
 } // namespace
 
 juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createParameterLayout()
@@ -194,6 +204,32 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterInt>(juce::ParameterID{kTrackId, 1}, "Track", 0,
                                                    dsp::MultiEngine::kNumTracks - 1, 0));
 
+    // Multilayer one-shot stacks: per track, a layer mode (Select = one sample per
+    // trig; Stack = all layers together) plus kNumLayers layers. Each layer is a
+    // bank slot (-1 = off) with per-layer gain and tune. Defaults keep track t on
+    // its own slot t in layer 0 so Stack behaves like the single-sample case until
+    // the user adds layers.
+    for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
+    {
+        const auto tp = "T" + juce::String(t + 1) + " ";
+        layout.add(std::make_unique<AudioParameterChoice>(
+            juce::ParameterID{trackParamId(t, "layerMode"), 1}, tp + "Layer Mode",
+            juce::StringArray{"Select", "Stack"}, 0));
+        for (int l = 0; l < kNumLayers; ++l)
+        {
+            const auto lp = tp + "L" + juce::String(l + 1) + " ";
+            const int defSlot = (l == 0) ? t : -1;
+            layout.add(std::make_unique<AudioParameterInt>(
+                juce::ParameterID{layerParamId(t, l, "slot"), 1}, lp + "Slot", -1, kNumSlots - 1,
+                defSlot));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "gain"), 1}, lp + "Gain", 0.0f, 1.0f, 1.0f));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "tune"), 1}, lp + "Tune",
+                juce::NormalisableRange<float>(-24.0f, 24.0f, 0.01f), 0.0f));
+        }
+    }
+
     return layout;
 }
 
@@ -245,6 +281,20 @@ ColdAudioProcessor::ColdAudioProcessor()
     modReleaseParam = apvts.getRawParameterValue(kModReleaseId);
     modToCutoffParam = apvts.getRawParameterValue(kModToCutoffId);
     modToTypeParam = apvts.getRawParameterValue(kModToTypeId);
+
+    for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
+    {
+        const auto tt = static_cast<size_t>(t);
+        layerModeParam[tt] = apvts.getRawParameterValue(trackParamId(t, "layerMode"));
+        for (int l = 0; l < kNumLayers; ++l)
+        {
+            const auto ll = static_cast<size_t>(l);
+            layerSlotParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "slot"));
+            layerGainParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "gain"));
+            layerTuneParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "tune"));
+        }
+    }
+    layerScratch.reserve(static_cast<size_t>(kNumLayers));
 }
 
 void ColdAudioProcessor::prepareToPlay(double sampleRate, int)
@@ -324,6 +374,29 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
         e.addModRoute(dsp::ModDestination::Pitch, lfoToPitchParam->load());
     if (std::abs(lfoToSampleParam->load()) > 1.0e-4f)
         e.addModRoute(dsp::ModDestination::SampleSelect, lfoToSampleParam->load());
+
+    // Multilayer: Select (one sample per trig) or Stack (all enabled layers at
+    // once). In Stack, gather this track's layers (slot >= 0) with per-layer gain
+    // and tune. `sampleIndex` is the bank slot directly — every track is fed the
+    // whole bank by rebuildTrackSamples.
+    const auto tt = static_cast<size_t>(track);
+    const auto layerMode =
+        static_cast<dsp::Engine::LayerMode>(static_cast<int>(layerModeParam[tt]->load()));
+    e.setLayerMode(layerMode);
+    if (layerMode == dsp::Engine::LayerMode::Stack)
+    {
+        layerScratch.clear();
+        for (int l = 0; l < kNumLayers; ++l)
+        {
+            const auto ll = static_cast<size_t>(l);
+            const int slot = static_cast<int>(layerSlotParam[tt][ll]->load());
+            if (slot < 0)
+                continue;
+            layerScratch.push_back(
+                {slot, layerGainParam[tt][ll]->load(), layerTuneParam[tt][ll]->load(), true});
+        }
+        e.setLayers(layerScratch);
+    }
 }
 
 void ColdAudioProcessor::updateEngineParameters()
