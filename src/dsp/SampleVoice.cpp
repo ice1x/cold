@@ -108,6 +108,13 @@ void SampleVoice::setFilterEnabled(bool enabled)
     useFilter = enabled;
 }
 
+void SampleVoice::setFilterLfoMod(float cutoffOctaves, float typeOffset)
+{
+    lfoCutoffOct = cutoffOctaves;
+    lfoTypeOff = typeOffset;
+    hasLfoFilterMod = std::abs(cutoffOctaves) > 1.0e-6f || std::abs(typeOffset) > 1.0e-6f;
+}
+
 void SampleVoice::setSample(const float* const* channels, int numChannels, int numFrames,
                             double newSourceSampleRate)
 {
@@ -231,6 +238,19 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
     const double loopLen = static_cast<double>(loopEndFrame - loopStartFrame);
     const bool looping = mode != LoopMode::OneShot && loopLen > 0.0;
 
+    // When only the block-rate LFO modulates the filter (no per-sample mod env),
+    // apply its relative octave/offset around this voice's base once for the block.
+    if (useFilter && hasLfoFilterMod && !useModEnv)
+    {
+        const float cutoff = baseCutoff * std::pow(2.0f, lfoCutoffOct);
+        const float type = std::clamp(baseType + lfoTypeOff, 0.0f, 1.0f);
+        for (auto& f : filters)
+        {
+            f.setCutoff(cutoff);
+            f.setFilterType(type);
+        }
+    }
+
     for (int n = 0; n < numSamples; ++n)
     {
         if (position >= static_cast<double>(sourceNumFrames) || position < 0.0)
@@ -242,12 +262,13 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
         const float envGain = ampEnv.getNextSample();
         const float voiceGain = gain * envGain;
 
-        // Modulation envelope steers this voice's filter (env -> cutoff / type).
+        // Per-sample mod envelope steers this voice's filter, composed additively
+        // with the block-rate LFO mod — both are relative deltas around the base.
         if (useFilter && useModEnv)
         {
             const float m = modEnv.getNextSample();
-            const float modCutoff = baseCutoff * std::pow(2.0f, modToCutoff * m);
-            const float modType = std::clamp(baseType + modToType * m, 0.0f, 1.0f);
+            const float modCutoff = baseCutoff * std::pow(2.0f, lfoCutoffOct + modToCutoff * m);
+            const float modType = std::clamp(baseType + lfoTypeOff + modToType * m, 0.0f, 1.0f);
             for (auto& f : filters)
             {
                 f.setCutoff(modCutoff);
