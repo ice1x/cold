@@ -175,12 +175,29 @@ void SampleVoice::reset()
 
 float SampleVoice::readInterpolated(int channel, double pos) const
 {
+    const float* data = sourceChannels[channel];
     const int i0 = static_cast<int>(pos);
-    const int i1 = std::min(i0 + 1, sourceNumFrames - 1);
     const auto frac = static_cast<float>(pos - static_cast<double>(i0));
 
-    const float* data = sourceChannels[channel];
-    return data[i0] * (1.0f - frac) + data[i1] * frac;
+    // Interior: 4-point, 3rd-order Hermite interpolation (exact for signals up to
+    // cubic, so it reproduces ramps/parabolas exactly while adding far less
+    // aliasing than linear on repitch). Falls back to 2-point linear at the first
+    // and last frames, where the 4-point neighbourhood would run off the sample.
+    if (i0 >= 1 && i0 + 2 < sourceNumFrames)
+    {
+        const float ym1 = data[i0 - 1];
+        const float y0 = data[i0];
+        const float y1 = data[i0 + 1];
+        const float y2 = data[i0 + 2];
+        const float c0 = y0;
+        const float c1 = 0.5f * (y1 - ym1);
+        const float c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
+        const float c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
+        return ((c3 * frac + c2) * frac + c1) * frac + c0;
+    }
+
+    const int j1 = std::min(i0 + 1, sourceNumFrames - 1);
+    return data[i0] * (1.0f - frac) + data[j1] * frac;
 }
 
 void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int startSample,

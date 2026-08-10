@@ -458,6 +458,28 @@ TEST_CASE("SampleVoice mod envelope is inert without routing", "[samplevoice][ds
         REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(static_cast<float>(n), 1e-4));
 }
 
+TEST_CASE("SampleVoice uses Hermite interpolation between samples", "[samplevoice][dsp][unit]")
+{
+    // A parabola y[n] = n^2. The 4-point Hermite interpolator is exact for
+    // quadratics, so the interpolated midpoint is the true value (2.5^2 = 6.25),
+    // whereas 2-point linear would give (4 + 9) / 2 = 6.5.
+    constexpr int frames = 16;
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] = static_cast<float>(n) * static_cast<float>(n);
+    s.rebuild();
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(s.data(), s.numChannels(), s.numFrames(), 44100.0);
+    voice.startNote(kRootNote - 12, 1.0f, kRootNote); // step 0.5 -> reads 0, 0.5, 1.0, ...
+
+    auto out = render(voice, 8);
+    // out[5] is read at pos 2.5 (an interior position): Hermite -> 6.25, not 6.5.
+    REQUIRE_THAT(out[5], WithinAbs(6.25f, 1e-3));
+}
+
 TEST_CASE("SampleVoice pitch modulation shifts playback speed",
           "[samplevoice][dsp][unit][pitchmod]")
 {
