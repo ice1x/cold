@@ -264,6 +264,31 @@ TEST_CASE("Engine with no mod routes leaves the filter static", "[engine][dsp][u
     REQUIRE_THAT(early, WithinAbs(late, 1e-3));
 }
 
+TEST_CASE("Engine LFO->pitch modulation repitches the voice", "[engine][dsp][unit][mod][pitchmod]")
+{
+    constexpr int frames = 64;
+    // A ramp sample (0,1,2,...) so the read position is directly observable.
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] = static_cast<float>(n);
+    s.rebuild();
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setPolyphony(1);
+    engine.setSample(s.data(), s.numChannels(), s.numFrames(), 44100.0);
+    // A near-static square LFO sits at phase 0 -> +1 for the whole short block.
+    engine.setLfo(cold::dsp::LfoShape::Square, 0.001f, 1.0f);
+    engine.addModRoute(cold::dsp::ModDestination::Pitch, 12.0f); // +12 semis -> double speed
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    auto out = render(engine, 8);
+    // Pitch mod doubles the step, so the ramp is read 0,2,4,... within the block.
+    for (int n = 0; n < 8; ++n)
+        REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(static_cast<float>(2 * n), 1e-4));
+}
+
 TEST_CASE("Engine plays the selected sample from its list", "[engine][dsp][unit][sampleselect]")
 {
     auto a = makeConstant(64, 0.2f);
