@@ -171,6 +171,55 @@ TEST_CASE("Cold processor routes MIDI channels to tracks", "[processor][e2e][mul
     proc.releaseResources();
 }
 
+TEST_CASE("Cold Note Map addressing routes by note number", "[processor][e2e][notemap]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    // Slot 0 feeds track 0; base note 36 (default) maps note 36 -> track 0.
+    auto wav = writeTempWav(sampleRate, 2, blockSize);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    auto* addr = proc.apvts.getParameter("midiAddressing");
+    addr->setValueNotifyingHost(addr->convertTo0to1(1.0f)); // Note Map
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+
+    SECTION("the base note triggers track 0")
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 36, 1.0f), 0); // note 36 -> track 0
+        renderBlock(proc, buffer, midi);
+        REQUIRE(buffer.getMagnitude(0, blockSize) > 0.0f);
+    }
+
+    SECTION("a note mapping to an empty track is silent")
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 37, 1.0f), 0); // note 37 -> track 1 (empty)
+        renderBlock(proc, buffer, midi);
+        REQUIRE(buffer.getMagnitude(0, blockSize) == 0.0f);
+    }
+
+    SECTION("a note outside the map range is ignored")
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 44, 1.0f), 0); // 44 - 36 = 8, out of range
+        renderBlock(proc, buffer, midi);
+        REQUIRE(buffer.getMagnitude(0, blockSize) == 0.0f);
+    }
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold LFO->sample-select roams the bank for layering", "[processor][e2e][sampleselect]")
 {
     constexpr double sampleRate = 44100.0;
@@ -387,7 +436,7 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
           "modToType",     "lfoToPitch",      "lfoToSampleSelect", "lfoTrigMode",
           "lfoStep1",      "lfoStep4",        "lfoStep8",          "t0_layerMode",
           "t0_lyr0_slot",  "t0_lyr1_gain",    "t0_lyr3_tune",      "t7_layerMode",
-          "t0_lyr0_pan",   "t3_lyr2_pan"})
+          "t0_lyr0_pan",   "t3_lyr2_pan",     "midiAddressing",    "noteMapBase"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 
