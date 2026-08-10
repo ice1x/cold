@@ -26,6 +26,22 @@ TEST_CASE("ModMatrix routes an LFO to filter cutoff exponentially", "[modmatrix]
     REQUIRE_THAT(m.apply(1000.0f, 0.0f, 0.0f).cutoffHz, WithinAbs(1000.0f, 1e-3));
 }
 
+TEST_CASE("ModMatrix filterMod returns raw octave/offset deltas", "[modmatrix][dsp][unit]")
+{
+    ModMatrix m;
+    m.addRoute(ModDestination::FilterCutoff, 3.0f); // octaves at full source
+    m.addRoute(ModDestination::FilterType, 0.4f);   // type offset at full source
+
+    const auto fm = m.filterMod(0.5f);
+    REQUIRE_THAT(fm.cutoffOctaves, WithinAbs(1.5f, 1e-6)); // 3.0 * 0.5
+    REQUIRE_THAT(fm.typeOffset, WithinAbs(0.2f, 1e-6));    // 0.4 * 0.5
+
+    // Deltas are raw (unclamped): a negative source flips the sign.
+    const auto neg = m.filterMod(-1.0f);
+    REQUIRE_THAT(neg.cutoffOctaves, WithinAbs(-3.0f, 1e-6));
+    REQUIRE_THAT(neg.typeOffset, WithinAbs(-0.4f, 1e-6));
+}
+
 TEST_CASE("ModMatrix routes an LFO to the filter morph type", "[modmatrix][dsp][unit][morph]")
 {
     ModMatrix m;

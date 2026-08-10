@@ -16,6 +16,20 @@ void ModMatrix::clearRoutes()
     routes.clear();
 }
 
+ModMatrix::FilterMod ModMatrix::filterMod(float sourceValue) const
+{
+    float cutoffOctaves = 0.0f;
+    float typeOffset = 0.0f;
+    for (const auto& route : routes)
+    {
+        if (route.destination == ModDestination::FilterCutoff)
+            cutoffOctaves += route.amount * sourceValue;
+        else if (route.destination == ModDestination::FilterType)
+            typeOffset += route.amount * sourceValue;
+    }
+    return {cutoffOctaves, typeOffset};
+}
+
 ModMatrix::ModValues ModMatrix::apply(float baseCutoffHz, float baseType, float sourceValue) const
 {
     float cutoff = baseCutoffHz;

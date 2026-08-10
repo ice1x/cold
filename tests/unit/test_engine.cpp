@@ -553,6 +553,44 @@ TEST_CASE("Engine stack per-layer pan spreads layers across the stereo field",
     REQUIRE_THAT(out[1][0], WithinAbs(0.6f, 1e-4));
 }
 
+TEST_CASE("Engine stack per-layer filter shapes each layer independently",
+          "[engine][dsp][unit][stack][filter]")
+{
+    constexpr int frames = 8000;
+    // A 6 kHz sine (bright, below Nyquist) in both slots.
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] =
+            static_cast<float>(std::sin(2.0 * 3.14159265358979 * 6000.0 * n / 48000.0));
+    s.rebuild();
+
+    Engine engine;
+    engine.prepare(48000.0);
+    engine.setSampleList({{s.data(), s.numChannels(), s.numFrames(), 48000.0},
+                          {s.data(), s.numChannels(), s.numFrames(), 48000.0}});
+    engine.setLayerMode(Engine::LayerMode::Stack);
+    // Layer A hard-left with a low LP (dark); layer B hard-right wide open (bright).
+    Engine::Layer a{0, 1.0f, 0.0f, true, -1.0f, true, 300.0f, 0.707f, 0.0f};
+    Engine::Layer b{1, 1.0f, 0.0f, true, 1.0f, true, 12000.0f, 0.707f, 0.0f};
+    engine.setLayers({a, b});
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+
+    std::vector<std::vector<float>> out(2, std::vector<float>(static_cast<size_t>(frames), 0.0f));
+    std::vector<float*> ptrs{out[0].data(), out[1].data()};
+    engine.renderNextBlock(ptrs.data(), 2, 0, frames);
+
+    auto tail = [&](int ch)
+    {
+        float p = 0.0f;
+        for (int n = frames - 1000; n < frames; ++n)
+            p = std::max(p, std::abs(out[static_cast<size_t>(ch)][static_cast<size_t>(n)]));
+        return p;
+    };
+    REQUIRE(tail(0) < 0.2f); // left (layer A) heavily low-passed
+    REQUIRE(tail(1) > 0.7f); // right (layer B) passes the 6 kHz tone
+}
+
 TEST_CASE("Engine defaults to Select mode (one voice per note)", "[engine][dsp][unit][stack]")
 {
     auto s = makeConstant(64);

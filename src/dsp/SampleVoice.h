@@ -85,6 +85,12 @@ public:
     void setFilterEnabled(bool enabled);
     [[nodiscard]] bool filterEnabled() const noexcept { return useFilter; }
 
+    // Block-rate filter modulation as a RELATIVE delta around this voice's own base
+    // filter: cutoff in octaves, type as a linear offset. Unlike setFilter it does
+    // not touch the base, so stacked layers keep independent base filters under a
+    // shared LFO. Composes additively with the per-sample mod envelope.
+    void setFilterLfoMod(float cutoffOctaves, float typeOffset);
+
     // Pitch modulation in semitones (from an LFO / mod source), applied on top of
     // the note's base playback ratio. Takes effect immediately for the next
     // samples; 0 restores the plain note pitch. Block-rate in practice (the engine
@@ -172,6 +178,11 @@ private:
     float modToCutoff = 0.0f; // octaves at full envelope
     float modToType = 0.0f;   // morph-type offset at full envelope
     bool useModEnv = false;
+
+    // Block-rate LFO filter modulation (relative deltas around the base).
+    float lfoCutoffOct = 0.0f;
+    float lfoTypeOff = 0.0f;
+    bool hasLfoFilterMod = false;
 };
 
 } // namespace cold::dsp
