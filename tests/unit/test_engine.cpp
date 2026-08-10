@@ -317,6 +317,39 @@ TEST_CASE("Engine plays the selected sample from its list", "[engine][dsp][unit]
     }
 }
 
+TEST_CASE("Engine plays the base slot even when an earlier slot is empty",
+          "[engine][dsp][unit][sampleselect]")
+{
+    // Layering feeds every track the whole bank; leading slots may be empty. A
+    // track must still play its (loaded) base slot rather than gate on slot 0.
+    auto b = makeConstant(64, 0.5f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({Engine::SampleRef{}, // slot 0 empty (invalid)
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0}});
+    engine.setBaseSampleIndex(1);
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+
+    REQUIRE(engine.currentSampleIndex() == 1);
+    REQUIRE(engine.activeVoiceCount() == 1);
+    REQUIRE_THAT(render(engine, 4).front(), WithinAbs(0.5f, 1e-4));
+}
+
+TEST_CASE("Engine is silent when the selected slot is empty", "[engine][dsp][unit][sampleselect]")
+{
+    auto b = makeConstant(64, 0.5f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({Engine::SampleRef{}, // slot 0 empty
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0}});
+    engine.setBaseSampleIndex(0); // base points at the empty slot
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+
+    REQUIRE(engine.activeVoiceCount() == 0);
+}
+
 TEST_CASE("Engine LFO drives sample-select at the trig", "[engine][dsp][unit][sampleselect]")
 {
     auto a = makeConstant(64, 0.2f);
