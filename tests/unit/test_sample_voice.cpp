@@ -517,6 +517,26 @@ TEST_CASE("SampleVoice pitch modulation stacks on the note ratio",
     REQUIRE_THAT(voice.increment(), WithinAbs(2.0, 1e-9));
 }
 
+TEST_CASE("SampleVoice tune stacks with pitch modulation", "[samplevoice][dsp][unit][pitchmod]")
+{
+    constexpr int frames = 64;
+    auto ramp = makeRamp(frames);
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+
+    voice.setTuneSemitones(12.0f); // static per-note tune: +1 octave -> step 2
+    REQUIRE_THAT(voice.increment(), WithinAbs(2.0, 1e-9));
+
+    voice.setPitchModSemitones(12.0f); // +1 more octave from the mod source -> step 4
+    REQUIRE_THAT(voice.increment(), WithinAbs(4.0, 1e-9));
+
+    voice.setTuneSemitones(0.0f); // clearing tune leaves just the pitch mod -> step 2
+    REQUIRE_THAT(voice.increment(), WithinAbs(2.0, 1e-9));
+}
+
 TEST_CASE("SampleVoice velocity scales output gain", "[samplevoice][dsp][unit]")
 {
     constexpr int frames = 16;
