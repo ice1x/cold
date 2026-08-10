@@ -293,6 +293,63 @@ TEST_CASE("Cold LFO Custom designer shape drives sample-select", "[processor][e2
     }
 }
 
+TEST_CASE("Cold Stack layer mode sums a track's layers into one hit", "[processor][e2e][stack]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    // Slots 0 and 1 hold the same signal; track 0 (channel 1) stacks both, so the
+    // in-phase sum is ~2x a single layer.
+    auto wav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    REQUIRE(proc.loadSampleToSlot(1, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto peak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int n = 0; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+
+    float selectPeak = 0.0f;
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0); // track 0, Select default
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        selectPeak = peak(buffer);
+        REQUIRE(selectPeak > 0.1f); // the single base layer sounds
+    }
+
+    // Switch track 0 to Stack with layer 0 = slot 0 (default) and layer 1 = slot 1.
+    setParam("t0_layerMode", 1.0f); // Stack
+    setParam("t0_lyr1_slot", 1.0f); // enable a second layer on slot 1
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        REQUIRE(peak(buffer) > 1.5f * selectPeak); // two in-phase layers sum louder
+    }
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold processor loads a folder into consecutive slots", "[processor][e2e][bank]")
 {
     constexpr double sampleRate = 44100.0;
@@ -328,7 +385,8 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
           "ampDecayCurve", "ampReleaseCurve", "ampVelocity",       "modAttack",
           "modDecay",      "modSustain",      "modRelease",        "modToCutoff",
           "modToType",     "lfoToPitch",      "lfoToSampleSelect", "lfoTrigMode",
-          "lfoStep1",      "lfoStep4",        "lfoStep8"})
+          "lfoStep1",      "lfoStep4",        "lfoStep8",          "t0_layerMode",
+          "t0_lyr0_slot",  "t0_lyr1_gain",    "t0_lyr3_tune",      "t7_layerMode"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 
