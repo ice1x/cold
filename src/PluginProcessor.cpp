@@ -34,6 +34,7 @@ constexpr auto kLfoDivisionId = "lfoDivision";
 constexpr auto kLfoToCutoffId = "lfoToCutoff";
 constexpr auto kLfoToTypeId = "lfoToType";
 constexpr auto kLfoToPitchId = "lfoToPitch";
+constexpr auto kLfoToSampleId = "lfoToSampleSelect";
 constexpr auto kTrackId = "track";
 constexpr auto kAmpDelayId = "ampDelay";
 constexpr auto kAmpHoldId = "ampHold";
@@ -137,6 +138,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterFloat>(
         juce::ParameterID{kLfoToPitchId, 1}, "LFO -> Pitch",
         juce::NormalisableRange<float>(-24.0f, 24.0f, 0.01f), 0.0f));
+    // LFO/mod -> sample-select: a signed slot/layer offset applied at the trig.
+    // Each track is fed the whole bank, so this roams across the loaded slots.
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kLfoToSampleId, 1}, "LFO -> Sample Select",
+        juce::NormalisableRange<float>(-8.0f, 8.0f, 0.01f), 0.0f));
 
     // Amp envelope extras: delay/hold stages, per-segment curves, velocity.
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kAmpDelayId, 1}, "Amp Delay",
@@ -201,7 +207,13 @@ ColdAudioProcessor::ColdAudioProcessor()
     lfoToCutoffParam = apvts.getRawParameterValue(kLfoToCutoffId);
     lfoToTypeParam = apvts.getRawParameterValue(kLfoToTypeId);
     lfoToPitchParam = apvts.getRawParameterValue(kLfoToPitchId);
+    lfoToSampleParam = apvts.getRawParameterValue(kLfoToSampleId);
     trackParam = apvts.getRawParameterValue(kTrackId);
+
+    // Each track is fed the whole bank as its sample-select list; size the shared
+    // windowed-pointer storage to match.
+    slotPtrs.resize(static_cast<size_t>(bank.numSlots()));
+    slotNumFrames.assign(static_cast<size_t>(bank.numSlots()), 0);
     ampDelayParam = apvts.getRawParameterValue(kAmpDelayId);
     ampHoldParam = apvts.getRawParameterValue(kAmpHoldId);
     ampAtkCurveParam = apvts.getRawParameterValue(kAmpAtkCurveId);
@@ -243,7 +255,8 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
         static_cast<dsp::SampleVoice::LoopMode>(static_cast<int>(loopModeParam->load()));
     e.setLoopMode(mode);
 
-    const int frames = trackNumFrames[static_cast<size_t>(track)];
+    // Loop points are relative to the track's base slot (slot == track index).
+    const int frames = slotNumFrames[static_cast<size_t>(track)];
     if (frames > 0)
     {
         const int start = static_cast<int>(loopStartParam->load() * static_cast<float>(frames));
@@ -281,6 +294,8 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
         e.addModRoute(dsp::ModDestination::FilterType, lfoToTypeParam->load());
     if (std::abs(lfoToPitchParam->load()) > 1.0e-4f)
         e.addModRoute(dsp::ModDestination::Pitch, lfoToPitchParam->load());
+    if (std::abs(lfoToSampleParam->load()) > 1.0e-4f)
+        e.addModRoute(dsp::ModDestination::SampleSelect, lfoToSampleParam->load());
 }
 
 void ColdAudioProcessor::updateEngineParameters()
@@ -350,33 +365,45 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     buffer.applyGain(gainLinear);
 }
 
-void ColdAudioProcessor::pushTrackSample(int track)
+void ColdAudioProcessor::rebuildTrackSamples()
 {
-    if (track < 0 || track >= dsp::MultiEngine::kNumTracks)
-        return;
+    // Layering: every track is fed the whole bank as its sample-select list (so an
+    // LFO/mod -> sample-select can roam across the loaded slots at each trig).
+    // Track t's base index is slot t, so with no modulation track t still plays
+    // slot t exactly. Each slot carries its own [start, length) window; empty slots
+    // become invalid refs (silent if ever selected).
+    const int numSlots = bank.numSlots();
+    std::vector<dsp::Engine::SampleRef> refs(static_cast<size_t>(numSlots));
 
-    const auto& s = bank.slot(track); // bank slot t feeds track t
-    auto& ptrs = trackPtrs[static_cast<size_t>(track)];
-    ptrs.clear();
-
-    if (!s.isLoaded())
+    for (int k = 0; k < numSlots; ++k)
     {
-        trackNumFrames[static_cast<size_t>(track)] = 0;
-        multi.track(track).setSample(nullptr, 0, 0, 0.0); // no sample -> silent track
-        lastPolyphony = -1;
-        return;
+        const auto& s = bank.slot(k);
+        auto& ptrs = slotPtrs[static_cast<size_t>(k)];
+        ptrs.clear();
+
+        if (!s.isLoaded())
+        {
+            slotNumFrames[static_cast<size_t>(k)] = 0;
+            continue; // leave refs[k] as a default (invalid) SampleRef
+        }
+
+        const int start = s.effectiveStart();
+        const int length = s.effectiveLength();
+        for (const auto& ch : s.data.channels)
+            ptrs.push_back(ch.data() + start);
+        slotNumFrames[static_cast<size_t>(k)] = length;
+
+        refs[static_cast<size_t>(k)] = {ptrs.data(), s.data.numChannels(), length,
+                                        s.data.sampleRate};
     }
 
-    // Offset each channel pointer by the slot's start window and pass its length,
-    // so the track plays exactly the [start, start+length) region.
-    const int start = s.effectiveStart();
-    const int length = s.effectiveLength();
-    for (const auto& ch : s.data.channels)
-        ptrs.push_back(ch.data() + start);
-    trackNumFrames[static_cast<size_t>(track)] = length;
-
-    multi.track(track).setSample(ptrs.data(), s.data.numChannels(), length, s.data.sampleRate);
-    lastPolyphony = -1; // setSample reset the pool; force a param re-apply next block
+    for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
+    {
+        auto& e = multi.track(t);
+        e.setSampleList(refs);
+        e.setBaseSampleIndex(t); // track t defaults to slot t
+    }
+    lastPolyphony = -1; // setSampleList reset the pools; force a param re-apply
 }
 
 bool ColdAudioProcessor::loadSampleToSlot(int slot, const juce::File& file)
@@ -384,8 +411,8 @@ bool ColdAudioProcessor::loadSampleToSlot(int slot, const juce::File& file)
     const juce::ScopedLock sl(engineLock);
     if (!bank.loadSlot(slot, file))
         return false;
-    if (slot < dsp::MultiEngine::kNumTracks)
-        pushTrackSample(slot);
+    // Any slot is part of every track's sample-select list, so rebuild all tracks.
+    rebuildTrackSamples();
     return true;
 }
 
@@ -497,10 +524,9 @@ void ColdAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
         }
     }
 
-    // Feed every restored slot to its track.
+    // Rebuild every track's sample-select list from the restored bank.
     const juce::ScopedLock sl(engineLock);
-    for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
-        pushTrackSample(t);
+    rebuildTrackSamples();
 }
 
 } // namespace cold
