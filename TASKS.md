@@ -187,6 +187,7 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000104 — Expose envelope/LFO/mod params + UI; Logic smoke test of the modulation set
 - [x] 000105 — **LFO/mod → pitch** playback wiring: apply the matrix's pitch offset to the voice ratio + `lfoToPitch` param
 - [x] 000106 — **Per-track sample list (layering)**: feed every track the whole bank + `lfoToSampleSelect` param so sample-select roams; fix `noteOn` to gate on the selected slot
+- [x] 000107 — **LFO trig modes wiring**: Engine calls `lfo.noteTrigger()` on note-on + `setLfoTrigMode` passthrough; `lfoTrigMode` param (Free/Trig/Hold/One-Shot)
 
 ## Backlog (later; assign IDs when scheduled)
 

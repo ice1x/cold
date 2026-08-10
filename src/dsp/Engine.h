@@ -80,6 +80,10 @@ public:
     // LFO modulation source shared by the pool (shape, rate Hz, depth in [0,1]).
     void setLfo(LfoShape shape, float rateHz, float depth);
 
+    // How the LFO reacts to a note trig (Free/Trig/Hold/OneShot). The engine calls
+    // the LFO's noteTrigger() on every note-on, so this selects the retrig behavior.
+    void setLfoTrigMode(LfoTrigMode mode);
+
     // Modulation routes. Destinations include the filter morph type, so an LFO
     // can sweep the filter character (the distinctive M3 feature). Modulation is
     // applied block-rate to the (smoothed) per-voice filters when the filter is on.
