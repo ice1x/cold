@@ -70,17 +70,19 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void updateEngineParameters();
 
-    // Feed bank slot `track` (windowed) to track `track`'s engine.
-    void pushTrackSample(int track);
+    // Rebuild every track's sample-select list from the whole bank (layering):
+    // track t defaults to slot t, but an LFO/mod -> sample-select can roam.
+    void rebuildTrackSamples();
     void applySharedParamsToTrack(int track, bool polyChanged);
 
     dsp::MultiEngine multi;
     io::SampleBank bank;
 
-    // Per-track channel-pointer views (into each track's slot buffers, offset by
-    // the slot start window) handed to the engines.
-    std::array<std::vector<const float*>, dsp::MultiEngine::kNumTracks> trackPtrs;
-    std::array<int, dsp::MultiEngine::kNumTracks> trackNumFrames{};
+    // Per-bank-slot channel-pointer views (into each slot's buffer, offset by the
+    // slot start window). Shared by every track's sample list, so they must outlive
+    // playback. Sized to bank.numSlots() at construction.
+    std::vector<std::vector<const float*>> slotPtrs;
+    std::vector<int> slotNumFrames;
 
     // Cached parameter handles (avoid string lookups on the audio thread).
     std::atomic<float>* gainParam = nullptr;
@@ -104,6 +106,7 @@ private:
     std::atomic<float>* lfoToCutoffParam = nullptr;
     std::atomic<float>* lfoToTypeParam = nullptr;
     std::atomic<float>* lfoToPitchParam = nullptr;
+    std::atomic<float>* lfoToSampleParam = nullptr;
     std::atomic<float>* trackParam = nullptr;
     std::atomic<float>* ampDelayParam = nullptr;
     std::atomic<float>* ampHoldParam = nullptr;
