@@ -91,6 +91,11 @@ public:
     // sets it once per rendered block, like the filter modulation).
     void setPitchModSemitones(float semitones);
 
+    // Static per-note tune in semitones (e.g. a layer's tune in a stack). Stacks
+    // additively with the pitch modulation and survives block-rate mod updates, so
+    // the two are independent channels onto the same playback ratio.
+    void setTuneSemitones(float semitones);
+
     // Begin a note. `velocity` in [0, 1] scales output gain (a stand-in until the
     // amp envelope lands). `rootNote` is the MIDI note of native pitch.
     void startNote(int midiNote, float velocity = 1.0f, int rootNote = 60);
@@ -116,6 +121,7 @@ public:
 
 private:
     [[nodiscard]] float readInterpolated(int channel, double pos) const;
+    void updateStep(); // recompute step from baseStep + pitchMod + tuneMod
 
     const float* const* sourceChannels = nullptr;
     int sourceNumChannels = 0;
@@ -130,7 +136,8 @@ private:
     double position = 0.0; // fractional read index into the source
     double baseStep = 1.0; // note ratio × rate correction (before pitch mod)
     double step = 1.0;     // input frames consumed per output sample (magnitude)
-    float pitchMod = 0.0f; // pitch modulation in semitones, stacked onto baseStep
+    float pitchMod = 0.0f; // pitch modulation in semitones (mod source, block-rate)
+    float tuneMod = 0.0f;  // static per-note tune in semitones (e.g. a layer's tune)
     int direction = 1;     // +1 forward, -1 reverse (ping-pong)
 
     LoopMode mode = LoopMode::OneShot;
