@@ -71,7 +71,13 @@ public:
         float gain = 1.0f;
         float tuneSemitones = 0.0f;
         bool enabled = true;
-        float pan = 0.0f; // kept last so existing 4-field initializers stay valid
+        float pan = 0.0f; // kept after enabled so existing 4-field initializers stay valid
+        // Optional per-layer filter (overrides the track filter for this layer's
+        // voice). Trailing fields so earlier initializers stay valid.
+        bool filterOverride = false;
+        float cutoffHz = 20000.0f;
+        float resonance = 0.707f;
+        float type = 0.0f;
     };
 
     void setLayerMode(LayerMode mode);

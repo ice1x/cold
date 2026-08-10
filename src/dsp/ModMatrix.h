@@ -44,9 +44,21 @@ public:
         float sampleOffset;
     };
 
+    // Raw filter modulation deltas for one source reading: cutoff in octaves and a
+    // linear type offset, unclamped and relative (no base). Lets a voice modulate
+    // its own base filter (so stacked layers keep independent filters under a
+    // shared LFO), unlike apply() which folds in a single absolute base.
+    struct FilterMod
+    {
+        float cutoffOctaves;
+        float typeOffset;
+    };
+
     void addRoute(ModDestination destination, float amount);
     void clearRoutes();
     [[nodiscard]] bool hasRoutes() const noexcept { return !routes.empty(); }
+
+    [[nodiscard]] FilterMod filterMod(float sourceValue) const;
 
     // Transform the base parameters by every route, given `sourceValue` (typically
     // an LFO or envelope output). cutoff is exponential (octaves) and kept
