@@ -103,6 +103,7 @@ private:
     std::atomic<float>* lfoDivisionParam = nullptr;
     std::atomic<float>* lfoToCutoffParam = nullptr;
     std::atomic<float>* lfoToTypeParam = nullptr;
+    std::atomic<float>* lfoToPitchParam = nullptr;
     std::atomic<float>* trackParam = nullptr;
     std::atomic<float>* ampDelayParam = nullptr;
     std::atomic<float>* ampHoldParam = nullptr;

@@ -61,6 +61,13 @@ void SampleVoice::setModRouting(float toCutoffOctaves, float toTypeOffset)
     useModEnv = std::abs(modToCutoff) > 1.0e-6f || std::abs(modToType) > 1.0e-6f;
 }
 
+void SampleVoice::setPitchModSemitones(float semitones)
+{
+    pitchMod = semitones;
+    // Restack the modulation on the note's captured base step (magnitude).
+    step = baseStep * std::pow(2.0, static_cast<double>(pitchMod) / 12.0);
+}
+
 void SampleVoice::setFilter(float cutoffHz, float resonance, float type)
 {
     baseCutoff = cutoffHz;
@@ -133,7 +140,8 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
     direction = 1;
 
     const double rateCorrection = sourceSampleRate / hostSampleRate;
-    step = noteToRatio(newMidiNote, rootNote) * rateCorrection;
+    baseStep = noteToRatio(newMidiNote, rootNote) * rateCorrection;
+    step = baseStep * std::pow(2.0, static_cast<double>(pitchMod) / 12.0);
 
     ampEnv.noteOn(gain);
     if (useModEnv)
@@ -158,6 +166,7 @@ void SampleVoice::reset()
     active = false;
     midiNote = -1;
     position = 0.0;
+    baseStep = 1.0;
     step = 1.0;
     direction = 1;
     ampEnv.reset();

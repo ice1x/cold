@@ -185,6 +185,7 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000102 — Generalize mod matrix: sources (LFO + envelopes), destinations incl. pitch
 - [x] 000103 — **LFO/mod → sample-select** (per-trig sample-lock) — pick slot/layer at trig
 - [x] 000104 — Expose envelope/LFO/mod params + UI; Logic smoke test of the modulation set
+- [x] 000105 — **LFO/mod → pitch** playback wiring: apply the matrix's pitch offset to the voice ratio + `lfoToPitch` param
 
 ## Backlog (later; assign IDs when scheduled)
 
