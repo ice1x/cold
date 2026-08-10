@@ -63,13 +63,15 @@ public:
     };
 
     // One stacked layer: which sample it plays, plus per-layer gain (scales
-    // velocity) and tune (semitones, independent of pitch modulation).
+    // velocity), tune (semitones, independent of pitch modulation) and pan (stereo
+    // placement in [-1, 1]).
     struct Layer
     {
         int sampleIndex = 0;
         float gain = 1.0f;
         float tuneSemitones = 0.0f;
         bool enabled = true;
+        float pan = 0.0f; // kept last so existing 4-field initializers stay valid
     };
 
     void setLayerMode(LayerMode mode);

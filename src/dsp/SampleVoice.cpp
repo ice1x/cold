@@ -73,6 +73,15 @@ void SampleVoice::setTuneSemitones(float semitones)
     updateStep();
 }
 
+void SampleVoice::setPan(float pan)
+{
+    // Linear balance law: centre leaves both channels at unity; panning attenuates
+    // only the opposite channel, reaching silence at a hard side.
+    const float p = std::clamp(pan, -1.0f, 1.0f);
+    panLeft = p > 0.0f ? 1.0f - p : 1.0f;
+    panRight = p < 0.0f ? 1.0f + p : 1.0f;
+}
+
 void SampleVoice::updateStep()
 {
     // Both the block-rate pitch mod and the static per-note tune ride on the note's
@@ -258,7 +267,9 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
             if (useFilter && ch < static_cast<int>(filters.size()))
                 value = filters[static_cast<size_t>(ch)].process(value);
 
-            out[ch][dest] += value;
+            // Stereo placement: L/R gains from the pan; other channels unaffected.
+            const float panGain = ch == 0 ? panLeft : (ch == 1 ? panRight : 1.0f);
+            out[ch][dest] += value * panGain;
         }
 
         // A finished amp release frees the voice (a transparent env never idles
