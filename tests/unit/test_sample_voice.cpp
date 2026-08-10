@@ -458,6 +458,43 @@ TEST_CASE("SampleVoice mod envelope is inert without routing", "[samplevoice][ds
         REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(static_cast<float>(n), 1e-4));
 }
 
+TEST_CASE("SampleVoice pitch modulation shifts playback speed",
+          "[samplevoice][dsp][unit][pitchmod]")
+{
+    constexpr int frames = 64;
+    auto ramp = makeRamp(frames);
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+    REQUIRE_THAT(voice.increment(), WithinAbs(1.0, 1e-9)); // base step at the root
+
+    voice.setPitchModSemitones(12.0f); // +1 octave -> double the playback speed
+    REQUIRE_THAT(voice.increment(), WithinAbs(2.0, 1e-9));
+
+    auto out = render(voice, 8);
+    for (int n = 0; n < 8; ++n)
+        REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(static_cast<float>(2 * n), 1e-4));
+}
+
+TEST_CASE("SampleVoice pitch modulation stacks on the note ratio",
+          "[samplevoice][dsp][unit][pitchmod]")
+{
+    constexpr int frames = 64;
+    auto ramp = makeRamp(frames);
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+    voice.startNote(kRootNote + 12, 1.0f, kRootNote); // note one octave up -> base step 2
+    voice.setPitchModSemitones(12.0f);                // +1 more octave -> step 4
+    REQUIRE_THAT(voice.increment(), WithinAbs(4.0, 1e-9));
+
+    voice.setPitchModSemitones(0.0f); // clearing the mod returns to the note ratio
+    REQUIRE_THAT(voice.increment(), WithinAbs(2.0, 1e-9));
+}
+
 TEST_CASE("SampleVoice velocity scales output gain", "[samplevoice][dsp][unit]")
 {
     constexpr int frames = 16;

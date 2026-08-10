@@ -252,15 +252,18 @@ void Engine::reset()
 void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSample, int numSamples)
 {
     // Advance the LFO whenever anything is routed (so sample-select's note-time
-    // peek keeps moving), and steer the per-voice filters when the filter is on.
+    // peek keeps moving), then steer the per-voice pitch (always) and filters
+    // (when the filter is on) from the same modulation reading.
     if (modMatrix.hasRoutes())
     {
         const float source = lfo.advance(numSamples);
-        if (filterEnabled)
+        const auto mod = modMatrix.apply(filterCutoff, filterType, source);
+        for (int i = 0; i < polyphony(); ++i)
         {
-            const auto mod = modMatrix.apply(filterCutoff, filterType, source);
-            for (int i = 0; i < polyphony(); ++i)
-                voices[static_cast<size_t>(i)].setFilter(mod.cutoffHz, filterResonance, mod.type);
+            auto& voice = voices[static_cast<size_t>(i)];
+            voice.setPitchModSemitones(mod.pitchSemitones);
+            if (filterEnabled)
+                voice.setFilter(mod.cutoffHz, filterResonance, mod.type);
         }
     }
 
