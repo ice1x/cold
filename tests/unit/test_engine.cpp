@@ -449,6 +449,96 @@ TEST_CASE("Engine LFO trig mode resets the phase at the note", "[engine][dsp][un
     }
 }
 
+TEST_CASE("Engine stack mode triggers all layers together", "[engine][dsp][unit][stack]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.3f);
+    auto c = makeConstant(64, 0.5f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0},
+                          {c.data(), c.numChannels(), c.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::Stack);
+    engine.setLayers({{0, 1.0f, 0.0f, true}, {1, 1.0f, 0.0f, true}, {2, 1.0f, 0.0f, true}});
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(engine.activeVoiceCount() == 3); // one voice per layer
+
+    auto out = render(engine, 4);
+    for (float v : out)
+        REQUIRE_THAT(v, WithinAbs(1.0f, 1e-4)); // 0.2 + 0.3 + 0.5 summed
+}
+
+TEST_CASE("Engine stack per-layer gain scales each layer", "[engine][dsp][unit][stack]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.3f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::Stack);
+    engine.setLayers({{0, 0.5f, 0.0f, true}, {1, 1.0f, 0.0f, true}});
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    auto out = render(engine, 4);
+    for (float v : out)
+        REQUIRE_THAT(v, WithinAbs(0.4f, 1e-4)); // 0.2*0.5 + 0.3*1.0
+}
+
+TEST_CASE("Engine stack per-layer tune repitches a layer", "[engine][dsp][unit][stack]")
+{
+    // A single ramp layer tuned +12 semitones plays back at double speed.
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(64));
+    for (int n = 0; n < 64; ++n)
+        s.channels[0][static_cast<size_t>(n)] = static_cast<float>(n);
+    s.rebuild();
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setPolyphony(1);
+    engine.setSampleList({{s.data(), s.numChannels(), s.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::Stack);
+    engine.setLayers({{0, 1.0f, 12.0f, true}});
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    auto out = render(engine, 8);
+    for (int n = 0; n < 8; ++n)
+        REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(static_cast<float>(2 * n), 1e-4));
+}
+
+TEST_CASE("Engine stack skips disabled and invalid layers", "[engine][dsp][unit][stack]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.3f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::Stack);
+    // layer 0 on; layer 1 disabled; layer 2 out-of-range index -> skipped.
+    engine.setLayers({{0, 1.0f, 0.0f, true}, {1, 1.0f, 0.0f, false}, {5, 1.0f, 0.0f, true}});
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(engine.activeVoiceCount() == 1); // only layer 0 sounds
+    REQUIRE_THAT(render(engine, 4).front(), WithinAbs(0.2f, 1e-4));
+}
+
+TEST_CASE("Engine defaults to Select mode (one voice per note)", "[engine][dsp][unit][stack]")
+{
+    auto s = makeConstant(64);
+    auto engine = makeEngine(s, 4);
+    REQUIRE(engine.layerMode() == Engine::LayerMode::Select);
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(engine.activeVoiceCount() == 1); // Select: a single voice, not a stack
+}
+
 TEST_CASE("Engine reset frees every voice", "[engine][dsp][unit]")
 {
     auto s = makeConstant(64);

@@ -59,6 +59,16 @@ void Engine::setBaseSampleIndex(int index)
     baseSampleIndex = std::clamp(index, 0, std::max(0, sampleCount() - 1));
 }
 
+void Engine::setLayerMode(LayerMode newMode)
+{
+    layerStackMode = newMode;
+}
+
+void Engine::setLayers(const std::vector<Layer>& newLayers)
+{
+    layers = newLayers;
+}
+
 void Engine::setLoopMode(SampleVoice::LoopMode mode)
 {
     loopMode = mode;
@@ -228,10 +238,16 @@ void Engine::noteOn(int midiNote, float velocity, int rootNote)
     // Trig/Hold/OneShot affect the sample-select peek and the block modulation.
     lfo.noteTrigger();
 
-    // Pick the sample for this trig (LFO/mod -> sample-select) and hand it to the
-    // allocated voice, re-applying the voice config for the chosen sample. Gate on
-    // the *selected* slot (not slot 0): with layering, a track is fed the whole
-    // bank and earlier slots may be empty, but its base slot can still be loaded.
+    if (layerStackMode == LayerMode::Stack && !layers.empty())
+    {
+        triggerStack(midiNote, velocity, rootNote);
+        return;
+    }
+
+    // Select mode: pick the sample for this trig (LFO/mod -> sample-select) and
+    // hand it to the allocated voice, re-applying the voice config for the chosen
+    // sample. Gate on the *selected* slot (not slot 0): with layering, a track is
+    // fed the whole bank and earlier slots may be empty, but its base slot loaded.
     currentIndex = selectSampleIndex();
     if (currentIndex < 0 || currentIndex >= sampleCount() ||
         !samples[static_cast<size_t>(currentIndex)].valid())
@@ -241,7 +257,39 @@ void Engine::noteOn(int midiNote, float velocity, int rootNote)
     configureVoice(index, currentIndex);
     voiceNote[static_cast<size_t>(index)] = midiNote;
     voiceAge[static_cast<size_t>(index)] = ++noteCounter;
+    voices[static_cast<size_t>(index)].setTuneSemitones(0.0f); // Select: no per-layer tune
     voices[static_cast<size_t>(index)].startNote(midiNote, velocity, rootNote);
+}
+
+void Engine::triggerStack(int midiNote, float velocity, int rootNote)
+{
+    // Trigger every enabled, valid layer together (a drum built from layers). Each
+    // layer gets its own voice with its sample, per-layer gain (scales velocity)
+    // and per-layer tune (semitones, independent of the pitch mod channel).
+    bool any = false;
+    for (const auto& layer : layers)
+    {
+        if (!layer.enabled)
+            continue;
+        if (layer.sampleIndex < 0 || layer.sampleIndex >= sampleCount() ||
+            !samples[static_cast<size_t>(layer.sampleIndex)].valid())
+            continue;
+
+        const int index = allocateVoice();
+        configureVoice(index, layer.sampleIndex);
+        voiceNote[static_cast<size_t>(index)] = midiNote;
+        voiceAge[static_cast<size_t>(index)] = ++noteCounter;
+
+        auto& voice = voices[static_cast<size_t>(index)];
+        voice.setTuneSemitones(layer.tuneSemitones);
+        voice.startNote(midiNote, std::clamp(velocity * layer.gain, 0.0f, 1.0f), rootNote);
+
+        if (!any)
+        {
+            currentIndex = layer.sampleIndex; // first sounding layer, for queries
+            any = true;
+        }
+    }
 }
 
 void Engine::noteOff(int midiNote)
