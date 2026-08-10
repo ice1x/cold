@@ -84,6 +84,10 @@ public:
     // the LFO's noteTrigger() on every note-on, so this selects the retrig behavior.
     void setLfoTrigMode(LfoTrigMode mode);
 
+    // The LFO-designer waveform: `count` points in [-1, 1] over one cycle. Selects
+    // the Custom shape (call after setLfo when the chosen shape is Custom).
+    void setLfoCustomShape(const float* points, int count);
+
     // Modulation routes. Destinations include the filter morph type, so an LFO
     // can sweep the filter character (the distinctive M3 feature). Modulation is
     // applied block-rate to the (smoothed) per-voice filters when the filter is on.
