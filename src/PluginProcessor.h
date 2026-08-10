@@ -125,6 +125,18 @@ private:
     std::atomic<float>* modToCutoffParam = nullptr;
     std::atomic<float>* modToTypeParam = nullptr;
 
+    // Multilayer one-shot stacks: per-track layer mode + up to kNumLayers layers,
+    // each a bank slot (-1 = off) with per-layer gain and tune.
+    static constexpr int kNumLayers = 4;
+    std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> layerModeParam{};
+    std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
+        layerSlotParam{};
+    std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
+        layerGainParam{};
+    std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
+        layerTuneParam{};
+    std::vector<dsp::Engine::Layer> layerScratch; // reused in applyParamsToTrack (avoids re-alloc)
+
     double hostBpm = 120.0; // last known host tempo (for LFO sync)
 
     int lastPolyphony = -1;
