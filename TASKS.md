@@ -190,9 +190,13 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000107 — **LFO trig modes wiring**: Engine calls `lfo.noteTrigger()` on note-on + `setLfoTrigMode` passthrough; `lfoTrigMode` param (Free/Trig/Hold/One-Shot)
 - [x] 000108 — **LFO custom-shape designer**: `setLfoCustomShape` passthrough + "Custom" shape + 8 `lfoStep*` params gathered when shape=Custom
 
+## M17 — Modulation polish (quality pass after M16)
+
+- [x] 000109 — **Hermite interpolation** in `dsp/SampleVoice` (4-point 3rd-order, linear fallback at edges) — less aliasing on repitch
+
 ## Backlog (later; assign IDs when scheduled)
 
 Pattern chains, separate filter envelope, preset/kit management, higher-quality
-interpolation (Hermite/sinc), per-trig **sample-lock**, **Thru / effects-processor
+interpolation (sinc), per-trig **sample-lock**, **Thru / effects-processor
 mode** (process incoming audio), **Pickup / looper machines**, master-track FX bus,
 dedicated **MIDI sequencer tracks**, **neighbor machine**, cue/preview output.
