@@ -49,6 +49,8 @@ constexpr auto kModSustainId = "modSustain";
 constexpr auto kModReleaseId = "modRelease";
 constexpr auto kModToCutoffId = "modToCutoff";
 constexpr auto kModToTypeId = "modToType";
+constexpr auto kMidiAddressId = "midiAddressing";
+constexpr auto kNoteMapBaseId = "noteMapBase";
 
 // Number of sample-bank slots exposed in M4; bank slot t feeds track t (t < 8).
 constexpr int kNumSlots = 16;
@@ -204,6 +206,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterInt>(juce::ParameterID{kTrackId, 1}, "Track", 0,
                                                    dsp::MultiEngine::kNumTracks - 1, 0));
 
+    // MIDI addressing: Channel (channel N -> track N-1) or Note Map (one channel,
+    // note number picks the track like a GM drum map). In Note Map the sample
+    // plays at its natural pitch; the base note maps to track 0.
+    layout.add(std::make_unique<AudioParameterChoice>(juce::ParameterID{kMidiAddressId, 1},
+                                                      "MIDI Addressing",
+                                                      juce::StringArray{"Channel", "Note Map"}, 0));
+    layout.add(std::make_unique<AudioParameterInt>(juce::ParameterID{kNoteMapBaseId, 1},
+                                                   "Note Map Base", 0, 119, 36));
+
     // Multilayer one-shot stacks: per track, a layer mode (Select = one sample per
     // trig; Stack = all layers together) plus kNumLayers layers. Each layer is a
     // bank slot (-1 = off) with per-layer gain and tune. Defaults keep track t on
@@ -283,6 +294,8 @@ ColdAudioProcessor::ColdAudioProcessor()
     modReleaseParam = apvts.getRawParameterValue(kModReleaseId);
     modToCutoffParam = apvts.getRawParameterValue(kModToCutoffId);
     modToTypeParam = apvts.getRawParameterValue(kModToTypeId);
+    midiAddressParam = apvts.getRawParameterValue(kMidiAddressId);
+    noteMapBaseParam = apvts.getRawParameterValue(kNoteMapBaseId);
 
     for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
     {
@@ -442,7 +455,10 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     const int rootNote = static_cast<int>(rootNoteParam->load());
 
     // Render in segments split on MIDI event boundaries for sample-accurate trigs.
-    // Notes route to a track by MIDI channel (Digitakt-style: channel N -> track N-1).
+    // Notes route to a track either by MIDI channel (Digitakt-style: channel N ->
+    // track N-1) or, in Note Map mode, by note number like a GM drum map.
+    const bool noteMap = midiAddressParam->load() > 0.5f;
+    const int noteBase = static_cast<int>(noteMapBaseParam->load());
     int pos = 0;
     for (const auto meta : midi)
     {
@@ -454,10 +470,26 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         }
 
         const auto msg = meta.getMessage();
-        if (msg.isNoteOn() && msg.getFloatVelocity() > 0.0f)
+        const bool isOn = msg.isNoteOn() && msg.getFloatVelocity() > 0.0f;
+        const bool isOff = msg.isNoteOff() || msg.isNoteOn(); // note-on vel 0 is a note-off
+
+        if (noteMap && (isOn || isOff))
+        {
+            // Note number selects the track; the sample plays at its natural pitch
+            // (trigger at rootNote so the playback ratio is 1).
+            const int track = msg.getNoteNumber() - noteBase;
+            if (track >= 0 && track < dsp::MultiEngine::kNumTracks)
+            {
+                if (isOn)
+                    multi.noteOn(track, rootNote, msg.getFloatVelocity(), rootNote);
+                else
+                    multi.noteOff(track, rootNote);
+            }
+        }
+        else if (isOn)
             multi.routeNoteOn(msg.getChannel(), msg.getNoteNumber(), msg.getFloatVelocity(),
                               rootNote);
-        else if (msg.isNoteOff() || msg.isNoteOn()) // note-on with velocity 0 is a note-off
+        else if (isOff)
             multi.routeNoteOff(msg.getChannel(), msg.getNoteNumber());
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
             multi.reset();
