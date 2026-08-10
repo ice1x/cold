@@ -371,6 +371,46 @@ TEST_CASE("Engine LFO drives sample-select at the trig", "[engine][dsp][unit][sa
     REQUIRE_THAT(render(engine, 4).front(), WithinAbs(1.0f, 1e-4));
 }
 
+TEST_CASE("Engine LFO trig mode resets the phase at the note", "[engine][dsp][unit][trigmode]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.5f);
+    auto c = makeConstant(64, 1.0f);
+
+    auto build = [&](Engine& e)
+    {
+        e.prepare(44100.0);
+        e.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                         {b.data(), b.numChannels(), b.numFrames(), 44100.0},
+                         {c.data(), c.numChannels(), c.numFrames(), 44100.0}});
+        e.setBaseSampleIndex(1);
+        // A fast square LFO: rendering 100 samples pushes the free-running phase
+        // past 0.5 (square flips +1 -> -1) before the trig.
+        e.setLfo(cold::dsp::LfoShape::Square, 264.6f, 1.0f);
+        e.addModRoute(cold::dsp::ModDestination::SampleSelect, 1.0f);
+    };
+
+    SECTION("Trig resets phase, so the trig reads the cycle start (+1 -> upper sample)")
+    {
+        Engine e;
+        build(e);
+        e.setLfoTrigMode(cold::dsp::LfoTrigMode::Trig);
+        render(e, 100); // advance the free-running phase past 0.5
+        e.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE(e.currentSampleIndex() == 2); // reset -> phase 0 -> +1 -> base+1
+    }
+
+    SECTION("Free keeps running, so the trig reads the advanced (-1) value")
+    {
+        Engine e;
+        build(e);
+        e.setLfoTrigMode(cold::dsp::LfoTrigMode::Free);
+        render(e, 100);
+        e.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE(e.currentSampleIndex() == 0); // phase past 0.5 -> -1 -> base-1
+    }
+}
+
 TEST_CASE("Engine reset frees every voice", "[engine][dsp][unit]")
 {
     auto s = makeConstant(64);
