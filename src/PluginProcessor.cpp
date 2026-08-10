@@ -118,7 +118,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     // modulation amounts — to cutoff (octaves) and, distinctively, to filter type.
     layout.add(std::make_unique<AudioParameterChoice>(
         juce::ParameterID{kLfoShapeId, 1}, "LFO Shape",
-        juce::StringArray{"Sine", "Triangle", "Saw Up", "Saw Down", "Square", "Random"}, 0));
+        juce::StringArray{"Sine", "Triangle", "Saw Up", "Saw Down", "Square", "Random", "Custom"},
+        0));
     juce::NormalisableRange<float> rateRange(0.01f, 40.0f, 0.01f);
     rateRange.setSkewForCentre(2.0f);
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kLfoRateId, 1}, "LFO Rate",
@@ -135,6 +136,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterChoice>(
         juce::ParameterID{kLfoTrigModeId, 1}, "LFO Trig Mode",
         juce::StringArray{"Free", "Trig", "Hold", "One-Shot"}, 0));
+    // The LFO designer: eight step levels forming the Custom waveform (used when
+    // LFO Shape = Custom). Defaults sample one sine cycle so Custom starts musical.
+    constexpr std::array<float, kNumCustomSteps> kStepDefaults{0.0f, 0.707f,  1.0f,  0.707f,
+                                                               0.0f, -0.707f, -1.0f, -0.707f};
+    for (int i = 0; i < kNumCustomSteps; ++i)
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{"lfoStep" + juce::String(i + 1), 1},
+            "LFO Step " + juce::String(i + 1), -1.0f, 1.0f, kStepDefaults[static_cast<size_t>(i)]));
     layout.add(std::make_unique<AudioParameterFloat>(
         juce::ParameterID{kLfoToCutoffId, 1}, "LFO -> Cutoff",
         juce::NormalisableRange<float>(-4.0f, 4.0f, 0.01f), 0.0f));
@@ -215,6 +224,9 @@ ColdAudioProcessor::ColdAudioProcessor()
     lfoToPitchParam = apvts.getRawParameterValue(kLfoToPitchId);
     lfoToSampleParam = apvts.getRawParameterValue(kLfoToSampleId);
     lfoTrigModeParam = apvts.getRawParameterValue(kLfoTrigModeId);
+    for (int i = 0; i < kNumCustomSteps; ++i)
+        lfoStepParams[static_cast<size_t>(i)] =
+            apvts.getRawParameterValue("lfoStep" + juce::String(i + 1));
     trackParam = apvts.getRawParameterValue(kTrackId);
 
     // Each track is fed the whole bank as its sample-select list; size the shared
@@ -294,6 +306,14 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     }
     e.setLfo(shape, rateHz, lfoDepthParam->load());
     e.setLfoTrigMode(static_cast<dsp::LfoTrigMode>(static_cast<int>(lfoTrigModeParam->load())));
+    // The Custom shape is driven by the designer's step levels.
+    if (shape == dsp::LfoShape::Custom)
+    {
+        std::array<float, kNumCustomSteps> steps{};
+        for (int i = 0; i < kNumCustomSteps; ++i)
+            steps[static_cast<size_t>(i)] = lfoStepParams[static_cast<size_t>(i)]->load();
+        e.setLfoCustomShape(steps.data(), kNumCustomSteps);
+    }
 
     e.clearModRoutes();
     if (std::abs(lfoToCutoffParam->load()) > 1.0e-4f)

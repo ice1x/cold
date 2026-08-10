@@ -229,6 +229,70 @@ TEST_CASE("Cold LFO->sample-select roams the bank for layering", "[processor][e2
     }
 }
 
+TEST_CASE("Cold LFO Custom designer shape drives sample-select", "[processor][e2e][custom]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    // As in the layering test: track 0's base slot 0 is short (silent tail); the
+    // neighbour slot 1 is long (sounding tail). The Custom LFO's designer steps
+    // decide whether sample-select shifts track 0 onto slot 1 at the trig.
+    auto shortWav = writeTempWav(sampleRate, 1, 8);
+    auto longWav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToSlot(0, shortWav));
+    REQUIRE(proc.loadSampleToSlot(1, longWav));
+    shortWav.deleteFile();
+    longWav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto setAllSteps = [&](float v)
+    {
+        for (int i = 1; i <= 8; ++i)
+            setParam(("lfoStep" + juce::String(i)).toRawUTF8(), v);
+    };
+    auto tailPeak = [](const juce::AudioBuffer<float>& b)
+    {
+        float peak = 0.0f;
+        for (int n = 100; n < b.getNumSamples(); ++n)
+            peak = std::max(peak, std::abs(b.getSample(0, n)));
+        return peak;
+    };
+
+    setParam("lfoShape", 6.0f);          // Custom
+    setParam("lfoToSampleSelect", 1.0f); // +1 slot per +1 of shape
+    juce::AudioBuffer<float> buffer(2, blockSize);
+
+    SECTION("designer steps at +1 shift the track onto the long neighbour")
+    {
+        setAllSteps(1.0f); // Custom reads +1 at phase 0 -> +1 slot offset
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        REQUIRE(tailPeak(buffer) > 0.1f);
+    }
+
+    SECTION("designer steps at 0 leave the track on its short base slot")
+    {
+        setAllSteps(0.0f); // Custom reads 0 -> no offset
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        REQUIRE(tailPeak(buffer) < 1.0e-4f);
+    }
+}
+
 TEST_CASE("Cold processor loads a folder into consecutive slots", "[processor][e2e][bank]")
 {
     constexpr double sampleRate = 44100.0;
@@ -263,7 +327,8 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
           "track",         "ampDelay",        "ampHold",           "ampAttackCurve",
           "ampDecayCurve", "ampReleaseCurve", "ampVelocity",       "modAttack",
           "modDecay",      "modSustain",      "modRelease",        "modToCutoff",
-          "modToType",     "lfoToPitch",      "lfoToSampleSelect", "lfoTrigMode"})
+          "modToType",     "lfoToPitch",      "lfoToSampleSelect", "lfoTrigMode",
+          "lfoStep1",      "lfoStep4",        "lfoStep8"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 
