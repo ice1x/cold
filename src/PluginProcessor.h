@@ -139,6 +139,12 @@ private:
         layerTuneParam{};
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
         layerPanParam{};
+    std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
+        layerFilterOnParam{};
+    std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
+        layerCutoffParam{};
+    std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
+        layerTypeParam{};
     std::vector<dsp::Engine::Layer> layerScratch; // reused in applyParamsToTrack (avoids re-alloc)
 
     double hostBpm = 120.0; // last known host tempo (for LFO sync)
