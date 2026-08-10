@@ -371,6 +371,44 @@ TEST_CASE("Engine LFO drives sample-select at the trig", "[engine][dsp][unit][sa
     REQUIRE_THAT(render(engine, 4).front(), WithinAbs(1.0f, 1e-4));
 }
 
+TEST_CASE("Engine LFO custom shape feeds the designer waveform", "[engine][dsp][unit][custom]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.5f);
+    auto c = makeConstant(64, 1.0f);
+
+    auto build = [&](Engine& e)
+    {
+        e.prepare(44100.0);
+        e.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                         {b.data(), b.numChannels(), b.numFrames(), 44100.0},
+                         {c.data(), c.numChannels(), c.numFrames(), 44100.0}});
+        e.setBaseSampleIndex(1);
+        e.setLfo(cold::dsp::LfoShape::Custom, 0.001f, 1.0f); // near-static, phase ~0
+        e.addModRoute(cold::dsp::ModDestination::SampleSelect, 1.0f);
+    };
+
+    SECTION("a +1 designer step selects the upper neighbour at the trig")
+    {
+        Engine e;
+        build(e);
+        const float up[] = {1.0f, 1.0f};
+        e.setLfoCustomShape(up, 2);
+        e.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE(e.currentSampleIndex() == 2); // +1 offset -> base+1
+    }
+
+    SECTION("a -1 designer step selects the lower neighbour at the trig")
+    {
+        Engine e;
+        build(e);
+        const float down[] = {-1.0f, -1.0f};
+        e.setLfoCustomShape(down, 2);
+        e.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE(e.currentSampleIndex() == 0); // -1 offset -> base-1
+    }
+}
+
 TEST_CASE("Engine LFO trig mode resets the phase at the note", "[engine][dsp][unit][trigmode]")
 {
     auto a = makeConstant(64, 0.2f);

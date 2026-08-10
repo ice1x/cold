@@ -131,6 +131,11 @@ void Engine::setLfoTrigMode(LfoTrigMode mode)
     lfo.setTrigMode(mode);
 }
 
+void Engine::setLfoCustomShape(const float* points, int count)
+{
+    lfo.setCustomShape(points, count);
+}
+
 void Engine::addModRoute(ModDestination destination, float amount)
 {
     modMatrix.addRoute(destination, amount);

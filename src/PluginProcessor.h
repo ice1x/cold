@@ -108,6 +108,9 @@ private:
     std::atomic<float>* lfoToPitchParam = nullptr;
     std::atomic<float>* lfoToSampleParam = nullptr;
     std::atomic<float>* lfoTrigModeParam = nullptr;
+    // The LFO designer: kNumCustomSteps step levels forming the Custom waveform.
+    static constexpr int kNumCustomSteps = 8;
+    std::array<std::atomic<float>*, kNumCustomSteps> lfoStepParams{};
     std::atomic<float>* trackParam = nullptr;
     std::atomic<float>* ampDelayParam = nullptr;
     std::atomic<float>* ampHoldParam = nullptr;
