@@ -240,6 +240,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
                 juce::NormalisableRange<float>(-24.0f, 24.0f, 0.01f), 0.0f));
             layout.add(std::make_unique<AudioParameterFloat>(
                 juce::ParameterID{layerParamId(t, l, "pan"), 1}, lp + "Pan", -1.0f, 1.0f, 0.0f));
+            // Optional per-layer filter (overrides the track filter for this layer).
+            layout.add(std::make_unique<juce::AudioParameterBool>(
+                juce::ParameterID{layerParamId(t, l, "filterOn"), 1}, lp + "Filter On", false));
+            juce::NormalisableRange<float> layerCutoff(20.0f, 20000.0f, 1.0f);
+            layerCutoff.setSkewForCentre(1000.0f);
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "cutoff"), 1}, lp + "Cutoff", layerCutoff,
+                20000.0f));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "ftype"), 1}, lp + "Filter Type", 0.0f, 1.0f,
+                0.0f));
         }
     }
 
@@ -308,6 +319,9 @@ ColdAudioProcessor::ColdAudioProcessor()
             layerGainParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "gain"));
             layerTuneParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "tune"));
             layerPanParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "pan"));
+            layerFilterOnParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "filterOn"));
+            layerCutoffParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "cutoff"));
+            layerTypeParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "ftype"));
         }
     }
     layerScratch.reserve(static_cast<size_t>(kNumLayers));
@@ -408,9 +422,11 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
             const int slot = static_cast<int>(layerSlotParam[tt][ll]->load());
             if (slot < 0)
                 continue;
-            layerScratch.push_back({slot, layerGainParam[tt][ll]->load(),
-                                    layerTuneParam[tt][ll]->load(), true,
-                                    layerPanParam[tt][ll]->load()});
+            const bool filterOn = layerFilterOnParam[tt][ll]->load() > 0.5f;
+            layerScratch.push_back(
+                {slot, layerGainParam[tt][ll]->load(), layerTuneParam[tt][ll]->load(), true,
+                 layerPanParam[tt][ll]->load(), filterOn, layerCutoffParam[tt][ll]->load(), 0.707f,
+                 layerTypeParam[tt][ll]->load()});
         }
         e.setLayers(layerScratch);
     }
