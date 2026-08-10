@@ -126,6 +126,11 @@ void Engine::setLfo(LfoShape shape, float rateHz, float depth)
     lfo.setDepth(depth);
 }
 
+void Engine::setLfoTrigMode(LfoTrigMode mode)
+{
+    lfo.setTrigMode(mode);
+}
+
 void Engine::addModRoute(ModDestination destination, float amount)
 {
     modMatrix.addRoute(destination, amount);
@@ -213,6 +218,10 @@ void Engine::noteOn(int midiNote, float velocity, int rootNote)
 {
     if (samples.empty())
         return;
+
+    // Apply the LFO's trig-mode reaction to this note before anything reads it, so
+    // Trig/Hold/OneShot affect the sample-select peek and the block modulation.
+    lfo.noteTrigger();
 
     // Pick the sample for this trig (LFO/mod -> sample-select) and hand it to the
     // allocated voice, re-applying the voice config for the chosen sample. Gate on

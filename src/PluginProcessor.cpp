@@ -35,6 +35,7 @@ constexpr auto kLfoToCutoffId = "lfoToCutoff";
 constexpr auto kLfoToTypeId = "lfoToType";
 constexpr auto kLfoToPitchId = "lfoToPitch";
 constexpr auto kLfoToSampleId = "lfoToSampleSelect";
+constexpr auto kLfoTrigModeId = "lfoTrigMode";
 constexpr auto kTrackId = "track";
 constexpr auto kAmpDelayId = "ampDelay";
 constexpr auto kAmpHoldId = "ampHold";
@@ -129,6 +130,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterChoice>(
         juce::ParameterID{kLfoDivisionId, 1}, "LFO Division",
         juce::StringArray{"4 bars", "2 bars", "1 bar", "1/2", "1/4", "1/8", "1/16"}, 4));
+    // How the LFO reacts to each note: Free (ignore), Trig (restart phase), Hold
+    // (latch its value at the trig), One-Shot (one cycle per note, then freeze).
+    layout.add(std::make_unique<AudioParameterChoice>(
+        juce::ParameterID{kLfoTrigModeId, 1}, "LFO Trig Mode",
+        juce::StringArray{"Free", "Trig", "Hold", "One-Shot"}, 0));
     layout.add(std::make_unique<AudioParameterFloat>(
         juce::ParameterID{kLfoToCutoffId, 1}, "LFO -> Cutoff",
         juce::NormalisableRange<float>(-4.0f, 4.0f, 0.01f), 0.0f));
@@ -208,6 +214,7 @@ ColdAudioProcessor::ColdAudioProcessor()
     lfoToTypeParam = apvts.getRawParameterValue(kLfoToTypeId);
     lfoToPitchParam = apvts.getRawParameterValue(kLfoToPitchId);
     lfoToSampleParam = apvts.getRawParameterValue(kLfoToSampleId);
+    lfoTrigModeParam = apvts.getRawParameterValue(kLfoTrigModeId);
     trackParam = apvts.getRawParameterValue(kTrackId);
 
     // Each track is fed the whole bank as its sample-select list; size the shared
@@ -286,6 +293,7 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
         rateHz = static_cast<float>(dsp::Lfo::divisionToHz(hostBpm, kDivisionBeats[idx]));
     }
     e.setLfo(shape, rateHz, lfoDepthParam->load());
+    e.setLfoTrigMode(static_cast<dsp::LfoTrigMode>(static_cast<int>(lfoTrigModeParam->load())));
 
     e.clearModRoutes();
     if (std::abs(lfoToCutoffParam->load()) > 1.0e-4f)
