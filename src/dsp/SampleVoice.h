@@ -85,6 +85,12 @@ public:
     void setFilterEnabled(bool enabled);
     [[nodiscard]] bool filterEnabled() const noexcept { return useFilter; }
 
+    // Pitch modulation in semitones (from an LFO / mod source), applied on top of
+    // the note's base playback ratio. Takes effect immediately for the next
+    // samples; 0 restores the plain note pitch. Block-rate in practice (the engine
+    // sets it once per rendered block, like the filter modulation).
+    void setPitchModSemitones(float semitones);
+
     // Begin a note. `velocity` in [0, 1] scales output gain (a stand-in until the
     // amp envelope lands). `rootNote` is the MIDI note of native pitch.
     void startNote(int midiNote, float velocity = 1.0f, int rootNote = 60);
@@ -122,7 +128,9 @@ private:
     int midiNote = -1;
     float gain = 1.0f;
     double position = 0.0; // fractional read index into the source
+    double baseStep = 1.0; // note ratio × rate correction (before pitch mod)
     double step = 1.0;     // input frames consumed per output sample (magnitude)
+    float pitchMod = 0.0f; // pitch modulation in semitones, stacked onto baseStep
     int direction = 1;     // +1 forward, -1 reverse (ping-pong)
 
     LoopMode mode = LoopMode::OneShot;

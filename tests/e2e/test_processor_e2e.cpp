@@ -204,7 +204,7 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "track",         "ampDelay",        "ampHold",      "ampAttackCurve",
                            "ampDecayCurve", "ampReleaseCurve", "ampVelocity",  "modAttack",
                            "modDecay",      "modSustain",      "modRelease",   "modToCutoff",
-                           "modToType"})
+                           "modToType",     "lfoToPitch"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 

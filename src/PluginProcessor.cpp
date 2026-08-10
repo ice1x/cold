@@ -33,6 +33,7 @@ constexpr auto kLfoSyncId = "lfoSync";
 constexpr auto kLfoDivisionId = "lfoDivision";
 constexpr auto kLfoToCutoffId = "lfoToCutoff";
 constexpr auto kLfoToTypeId = "lfoToType";
+constexpr auto kLfoToPitchId = "lfoToPitch";
 constexpr auto kTrackId = "track";
 constexpr auto kAmpDelayId = "ampDelay";
 constexpr auto kAmpHoldId = "ampHold";
@@ -133,6 +134,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterFloat>(
         juce::ParameterID{kLfoToTypeId, 1}, "LFO -> Filter Type",
         juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kLfoToPitchId, 1}, "LFO -> Pitch",
+        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.01f), 0.0f));
 
     // Amp envelope extras: delay/hold stages, per-segment curves, velocity.
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kAmpDelayId, 1}, "Amp Delay",
@@ -196,6 +200,7 @@ ColdAudioProcessor::ColdAudioProcessor()
     lfoDivisionParam = apvts.getRawParameterValue(kLfoDivisionId);
     lfoToCutoffParam = apvts.getRawParameterValue(kLfoToCutoffId);
     lfoToTypeParam = apvts.getRawParameterValue(kLfoToTypeId);
+    lfoToPitchParam = apvts.getRawParameterValue(kLfoToPitchId);
     trackParam = apvts.getRawParameterValue(kTrackId);
     ampDelayParam = apvts.getRawParameterValue(kAmpDelayId);
     ampHoldParam = apvts.getRawParameterValue(kAmpHoldId);
@@ -274,6 +279,8 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
         e.addModRoute(dsp::ModDestination::FilterCutoff, lfoToCutoffParam->load());
     if (std::abs(lfoToTypeParam->load()) > 1.0e-4f)
         e.addModRoute(dsp::ModDestination::FilterType, lfoToTypeParam->load());
+    if (std::abs(lfoToPitchParam->load()) > 1.0e-4f)
+        e.addModRoute(dsp::ModDestination::Pitch, lfoToPitchParam->load());
 }
 
 void ColdAudioProcessor::updateEngineParameters()
