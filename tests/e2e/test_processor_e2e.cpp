@@ -171,6 +171,60 @@ TEST_CASE("Cold processor routes MIDI channels to tracks", "[processor][e2e][mul
     proc.releaseResources();
 }
 
+TEST_CASE("Cold per-layer filter darkens a stacked layer", "[processor][e2e][stack][filter]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 8000; // long enough for the filter smoother to settle
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // The known signal (a ~750 Hz sine) into slot 0 / track 0 in Stack mode.
+    auto wav = writeTempWav(sampleRate, 1, frames);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto tailPeak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int n = b.getNumSamples() - 1000; n < b.getNumSamples(); ++n) // settled tail
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    setParam("t0_layerMode", 1.0f); // Stack (layer 0 = slot 0 by default)
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    float openPeak = 0.0f;
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        openPeak = tailPeak(buffer);
+        REQUIRE(openPeak > 0.1f);
+    }
+
+    // Enable the layer filter with a very low cutoff -> the tone is attenuated.
+    setParam("t0_lyr0_filterOn", 1.0f);
+    setParam("t0_lyr0_cutoff", 80.0f);
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(tailPeak(buffer) < 0.3f * openPeak);
+    }
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold Note Map addressing routes by note number", "[processor][e2e][notemap]")
 {
     constexpr double sampleRate = 44100.0;
@@ -424,19 +478,57 @@ TEST_CASE("Cold processor loads a folder into consecutive slots", "[processor][e
 TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
 {
     ColdAudioProcessor proc;
-    for (const auto* id :
-         {"gain",          "polyphony",       "loopMode",          "loopStart",
-          "loopEnd",       "rootNote",        "ampAttack",         "ampDecay",
-          "ampSustain",    "ampRelease",      "filterCutoff",      "filterResonance",
-          "filterType",    "lfoShape",        "lfoRate",           "lfoDepth",
-          "lfoSync",       "lfoDivision",     "lfoToCutoff",       "lfoToType",
-          "track",         "ampDelay",        "ampHold",           "ampAttackCurve",
-          "ampDecayCurve", "ampReleaseCurve", "ampVelocity",       "modAttack",
-          "modDecay",      "modSustain",      "modRelease",        "modToCutoff",
-          "modToType",     "lfoToPitch",      "lfoToSampleSelect", "lfoTrigMode",
-          "lfoStep1",      "lfoStep4",        "lfoStep8",          "t0_layerMode",
-          "t0_lyr0_slot",  "t0_lyr1_gain",    "t0_lyr3_tune",      "t7_layerMode",
-          "t0_lyr0_pan",   "t3_lyr2_pan",     "midiAddressing",    "noteMapBase"})
+    for (const auto* id : {"gain",
+                           "polyphony",
+                           "loopMode",
+                           "loopStart",
+                           "loopEnd",
+                           "rootNote",
+                           "ampAttack",
+                           "ampDecay",
+                           "ampSustain",
+                           "ampRelease",
+                           "filterCutoff",
+                           "filterResonance",
+                           "filterType",
+                           "lfoShape",
+                           "lfoRate",
+                           "lfoDepth",
+                           "lfoSync",
+                           "lfoDivision",
+                           "lfoToCutoff",
+                           "lfoToType",
+                           "track",
+                           "ampDelay",
+                           "ampHold",
+                           "ampAttackCurve",
+                           "ampDecayCurve",
+                           "ampReleaseCurve",
+                           "ampVelocity",
+                           "modAttack",
+                           "modDecay",
+                           "modSustain",
+                           "modRelease",
+                           "modToCutoff",
+                           "modToType",
+                           "lfoToPitch",
+                           "lfoToSampleSelect",
+                           "lfoTrigMode",
+                           "lfoStep1",
+                           "lfoStep4",
+                           "lfoStep8",
+                           "t0_layerMode",
+                           "t0_lyr0_slot",
+                           "t0_lyr1_gain",
+                           "t0_lyr3_tune",
+                           "t7_layerMode",
+                           "t0_lyr0_pan",
+                           "t3_lyr2_pan",
+                           "midiAddressing",
+                           "noteMapBase",
+                           "t0_lyr0_filterOn",
+                           "t0_lyr0_cutoff",
+                           "t2_lyr1_ftype"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 
