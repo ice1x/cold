@@ -413,6 +413,33 @@ TEST_CASE("SampleVoice low-pass filter attenuates a bright sample",
     REQUIRE(filtPeak < 0.1f * rawPeak); // heavily attenuated
 }
 
+TEST_CASE("SampleVoice LFO filter mod attenuates relative to the base cutoff",
+          "[samplevoice][dsp][unit][filter]")
+{
+    constexpr int frames = 8000;
+    auto sine = makeSine(frames, 6000.0, 48000.0); // bright but below Nyquist
+
+    // Base filter wide open -> the 6 kHz tone passes; a -6 octave LFO mod pulls the
+    // cutoff down around that base, so the same voice now attenuates it.
+    SampleVoice open;
+    open.prepare(48000.0);
+    open.setSample(sine.data(), sine.numChannels(), sine.numFrames(), 48000.0);
+    open.setFilter(12000.0f, 0.707f, 0.0f);
+    open.startNote(kRootNote, 1.0f, kRootNote);
+    const float openPeak = tailPeak(render(open, frames), 1000);
+
+    SampleVoice modded;
+    modded.prepare(48000.0);
+    modded.setSample(sine.data(), sine.numChannels(), sine.numFrames(), 48000.0);
+    modded.setFilter(12000.0f, 0.707f, 0.0f); // same open base
+    modded.setFilterLfoMod(-6.0f, 0.0f);      // pull cutoff down 6 octaves -> ~187 Hz
+    modded.startNote(kRootNote, 1.0f, kRootNote);
+    const float moddedPeak = tailPeak(render(modded, frames), 1000);
+
+    REQUIRE(openPeak > 0.7f);
+    REQUIRE(moddedPeak < 0.3f * openPeak); // relative mod closed the filter
+}
+
 TEST_CASE("SampleVoice mod envelope opens the filter over the note",
           "[samplevoice][dsp][unit][modenv]")
 {

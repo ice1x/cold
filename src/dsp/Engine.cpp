@@ -285,6 +285,9 @@ void Engine::triggerStack(int midiNote, float velocity, int rootNote)
         auto& voice = voices[static_cast<size_t>(index)];
         voice.setTuneSemitones(layer.tuneSemitones);
         voice.setPan(layer.pan);
+        // Per-layer filter overrides the track filter base for this voice.
+        if (layer.filterOverride)
+            voice.setFilter(layer.cutoffHz, layer.resonance, layer.type);
         voice.startNote(midiNote, std::clamp(velocity * layer.gain, 0.0f, 1.0f), rootNote);
 
         if (!any)
@@ -328,12 +331,15 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
     {
         const float source = lfo.advance(numSamples);
         const auto mod = modMatrix.apply(filterCutoff, filterType, source);
+        const auto fmod = modMatrix.filterMod(source); // relative filter deltas
         for (int i = 0; i < polyphony(); ++i)
         {
             auto& voice = voices[static_cast<size_t>(i)];
             voice.setPitchModSemitones(mod.pitchSemitones);
+            // Modulate each voice around its OWN base filter, so stacked layers with
+            // independent filters stay independent under the shared track LFO.
             if (filterEnabled)
-                voice.setFilter(mod.cutoffHz, filterResonance, mod.type);
+                voice.setFilterLfoMod(fmod.cutoffOctaves, fmod.typeOffset);
         }
     }
 
