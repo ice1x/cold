@@ -227,6 +227,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             layout.add(std::make_unique<AudioParameterFloat>(
                 juce::ParameterID{layerParamId(t, l, "tune"), 1}, lp + "Tune",
                 juce::NormalisableRange<float>(-24.0f, 24.0f, 0.01f), 0.0f));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "pan"), 1}, lp + "Pan", -1.0f, 1.0f, 0.0f));
         }
     }
 
@@ -292,6 +294,7 @@ ColdAudioProcessor::ColdAudioProcessor()
             layerSlotParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "slot"));
             layerGainParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "gain"));
             layerTuneParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "tune"));
+            layerPanParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "pan"));
         }
     }
     layerScratch.reserve(static_cast<size_t>(kNumLayers));
@@ -392,8 +395,9 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
             const int slot = static_cast<int>(layerSlotParam[tt][ll]->load());
             if (slot < 0)
                 continue;
-            layerScratch.push_back(
-                {slot, layerGainParam[tt][ll]->load(), layerTuneParam[tt][ll]->load(), true});
+            layerScratch.push_back({slot, layerGainParam[tt][ll]->load(),
+                                    layerTuneParam[tt][ll]->load(), true,
+                                    layerPanParam[tt][ll]->load()});
         }
         e.setLayers(layerScratch);
     }

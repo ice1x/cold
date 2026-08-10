@@ -386,7 +386,8 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
           "modDecay",      "modSustain",      "modRelease",        "modToCutoff",
           "modToType",     "lfoToPitch",      "lfoToSampleSelect", "lfoTrigMode",
           "lfoStep1",      "lfoStep4",        "lfoStep8",          "t0_layerMode",
-          "t0_lyr0_slot",  "t0_lyr1_gain",    "t0_lyr3_tune",      "t7_layerMode"})
+          "t0_lyr0_slot",  "t0_lyr1_gain",    "t0_lyr3_tune",      "t7_layerMode",
+          "t0_lyr0_pan",   "t3_lyr2_pan"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 
