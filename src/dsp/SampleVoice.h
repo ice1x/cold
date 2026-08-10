@@ -96,6 +96,11 @@ public:
     // the two are independent channels onto the same playback ratio.
     void setTuneSemitones(float semitones);
 
+    // Stereo placement in [-1, 1] (L..R). Linear balance law: centre (0) leaves
+    // both channels at unity (unchanged fan-out), a hard side silences the other.
+    // Used to spread a stack's layers across the panorama.
+    void setPan(float pan);
+
     // Begin a note. `velocity` in [0, 1] scales output gain (a stand-in until the
     // amp envelope lands). `rootNote` is the MIDI note of native pitch.
     void startNote(int midiNote, float velocity = 1.0f, int rootNote = 60);
@@ -138,7 +143,9 @@ private:
     double step = 1.0;     // input frames consumed per output sample (magnitude)
     float pitchMod = 0.0f; // pitch modulation in semitones (mod source, block-rate)
     float tuneMod = 0.0f;  // static per-note tune in semitones (e.g. a layer's tune)
-    int direction = 1;     // +1 forward, -1 reverse (ping-pong)
+    float panLeft = 1.0f;  // left/right channel gains from the pan (unity at centre)
+    float panRight = 1.0f;
+    int direction = 1; // +1 forward, -1 reverse (ping-pong)
 
     LoopMode mode = LoopMode::OneShot;
     int loopStartFrame = 0;
