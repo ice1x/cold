@@ -537,6 +537,48 @@ TEST_CASE("SampleVoice tune stacks with pitch modulation", "[samplevoice][dsp][u
     REQUIRE_THAT(voice.increment(), WithinAbs(2.0, 1e-9));
 }
 
+TEST_CASE("SampleVoice pan places a mono source in the stereo field",
+          "[samplevoice][dsp][unit][pan]")
+{
+    constexpr int frames = 16;
+    auto flat = makeConstant(frames, 1.0f);
+
+    auto renderStereo = [&](float pan)
+    {
+        SampleVoice voice;
+        voice.prepare(44100.0);
+        voice.setSample(flat.data(), flat.numChannels(), flat.numFrames(), 44100.0);
+        voice.setPan(pan);
+        voice.startNote(kRootNote, 1.0f, kRootNote);
+
+        std::vector<std::vector<float>> out(2, std::vector<float>(frames, 0.0f));
+        std::vector<float*> ptrs{out[0].data(), out[1].data()};
+        voice.renderNextBlock(ptrs.data(), 2, 0, frames);
+        return out;
+    };
+
+    SECTION("center keeps both channels at unity (unchanged fan-out)")
+    {
+        auto out = renderStereo(0.0f);
+        REQUIRE_THAT(out[0][4], WithinAbs(1.0f, 1e-4));
+        REQUIRE_THAT(out[1][4], WithinAbs(1.0f, 1e-4));
+    }
+
+    SECTION("hard left puts the signal on the left channel only")
+    {
+        auto out = renderStereo(-1.0f);
+        REQUIRE_THAT(out[0][4], WithinAbs(1.0f, 1e-4));
+        REQUIRE_THAT(out[1][4], WithinAbs(0.0f, 1e-4));
+    }
+
+    SECTION("hard right puts the signal on the right channel only")
+    {
+        auto out = renderStereo(1.0f);
+        REQUIRE_THAT(out[0][4], WithinAbs(0.0f, 1e-4));
+        REQUIRE_THAT(out[1][4], WithinAbs(1.0f, 1e-4));
+    }
+}
+
 TEST_CASE("SampleVoice velocity scales output gain", "[samplevoice][dsp][unit]")
 {
     constexpr int frames = 16;

@@ -257,8 +257,10 @@ void Engine::noteOn(int midiNote, float velocity, int rootNote)
     configureVoice(index, currentIndex);
     voiceNote[static_cast<size_t>(index)] = midiNote;
     voiceAge[static_cast<size_t>(index)] = ++noteCounter;
-    voices[static_cast<size_t>(index)].setTuneSemitones(0.0f); // Select: no per-layer tune
-    voices[static_cast<size_t>(index)].startNote(midiNote, velocity, rootNote);
+    auto& voice = voices[static_cast<size_t>(index)];
+    voice.setTuneSemitones(0.0f); // Select: no per-layer tune
+    voice.setPan(0.0f);           // Select: centred (unity fan-out)
+    voice.startNote(midiNote, velocity, rootNote);
 }
 
 void Engine::triggerStack(int midiNote, float velocity, int rootNote)
@@ -282,6 +284,7 @@ void Engine::triggerStack(int midiNote, float velocity, int rootNote)
 
         auto& voice = voices[static_cast<size_t>(index)];
         voice.setTuneSemitones(layer.tuneSemitones);
+        voice.setPan(layer.pan);
         voice.startNote(midiNote, std::clamp(velocity * layer.gain, 0.0f, 1.0f), rootNote);
 
         if (!any)

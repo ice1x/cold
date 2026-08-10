@@ -529,6 +529,30 @@ TEST_CASE("Engine stack skips disabled and invalid layers", "[engine][dsp][unit]
     REQUIRE_THAT(render(engine, 4).front(), WithinAbs(0.2f, 1e-4));
 }
 
+TEST_CASE("Engine stack per-layer pan spreads layers across the stereo field",
+          "[engine][dsp][unit][stack][pan]")
+{
+    auto a = makeConstant(64, 0.4f);
+    auto b = makeConstant(64, 0.6f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::Stack);
+    engine.setLayers({{0, 1.0f, 0.0f, true, -1.0f},  // layer A hard left
+                      {1, 1.0f, 0.0f, true, 1.0f}}); // layer B hard right
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+
+    std::vector<std::vector<float>> out(2, std::vector<float>(4, 0.0f));
+    std::vector<float*> ptrs{out[0].data(), out[1].data()};
+    engine.renderNextBlock(ptrs.data(), 2, 0, 4);
+
+    // Left carries only layer A (0.4), right only layer B (0.6).
+    REQUIRE_THAT(out[0][0], WithinAbs(0.4f, 1e-4));
+    REQUIRE_THAT(out[1][0], WithinAbs(0.6f, 1e-4));
+}
+
 TEST_CASE("Engine defaults to Select mode (one voice per note)", "[engine][dsp][unit][stack]")
 {
     auto s = makeConstant(64);
