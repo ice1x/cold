@@ -9,13 +9,15 @@
 namespace cold
 {
 
-// Minimal M1 UI: a "Load Sample…" button + the loaded file name on top, with
-// JUCE's generic parameter panel (auto-built from the APVTS) filling the rest.
+// Custom sectioned editor: a fixed top bar (Load buttons + sample name) over a
+// scrollable panel of grouped knobs/combos. Global sound params (amp/mod env,
+// filter, LFO, loop, master) attach once; the per-track panel (layer mode + the
+// four layers) re-attaches to the selected track when the Track selector changes.
 class ColdAudioProcessorEditor : public juce::AudioProcessorEditor
 {
 public:
     explicit ColdAudioProcessorEditor(ColdAudioProcessor&);
-    ~ColdAudioProcessorEditor() override = default;
+    ~ColdAudioProcessorEditor() override;
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -23,14 +25,19 @@ public:
 private:
     void chooseSample();
     void chooseFolder();
+    void refreshSampleName();
+
+    class Content; // the scrolled panel; defined in the .cpp
 
     ColdAudioProcessor& processorRef;
 
-    juce::TextButton loadButton{"Load Sample…"};
-    juce::TextButton loadFolderButton{"Load Folder…"};
+    juce::TextButton loadButton;
+    juce::TextButton loadFolderButton;
     juce::Label sampleNameLabel;
-    juce::GenericAudioProcessorEditor genericEditor{processorRef};
     std::unique_ptr<juce::FileChooser> chooser;
+
+    juce::Viewport viewport;
+    std::unique_ptr<Content> content;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ColdAudioProcessorEditor)
 };

@@ -64,6 +64,9 @@ public:
     [[nodiscard]] int numSlots() const;
     [[nodiscard]] juce::String loadedSampleName() const; // selected track's sample name
 
+    // Max layers per track (Stack mode). Public so the editor can lay out the rows.
+    static constexpr int kNumLayers = 4;
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
@@ -127,9 +130,9 @@ private:
     std::atomic<float>* midiAddressParam = nullptr; // 0 = channel->track, 1 = note map
     std::atomic<float>* noteMapBaseParam = nullptr; // note that maps to track 0
 
-    // Multilayer one-shot stacks: per-track layer mode + up to kNumLayers layers,
-    // each a bank slot (-1 = off) with per-layer gain and tune.
-    static constexpr int kNumLayers = 4;
+    // Multilayer one-shot stacks: per-track layer mode + up to kNumLayers layers
+    // (kNumLayers declared public above), each a bank slot (-1 = off) with
+    // per-layer gain and tune.
     std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> layerModeParam{};
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
         layerSlotParam{};
