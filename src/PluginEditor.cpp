@@ -23,9 +23,13 @@ juce::String u8(const char* s)
 class LabeledControl : public juce::Component
 {
 public:
-    LabeledControl(const juce::String& name, std::unique_ptr<juce::Component> c)
+    LabeledControl(const juce::String& name, std::unique_ptr<juce::Component> c,
+                   const juce::String& tooltip = {})
         : control(std::move(c))
     {
+        if (tooltip.isNotEmpty())
+            if (auto* client = dynamic_cast<juce::SettableTooltipClient*>(control.get()))
+                client->setTooltip(tooltip);
         caption.setText(name, juce::dontSendNotification);
         caption.setJustificationType(juce::Justification::centred);
         caption.setFont(juce::Font(11.0f));
@@ -77,13 +81,11 @@ public:
     void resized() override
     {
         constexpr int pad = 10;
-        constexpr int cellW = 74;
         constexpr int cellH = 62;
         constexpr int headerH = 22;
         constexpr int gap = 6;
 
         const int width = juce::jmax(getWidth(), 320);
-        const int cols = juce::jmax(1, (width - 2 * pad + gap) / (cellW + gap));
 
         int y = pad;
         for (auto& s : sections)
@@ -91,20 +93,27 @@ public:
             s.header->setBounds(pad, y, width - 2 * pad, headerH);
             y += headerH;
 
+            // Wide sections (the sample bank) use 4 stretched columns of short
+            // rows; knob sections use a fixed-size cell grid.
+            const int cellW = s.wideCells ? (width - 2 * pad - 3 * gap) / 4 : 74;
+            const int rowH = s.wideCells ? 24 : cellH;
+            const int cols =
+                s.wideCells ? 4 : juce::jmax(1, (width - 2 * pad + gap) / (cellW + gap));
+
             int col = 0;
             int rowTop = y;
             for (auto* cell : s.cells)
             {
                 const int x = pad + col * (cellW + gap);
-                cell->setBounds(x, rowTop, cellW, cellH);
+                cell->setBounds(x, rowTop, cellW, rowH);
                 if (++col >= cols)
                 {
                     col = 0;
-                    rowTop += cellH + gap;
+                    rowTop += rowH + gap;
                 }
             }
             if (col != 0)
-                rowTop += cellH + gap;
+                rowTop += rowH + gap;
             y = rowTop + gap;
         }
 
@@ -113,11 +122,23 @@ public:
             setSize(width, y); // grow so the Viewport can scroll to everything
     }
 
+    // Refresh the bank slot buttons (call after any sample load).
+    void refreshBank()
+    {
+        for (int k = 0; k < static_cast<int>(bankButtons.size()); ++k)
+        {
+            const auto name = proc.slotSampleName(k);
+            bankButtons[static_cast<size_t>(k)]->setButtonText(
+                juce::String(k + 1) + ": " + (name.isEmpty() ? juce::String("(empty)") : name));
+        }
+    }
+
 private:
     struct Section
     {
         juce::Label* header;
-        std::vector<juce::Component*> cells; // LabeledControl*
+        std::vector<juce::Component*> cells; // LabeledControl* (or raw buttons if wide)
+        bool wideCells = false;              // stretched short rows (the sample bank)
     };
 
     // ---- control factories ---------------------------------------------------
@@ -151,10 +172,10 @@ private:
         return ptr;
     }
 
-    // Wrap the last-made control in a caption and file it under `sec`.
-    void place(Section& sec, const juce::String& name)
+    // Wrap the last-made control in a caption (+ hover tooltip) under `sec`.
+    void place(Section& sec, const juce::String& name, const juce::String& tooltip = {})
     {
-        auto lc = std::make_unique<LabeledControl>(name, std::move(pendingControl));
+        auto lc = std::make_unique<LabeledControl>(name, std::move(pendingControl), tooltip);
         auto* ptr = lc.get();
         addAndMakeVisible(*ptr);
         owned.push_back(std::move(lc));
@@ -175,23 +196,26 @@ private:
     }
 
     // Global knob / combo / toggle: attach once, permanently.
-    void gKnob(Section& s, const juce::String& id, const juce::String& name)
+    void gKnob(Section& s, const juce::String& id, const juce::String& name,
+               const juce::String& tip = {})
     {
         auto* sl = makeSlider();
         globalAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(proc.apvts, id, *sl));
-        place(s, name);
+        place(s, name, tip);
     }
-    void gCombo(Section& s, const juce::String& id, const juce::String& name)
+    void gCombo(Section& s, const juce::String& id, const juce::String& name,
+                const juce::String& tip = {})
     {
         auto* cb = makeCombo(id);
         globalAtt.combo.push_back(std::make_unique<APVTS::ComboBoxAttachment>(proc.apvts, id, *cb));
-        place(s, name);
+        place(s, name, tip);
     }
-    void gToggle(Section& s, const juce::String& id, const juce::String& name)
+    void gToggle(Section& s, const juce::String& id, const juce::String& name,
+                 const juce::String& tip = {})
     {
         auto* tg = makeToggle();
         globalAtt.button.push_back(std::make_unique<APVTS::ButtonAttachment>(proc.apvts, id, *tg));
-        place(s, name);
+        place(s, name, tip);
     }
 
     // ---- section construction ------------------------------------------------
@@ -200,61 +224,155 @@ private:
     {
         {
             auto& s = newSection("Master");
-            gKnob(s, "gain", "Gain");
-            gKnob(s, "polyphony", "Poly");
-            gKnob(s, "rootNote", "Root");
-            gCombo(s, "midiAddressing", "MIDI");
-            gKnob(s, "noteMapBase", "Map Base");
+            gKnob(s, "gain", "Gain", "Output gain in dB, applied to the mix of all 8 tracks.");
+            gKnob(s, "polyphony", "Poly",
+                  "Voices per track. 1 = mono (Digitakt-style); higher lets notes overlap "
+                  "and chords ring.");
+            gKnob(s, "rootNote", "Root",
+                  "MIDI note that plays a sample at its natural pitch. Other notes repitch "
+                  "it varispeed-style.");
+            gCombo(s, "midiAddressing", "MIDI",
+                   "How MIDI picks a track. Channel: MIDI channel N plays track N. "
+                   "Note Map: one channel, the note number picks the track (GM-drum style).");
+            gKnob(s, "noteMapBase", "Map Base",
+                  "Note Map only: this note plays track 1, the next note track 2, ... "
+                  "(8 notes total). 36 = C1, the GM kick.");
         }
+        buildBank();
         {
             auto& s = newSection("Amp Envelope");
-            gKnob(s, "ampDelay", "Delay");
-            gKnob(s, "ampAttack", "Attack");
-            gKnob(s, "ampHold", "Hold");
-            gKnob(s, "ampDecay", "Decay");
-            gKnob(s, "ampSustain", "Sustain");
-            gKnob(s, "ampRelease", "Release");
-            gKnob(s, "ampAttackCurve", "Atk Crv");
-            gKnob(s, "ampDecayCurve", "Dec Crv");
-            gKnob(s, "ampReleaseCurve", "Rel Crv");
-            gKnob(s, "ampVelocity", "Vel");
+            gKnob(s, "ampDelay", "Delay", "Silence before the attack starts, in seconds (DAHDSR).");
+            gKnob(s, "ampAttack", "Attack", "Fade-in time, in seconds.");
+            gKnob(s, "ampHold", "Hold",
+                  "Time held at full level between attack and decay, in seconds.");
+            gKnob(s, "ampDecay", "Decay",
+                  "Time to fall from full level to the sustain level, in seconds.");
+            gKnob(s, "ampSustain", "Sustain", "Level held while the key is down (0..1).");
+            gKnob(s, "ampRelease", "Release", "Fade-out time after note-off, in seconds.");
+            gKnob(s, "ampAttackCurve", "Atk Crv",
+                  "Attack curve shape: 0 = linear, negative = fast start that eases in "
+                  "(log), positive = slow start that accelerates (exp).");
+            gKnob(s, "ampDecayCurve", "Dec Crv",
+                  "Decay curve shape: 0 = linear, negative = log, positive = exp.");
+            gKnob(s, "ampReleaseCurve", "Rel Crv",
+                  "Release curve shape: 0 = linear, negative = log, positive = exp.");
+            gKnob(s, "ampVelocity", "Vel",
+                  "Velocity sensitivity: 0 = every note at full level, 1 = level fully "
+                  "follows how hard you hit the key.");
         }
         {
             auto& s = newSection("Mod Envelope");
-            gKnob(s, "modAttack", "Attack");
-            gKnob(s, "modDecay", "Decay");
-            gKnob(s, "modSustain", "Sustain");
-            gKnob(s, "modRelease", "Release");
-            gKnob(s, "modToCutoff", u8("→Cutoff"));
-            gKnob(s, "modToType", u8("→Type"));
+            gKnob(s, "modAttack", "Attack",
+                  "Second envelope that shapes the FILTER over each note. Attack time in "
+                  "seconds.");
+            gKnob(s, "modDecay", "Decay", "Mod envelope decay time, in seconds.");
+            gKnob(s, "modSustain", "Sustain", "Mod envelope sustain level (0..1).");
+            gKnob(s, "modRelease", "Release", "Mod envelope release time, in seconds.");
+            gKnob(s, "modToCutoff", u8("→Cutoff"),
+                  "How far the mod envelope opens the filter cutoff, in octaves at full "
+                  "envelope. Negative closes it.");
+            gKnob(s, "modToType", u8("→Type"),
+                  "How far the mod envelope shifts the filter morph type "
+                  "(LP→BP→HP→Notch) over the note.");
         }
         {
             auto& s = newSection("Filter");
-            gKnob(s, "filterCutoff", "Cutoff");
-            gKnob(s, "filterResonance", "Reso");
-            gKnob(s, "filterType", "Type");
+            gKnob(s, "filterCutoff", "Cutoff", "Track filter cutoff frequency, in Hz.");
+            gKnob(s, "filterResonance", "Reso",
+                  "Filter resonance (Q): emphasis at the cutoff frequency.");
+            gKnob(s, "filterType", "Type",
+                  "Morphing filter character: 0 = low-pass, 0.33 = band-pass, "
+                  "0.66 = high-pass, 1 = notch — everything in between blends.");
         }
         {
             auto& s = newSection("LFO");
-            gCombo(s, "lfoShape", "Shape");
-            gKnob(s, "lfoRate", "Rate");
-            gKnob(s, "lfoDepth", "Depth");
-            gToggle(s, "lfoSync", "Sync");
-            gCombo(s, "lfoDivision", "Division");
-            gCombo(s, "lfoTrigMode", "Trig");
-            gKnob(s, "lfoToCutoff", u8("→Cutoff"));
-            gKnob(s, "lfoToType", u8("→Type"));
-            gKnob(s, "lfoToPitch", u8("→Pitch"));
-            gKnob(s, "lfoToSampleSelect", u8("→Sample"));
+            gCombo(s, "lfoShape", "Shape",
+                   "LFO waveform. Random = stepped sample & hold; Custom = the "
+                   "multi-step designer shape.");
+            gKnob(s, "lfoRate", "Rate", "LFO speed in Hz (used when Sync is off).");
+            gKnob(s, "lfoDepth", "Depth",
+                  "LFO intensity (0..1). Scales every →destination below; 0 turns the "
+                  "LFO off.");
+            gToggle(s, "lfoSync", "Sync",
+                    "Lock the LFO to the host tempo: the Division below replaces Rate.");
+            gCombo(s, "lfoDivision", "Division",
+                   "LFO cycle length in musical time (bars/beats) when Sync is on.");
+            gCombo(s, "lfoTrigMode", "Trig",
+                   "How notes affect the LFO. Free: runs continuously. Trig: restarts "
+                   "on every note. Hold: freezes its value at each note. One-Shot: runs "
+                   "a single cycle per note.");
+            gKnob(s, "lfoToCutoff", u8("→Cutoff"),
+                  "Assign the LFO to filter cutoff: depth in octaves. 0 = not assigned "
+                  "(this is how LFO routing works here — turn a →knob instead of "
+                  "picking a destination).");
+            gKnob(s, "lfoToType", u8("→Type"),
+                  "Assign the LFO to the filter morph type (sweeps LP→BP→HP→Notch).");
+            gKnob(s, "lfoToPitch", u8("→Pitch"),
+                  "Assign the LFO to pitch: depth in semitones (vibrato / sirens).");
+            gKnob(s, "lfoToSampleSelect", u8("→Sample"),
+                  "Assign the LFO to sample-select: at each note the LFO offsets which "
+                  "bank slot plays (per-trig sample-lock). Depth = how many slots away "
+                  "it can roam.");
         }
         {
             auto& s = newSection("Loop");
-            gCombo(s, "loopMode", "Mode");
-            gKnob(s, "loopStart", "Start");
-            gKnob(s, "loopEnd", "End");
+            gCombo(s, "loopMode", "Mode",
+                   "One-Shot: play once. Forward: repeat the loop region. Ping-Pong: "
+                   "bounce back and forth inside it. Loop speed follows pitch.");
+            gKnob(s, "loopStart", "Start", "Loop region start, as a fraction of the sample.");
+            gKnob(s, "loopEnd", "End", "Loop region end, as a fraction of the sample.");
         }
     }
 
+    // The sample bank: 16 slot buttons showing what's loaded; click = load a file
+    // into that exact slot. Layers reference these slots by number.
+    void buildBank()
+    {
+        auto& s = newSection("Sample Bank (click a slot to load; layers reference slots)");
+        s.wideCells = true;
+
+        for (int k = 0; k < proc.numSlots(); ++k)
+        {
+            auto btn = std::make_unique<juce::TextButton>();
+            btn->setTooltip("Load a sample into bank slot " + juce::String(k + 1) + ". Track " +
+                            juce::String(k + 1) +
+                            " plays this slot by default; any layer on any track can "
+                            "reference it via its Slot knob.");
+            auto* ptr = btn.get();
+            ptr->onClick = [this, k] { chooseForSlot(k); };
+            addAndMakeVisible(*ptr);
+            bankButtons.push_back(ptr);
+            owned.push_back(std::move(btn));
+            s.cells.push_back(ptr);
+        }
+        refreshBank();
+    }
+
+    void chooseForSlot(int slot)
+    {
+        chooser =
+            std::make_unique<juce::FileChooser>("Load a sample into slot " + juce::String(slot + 1),
+                                                juce::File{}, "*.wav;*.aiff;*.aif;*.mp3");
+        const auto flags =
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+        chooser->launchAsync(flags,
+                             [this, slot](const juce::FileChooser& fc)
+                             {
+                                 const auto file = fc.getResult();
+                                 if (file == juce::File{})
+                                     return;
+                                 proc.loadSampleToSlot(slot, file);
+                                 refreshBank();
+                                 if (onBankChanged)
+                                     onBankChanged();
+                             });
+    }
+
+public:
+    std::function<void()> onBankChanged; // editor hook: refresh the top-bar name
+
+private:
     void buildTrackPanel()
     {
         auto& s = newSection("Track (selected)");
@@ -270,30 +388,40 @@ private:
             if (ready)
                 setTrack(static_cast<int>(sel->getValue()));
         };
-        place(s, "Track");
+        place(s, "Track",
+              "Which of the 8 tracks the panel below edits (all tracks always play). "
+              "Also the target of the top Load Sample button.");
 
         // Layer mode is per-track; its attachment is rebuilt on track change.
         layerModeCombo = makeCombo("t0_layerMode");
-        place(s, "Layer Mode");
+        place(s, "Layer Mode",
+              "Select: the track plays one sample per note (its own bank slot, or "
+              "wherever LFO→Sample points). Stack: all enabled layers below sound "
+              "TOGETHER on every note — layering.");
 
         for (int l = 0; l < kNumLayers; ++l)
         {
             auto& row = newSection("Layer " + juce::String(l + 1));
             auto& c = layerCtl[static_cast<size_t>(l)];
             c.slot = makeSlider();
-            place(row, "Slot");
+            place(row, "Slot",
+                  "Bank slot this layer plays (see Sample Bank above). -1 = layer off. "
+                  "Stack mode only.");
             c.gain = makeSlider();
-            place(row, "Gain");
+            place(row, "Gain", "Layer level (multiplies note velocity).");
             c.tune = makeSlider();
-            place(row, "Tune");
+            place(row, "Tune", "Layer pitch offset in semitones (+/-24).");
             c.pan = makeSlider();
-            place(row, "Pan");
+            place(row, "Pan", "Layer stereo position: -1 hard left .. +1 hard right.");
             c.flt = makeToggle();
-            place(row, "Filter");
+            place(row, "Filter",
+                  "Give this layer its OWN filter instead of the shared track filter "
+                  "(e.g. low-pass only the boom layer).");
             c.cutoff = makeSlider();
-            place(row, "Cutoff");
+            place(row, "Cutoff", "This layer's filter cutoff, in Hz (when Filter is on).");
             c.ftype = makeSlider();
-            place(row, "F.Type");
+            place(row, "F.Type",
+                  "This layer's filter morph type: 0 = LP, 0.33 = BP, 0.66 = HP, 1 = notch.");
         }
     }
 
@@ -359,6 +487,9 @@ private:
     juce::ComboBox* layerModeCombo = nullptr;
     std::array<LayerCtl, static_cast<size_t>(kNumLayers)> layerCtl{};
 
+    std::vector<juce::TextButton*> bankButtons; // owned via `owned`
+    std::unique_ptr<juce::FileChooser> chooser; // per-slot load dialog
+
     Attachments globalAtt;
     Attachments trackAtt;
 
@@ -371,10 +502,15 @@ ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     : AudioProcessorEditor(&p), processorRef(p)
 {
     loadButton.setButtonText(u8("Load Sample…"));
+    loadButton.setTooltip("Load a sample into the selected track's bank slot "
+                          "(slot number = the Track knob). To fill a specific slot, "
+                          "click it in the Sample Bank section instead.");
     addAndMakeVisible(loadButton);
     loadButton.onClick = [this] { chooseSample(); };
 
     loadFolderButton.setButtonText(u8("Load Folder…"));
+    loadFolderButton.setTooltip("Load every sample in a folder into bank slots 1..16 "
+                                "in file order — the quickest way to fill the bank.");
     addAndMakeVisible(loadFolderButton);
     loadFolderButton.onClick = [this] { chooseFolder(); };
 
@@ -384,6 +520,7 @@ ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     refreshSampleName();
 
     content = std::make_unique<Content>(processorRef);
+    content->onBankChanged = [this] { refreshSampleName(); };
     viewport.setViewedComponent(content.get(), false);
     viewport.setScrollBarsShown(true, false);
     addAndMakeVisible(viewport);
@@ -416,7 +553,10 @@ void ColdAudioProcessorEditor::chooseSample()
 
                              const bool ok = processorRef.loadSampleFile(file);
                              if (ok)
+                             {
                                  refreshSampleName();
+                                 content->refreshBank();
+                             }
                              else
                                  sampleNameLabel.setText(juce::String("failed to load: ") +
                                                              file.getFileName(),
@@ -441,6 +581,7 @@ void ColdAudioProcessorEditor::chooseFolder()
                              sampleNameLabel.setText(juce::String(n) + " sample(s) loaded — " +
                                                          processorRef.loadedSampleName(),
                                                      juce::dontSendNotification);
+                             content->refreshBank();
                          });
 }
 
