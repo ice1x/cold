@@ -38,6 +38,7 @@ private:
 
     juce::Viewport viewport;
     std::unique_ptr<Content> content;
+    juce::TooltipWindow tooltipWindow{this, 400}; // hover help for every control
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ColdAudioProcessorEditor)
 };

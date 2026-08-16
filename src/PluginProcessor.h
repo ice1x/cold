@@ -62,7 +62,8 @@ public:
     [[nodiscard]] int selectedTrack() const;
 
     [[nodiscard]] int numSlots() const;
-    [[nodiscard]] juce::String loadedSampleName() const; // selected track's sample name
+    [[nodiscard]] juce::String loadedSampleName() const;       // selected track's sample name
+    [[nodiscard]] juce::String slotSampleName(int slot) const; // "" for an empty slot
 
     // Max layers per track (Stack mode). Public so the editor can lay out the rows.
     static constexpr int kNumLayers = 4;
