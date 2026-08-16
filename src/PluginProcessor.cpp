@@ -616,6 +616,12 @@ juce::String ColdAudioProcessor::loadedSampleName() const
     return s.isLoaded() ? s.name : juce::String("(no sample)");
 }
 
+juce::String ColdAudioProcessor::slotSampleName(int slot) const
+{
+    const auto& s = bank.slot(slot);
+    return s.isLoaded() ? s.name : juce::String();
+}
+
 juce::AudioProcessorEditor* ColdAudioProcessor::createEditor()
 {
     return new ColdAudioProcessorEditor(*this);
