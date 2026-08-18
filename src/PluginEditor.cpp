@@ -71,11 +71,11 @@ class ColdAudioProcessorEditor::Content : public juce::Component
 public:
     explicit Content(ColdAudioProcessor& p) : proc(p)
     {
+        buildCellGrid();
         buildGlobals();
         buildTrackPanel();
 
-        ready = true;
-        setTrack(proc.selectedTrack());
+        selectCell(proc.selectedTrack()); // initial attachments + pad highlight
     }
 
     void resized() override
@@ -131,6 +131,7 @@ public:
             bankButtons[static_cast<size_t>(k)]->setButtonText(
                 juce::String(k + 1) + ": " + (name.isEmpty() ? juce::String("(empty)") : name));
         }
+        refreshCellPads(); // a slot load changes the cell's default sample name
     }
 
 private:
@@ -383,26 +384,61 @@ public:
     std::function<void()> onBankChanged; // editor hook: refresh the top-bar name
 
 private:
+    // Battery-style cell grid: one pad per track, click to pick the edited cell.
+    // Replaces a track-selector knob; the pads drive the "track" param + setTrack().
+    void buildCellGrid()
+    {
+        auto& s = newSection(u8("Cells — click a cell to edit its track"));
+        s.wideCells = true;
+        for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
+        {
+            auto btn = std::make_unique<juce::TextButton>();
+            btn->setTooltip("Select cell/track " + juce::String(t + 1) +
+                            " for editing below. It plays on MIDI channel " + juce::String(t + 1) +
+                            " (Channel mode) or its Note Map note. Its "
+                            "default sample is bank slot " +
+                            juce::String(t + 1) + ".");
+            auto* ptr = btn.get();
+            ptr->onClick = [this, t] { selectCell(t); };
+            addAndMakeVisible(*ptr);
+            cellPads.push_back(ptr);
+            owned.push_back(std::move(btn));
+            s.cells.push_back(ptr);
+        }
+    }
+
+    // Select which track/cell the panel edits: set the param, re-point the per-track
+    // attachments, refresh the pad labels/highlight and the top-bar sample name.
+    void selectCell(int t)
+    {
+        currentTrack = juce::jlimit(0, dsp::MultiEngine::kNumTracks - 1, t);
+        if (auto* p = proc.apvts.getParameter("track"))
+            p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(currentTrack)));
+        setTrack(currentTrack);
+        refreshCellPads();
+        if (onBankChanged)
+            onBankChanged();
+    }
+
+    void refreshCellPads()
+    {
+        for (int t = 0; t < static_cast<int>(cellPads.size()); ++t)
+        {
+            const auto name = proc.slotSampleName(t);
+            cellPads[static_cast<size_t>(t)]->setButtonText(
+                "T" + juce::String(t + 1) + ": " +
+                (name.isEmpty() ? juce::String("(empty)") : name));
+            cellPads[static_cast<size_t>(t)]->setColour(
+                juce::TextButton::buttonColourId,
+                t == currentTrack ? juce::Colour(0xff2b6cb0) : juce::Colour(0xff21252b));
+        }
+    }
+
     void buildTrackPanel()
     {
-        auto& s = newSection("Track (selected)");
+        auto& s = newSection("Selected cell");
 
-        // Track selector: an int param; drive the per-track re-attach on change.
-        auto* sel = makeSlider();
-        sel->setSliderStyle(juce::Slider::IncDecButtons);
-        sel->setTextBoxStyle(juce::Slider::TextBoxLeft, false, 40, 20);
-        globalAtt.slider.push_back(
-            std::make_unique<APVTS::SliderAttachment>(proc.apvts, "track", *sel));
-        sel->onValueChange = [this, sel]
-        {
-            if (ready)
-                setTrack(static_cast<int>(sel->getValue()));
-        };
-        place(s, "Track",
-              "Which of the 8 tracks the panel below edits (all tracks always play). "
-              "Also the target of the top Load Sample button.");
-
-        // Layer mode is per-track; its attachment is rebuilt on track change.
+        // Layer mode is per-track; its attachment is rebuilt on cell change.
         layerModeCombo = makeCombo("t0_layerMode");
         place(s, "Layer Mode",
               "Select: the track plays one sample per note (its own bank slot, or "
@@ -511,12 +547,12 @@ private:
     std::vector<PerTrackKnob> perTrackKnobs;
 
     std::vector<juce::TextButton*> bankButtons; // owned via `owned`
+    std::vector<juce::TextButton*> cellPads;    // one per track, owned via `owned`
+    int currentTrack = 0;
     std::unique_ptr<juce::FileChooser> chooser; // per-slot load dialog
 
     Attachments globalAtt;
     Attachments trackAtt;
-
-    bool ready = false;
 };
 
 // ============================================================================
