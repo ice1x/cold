@@ -218,6 +218,16 @@ private:
         place(s, name, tip);
     }
 
+    // Per-track knob: the control persists, but its attachment is (re)built for the
+    // selected track in setTrack(). `base` is the un-prefixed id (e.g. "ampAttack").
+    void tKnob(Section& s, const juce::String& base, const juce::String& name,
+               const juce::String& tip = {})
+    {
+        auto* sl = makeSlider();
+        perTrackKnobs.push_back({sl, base});
+        place(s, name, tip);
+    }
+
     // ---- section construction ------------------------------------------------
 
     void buildGlobals()
@@ -240,23 +250,23 @@ private:
         }
         buildBank();
         {
-            auto& s = newSection("Amp Envelope");
-            gKnob(s, "ampDelay", "Delay", "Silence before the attack starts, in seconds (DAHDSR).");
-            gKnob(s, "ampAttack", "Attack", "Fade-in time, in seconds.");
-            gKnob(s, "ampHold", "Hold",
+            auto& s = newSection("Amp Envelope (selected track)");
+            tKnob(s, "ampDelay", "Delay", "Silence before the attack starts, in seconds (DAHDSR).");
+            tKnob(s, "ampAttack", "Attack", "Fade-in time, in seconds.");
+            tKnob(s, "ampHold", "Hold",
                   "Time held at full level between attack and decay, in seconds.");
-            gKnob(s, "ampDecay", "Decay",
+            tKnob(s, "ampDecay", "Decay",
                   "Time to fall from full level to the sustain level, in seconds.");
-            gKnob(s, "ampSustain", "Sustain", "Level held while the key is down (0..1).");
-            gKnob(s, "ampRelease", "Release", "Fade-out time after note-off, in seconds.");
-            gKnob(s, "ampAttackCurve", "Atk Crv",
+            tKnob(s, "ampSustain", "Sustain", "Level held while the key is down (0..1).");
+            tKnob(s, "ampRelease", "Release", "Fade-out time after note-off, in seconds.");
+            tKnob(s, "ampAttackCurve", "Atk Crv",
                   "Attack curve shape: 0 = linear, negative = fast start that eases in "
                   "(log), positive = slow start that accelerates (exp).");
-            gKnob(s, "ampDecayCurve", "Dec Crv",
+            tKnob(s, "ampDecayCurve", "Dec Crv",
                   "Decay curve shape: 0 = linear, negative = log, positive = exp.");
-            gKnob(s, "ampReleaseCurve", "Rel Crv",
+            tKnob(s, "ampReleaseCurve", "Rel Crv",
                   "Release curve shape: 0 = linear, negative = log, positive = exp.");
-            gKnob(s, "ampVelocity", "Vel",
+            tKnob(s, "ampVelocity", "Vel",
                   "Velocity sensitivity: 0 = every note at full level, 1 = level fully "
                   "follows how hard you hit the key.");
         }
@@ -436,6 +446,11 @@ private:
         trackAtt.combo.push_back(std::make_unique<APVTS::ComboBoxAttachment>(
             proc.apvts, trackId(track, "layerMode"), *layerModeCombo));
 
+        // Per-track sound knobs (amp envelope, ...) re-point at the selected track.
+        for (const auto& k : perTrackKnobs)
+            trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
+                proc.apvts, trackId(track, k.base), *k.ctl));
+
         for (int l = 0; l < kNumLayers; ++l)
         {
             auto& c = layerCtl[static_cast<size_t>(l)];
@@ -486,6 +501,14 @@ private:
 
     juce::ComboBox* layerModeCombo = nullptr;
     std::array<LayerCtl, static_cast<size_t>(kNumLayers)> layerCtl{};
+
+    // Per-track sound knobs whose attachment is rebuilt for the selected track.
+    struct PerTrackKnob
+    {
+        juce::Slider* ctl;
+        juce::String base; // un-prefixed id, e.g. "ampAttack"
+    };
+    std::vector<PerTrackKnob> perTrackKnobs;
 
     std::vector<juce::TextButton*> bankButtons; // owned via `owned`
     std::unique_ptr<juce::FileChooser> chooser; // per-slot load dialog

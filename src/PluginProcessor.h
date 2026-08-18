@@ -95,10 +95,6 @@ private:
     std::atomic<float>* loopStartParam = nullptr;
     std::atomic<float>* loopEndParam = nullptr;
     std::atomic<float>* rootNoteParam = nullptr;
-    std::atomic<float>* attackParam = nullptr;
-    std::atomic<float>* decayParam = nullptr;
-    std::atomic<float>* sustainParam = nullptr;
-    std::atomic<float>* releaseParam = nullptr;
     std::atomic<float>* filterCutoffParam = nullptr;
     std::atomic<float>* filterResonanceParam = nullptr;
     std::atomic<float>* filterTypeParam = nullptr;
@@ -116,12 +112,6 @@ private:
     static constexpr int kNumCustomSteps = 8;
     std::array<std::atomic<float>*, kNumCustomSteps> lfoStepParams{};
     std::atomic<float>* trackParam = nullptr;
-    std::atomic<float>* ampDelayParam = nullptr;
-    std::atomic<float>* ampHoldParam = nullptr;
-    std::atomic<float>* ampAtkCurveParam = nullptr;
-    std::atomic<float>* ampDecCurveParam = nullptr;
-    std::atomic<float>* ampRelCurveParam = nullptr;
-    std::atomic<float>* ampVelParam = nullptr;
     std::atomic<float>* modAttackParam = nullptr;
     std::atomic<float>* modDecayParam = nullptr;
     std::atomic<float>* modSustainParam = nullptr;
@@ -135,6 +125,20 @@ private:
     // (kNumLayers declared public above), each a bank slot (-1 = off) with
     // per-layer gain and tune.
     std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> layerModeParam{};
+
+    // Per-track amp envelope (each track/cell is an independent sound).
+    using TrackFloats = std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks>;
+    TrackFloats attackParam{};
+    TrackFloats decayParam{};
+    TrackFloats sustainParam{};
+    TrackFloats releaseParam{};
+    TrackFloats ampDelayParam{};
+    TrackFloats ampHoldParam{};
+    TrackFloats ampAtkCurveParam{};
+    TrackFloats ampDecCurveParam{};
+    TrackFloats ampRelCurveParam{};
+    TrackFloats ampVelParam{};
+
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
         layerSlotParam{};
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
