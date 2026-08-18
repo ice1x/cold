@@ -501,13 +501,6 @@ private:
 ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     : AudioProcessorEditor(&p), processorRef(p)
 {
-    loadButton.setButtonText(u8("Load Sample…"));
-    loadButton.setTooltip("Load a sample into the selected track's bank slot "
-                          "(slot number = the Track knob). To fill a specific slot, "
-                          "click it in the Sample Bank section instead.");
-    addAndMakeVisible(loadButton);
-    loadButton.onClick = [this] { chooseSample(); };
-
     loadFolderButton.setButtonText(u8("Load Folder…"));
     loadFolderButton.setTooltip("Load every sample in a folder into bank slots 1..16 "
                                 "in file order — the quickest way to fill the bank.");
@@ -535,33 +528,6 @@ void ColdAudioProcessorEditor::refreshSampleName()
     sampleNameLabel.setText("Track " + juce::String(processorRef.selectedTrack() + 1) + ": " +
                                 processorRef.loadedSampleName(),
                             juce::dontSendNotification);
-}
-
-void ColdAudioProcessorEditor::chooseSample()
-{
-    chooser = std::make_unique<juce::FileChooser>("Load a sample", juce::File{},
-                                                  "*.wav;*.aiff;*.aif;*.mp3");
-    const auto flags =
-        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
-
-    chooser->launchAsync(flags,
-                         [this](const juce::FileChooser& fc)
-                         {
-                             const auto file = fc.getResult();
-                             if (file == juce::File{})
-                                 return;
-
-                             const bool ok = processorRef.loadSampleFile(file);
-                             if (ok)
-                             {
-                                 refreshSampleName();
-                                 content->refreshBank();
-                             }
-                             else
-                                 sampleNameLabel.setText(juce::String("failed to load: ") +
-                                                             file.getFileName(),
-                                                         juce::dontSendNotification);
-                         });
 }
 
 void ColdAudioProcessorEditor::chooseFolder()
@@ -595,8 +561,6 @@ void ColdAudioProcessorEditor::resized()
     auto area = getLocalBounds().reduced(8);
 
     auto top = area.removeFromTop(28);
-    loadButton.setBounds(top.removeFromLeft(130));
-    top.removeFromLeft(6);
     loadFolderButton.setBounds(top.removeFromLeft(130));
     top.removeFromLeft(8);
     sampleNameLabel.setBounds(top);
