@@ -105,16 +105,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterInt>(juce::ParameterID{kRootNoteId, 1}, "Root Note",
                                                    0, 127, 60));
 
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kAttackId, 1}, "Amp Attack",
-                                                     timeRange(5.0f), 0.001f));
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kDecayId, 1}, "Amp Decay",
-                                                     timeRange(5.0f), 0.0f));
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kSustainId, 1},
-                                                     "Amp Sustain", 0.0f, 1.0f, 1.0f));
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kReleaseId, 1},
-                                                     "Amp Release", timeRange(5.0f), 0.05f));
-
-    // Morph filter: cutoff (log-ish skew), resonance/Q, and the LP->BP->HP->Notch
+    // Amp envelope is PER-TRACK (each track/cell has its own AHDSR) — created in the
+    // per-track loop below. Morph filter: cutoff (log-ish skew), resonance/Q, and the
+    // LP->BP->HP->Notch
     // morph type. Cutoff defaults wide open so an unconfigured patch is bright.
     juce::NormalisableRange<float> cutoffRange(20.0f, 20000.0f, 1.0f);
     cutoffRange.setSkewForCentre(1000.0f);
@@ -171,19 +164,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         juce::ParameterID{kLfoToSampleId, 1}, "LFO -> Sample Select",
         juce::NormalisableRange<float>(-8.0f, 8.0f, 0.01f), 0.0f));
 
-    // Amp envelope extras: delay/hold stages, per-segment curves, velocity.
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kAmpDelayId, 1}, "Amp Delay",
-                                                     timeRange(5.0f), 0.0f));
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kAmpHoldId, 1}, "Amp Hold",
-                                                     timeRange(5.0f), 0.0f));
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kAmpAtkCurveId, 1},
-                                                     "Amp Attack Curve", -1.0f, 1.0f, 0.0f));
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kAmpDecCurveId, 1},
-                                                     "Amp Decay Curve", -1.0f, 1.0f, 0.0f));
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kAmpRelCurveId, 1},
-                                                     "Amp Release Curve", -1.0f, 1.0f, 0.0f));
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kAmpVelId, 1},
-                                                     "Amp Velocity", 0.0f, 1.0f, 0.0f));
+    // Amp envelope extras (delay/hold, per-segment curves, velocity) are PER-TRACK
+    // too — created in the per-track loop below.
 
     // Modulation envelope + its routing to the filter (env -> cutoff / type).
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kModAttackId, 1},
@@ -226,6 +208,39 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         layout.add(std::make_unique<AudioParameterChoice>(
             juce::ParameterID{trackParamId(t, "layerMode"), 1}, tp + "Layer Mode",
             juce::StringArray{"Select", "Stack"}, 0));
+
+        // Per-track amp envelope (each track/cell is an independent sound).
+        layout.add(
+            std::make_unique<AudioParameterFloat>(juce::ParameterID{trackParamId(t, kAttackId), 1},
+                                                  tp + "Amp Attack", timeRange(5.0f), 0.001f));
+        layout.add(
+            std::make_unique<AudioParameterFloat>(juce::ParameterID{trackParamId(t, kDecayId), 1},
+                                                  tp + "Amp Decay", timeRange(5.0f), 0.0f));
+        layout.add(
+            std::make_unique<AudioParameterFloat>(juce::ParameterID{trackParamId(t, kSustainId), 1},
+                                                  tp + "Amp Sustain", 0.0f, 1.0f, 1.0f));
+        layout.add(
+            std::make_unique<AudioParameterFloat>(juce::ParameterID{trackParamId(t, kReleaseId), 1},
+                                                  tp + "Amp Release", timeRange(5.0f), 0.05f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kAmpDelayId), 1}, tp + "Amp Delay", timeRange(5.0f),
+            0.0f));
+        layout.add(
+            std::make_unique<AudioParameterFloat>(juce::ParameterID{trackParamId(t, kAmpHoldId), 1},
+                                                  tp + "Amp Hold", timeRange(5.0f), 0.0f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kAmpAtkCurveId), 1}, tp + "Amp Attack Curve", -1.0f,
+            1.0f, 0.0f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kAmpDecCurveId), 1}, tp + "Amp Decay Curve", -1.0f,
+            1.0f, 0.0f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kAmpRelCurveId), 1}, tp + "Amp Release Curve", -1.0f,
+            1.0f, 0.0f));
+        layout.add(
+            std::make_unique<AudioParameterFloat>(juce::ParameterID{trackParamId(t, kAmpVelId), 1},
+                                                  tp + "Amp Velocity", 0.0f, 1.0f, 0.0f));
+
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto lp = tp + "L" + juce::String(l + 1) + " ";
@@ -267,10 +282,6 @@ ColdAudioProcessor::ColdAudioProcessor()
     loopStartParam = apvts.getRawParameterValue(kLoopStartId);
     loopEndParam = apvts.getRawParameterValue(kLoopEndId);
     rootNoteParam = apvts.getRawParameterValue(kRootNoteId);
-    attackParam = apvts.getRawParameterValue(kAttackId);
-    decayParam = apvts.getRawParameterValue(kDecayId);
-    sustainParam = apvts.getRawParameterValue(kSustainId);
-    releaseParam = apvts.getRawParameterValue(kReleaseId);
     filterCutoffParam = apvts.getRawParameterValue(kFilterCutoffId);
     filterResonanceParam = apvts.getRawParameterValue(kFilterResonanceId);
     filterTypeParam = apvts.getRawParameterValue(kFilterTypeId);
@@ -293,12 +304,6 @@ ColdAudioProcessor::ColdAudioProcessor()
     // windowed-pointer storage to match.
     slotPtrs.resize(static_cast<size_t>(bank.numSlots()));
     slotNumFrames.assign(static_cast<size_t>(bank.numSlots()), 0);
-    ampDelayParam = apvts.getRawParameterValue(kAmpDelayId);
-    ampHoldParam = apvts.getRawParameterValue(kAmpHoldId);
-    ampAtkCurveParam = apvts.getRawParameterValue(kAmpAtkCurveId);
-    ampDecCurveParam = apvts.getRawParameterValue(kAmpDecCurveId);
-    ampRelCurveParam = apvts.getRawParameterValue(kAmpRelCurveId);
-    ampVelParam = apvts.getRawParameterValue(kAmpVelId);
     modAttackParam = apvts.getRawParameterValue(kModAttackId);
     modDecayParam = apvts.getRawParameterValue(kModDecayId);
     modSustainParam = apvts.getRawParameterValue(kModSustainId);
@@ -312,6 +317,16 @@ ColdAudioProcessor::ColdAudioProcessor()
     {
         const auto tt = static_cast<size_t>(t);
         layerModeParam[tt] = apvts.getRawParameterValue(trackParamId(t, "layerMode"));
+        attackParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAttackId));
+        decayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kDecayId));
+        sustainParam[tt] = apvts.getRawParameterValue(trackParamId(t, kSustainId));
+        releaseParam[tt] = apvts.getRawParameterValue(trackParamId(t, kReleaseId));
+        ampDelayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAmpDelayId));
+        ampHoldParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAmpHoldId));
+        ampAtkCurveParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAmpAtkCurveId));
+        ampDecCurveParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAmpDecCurveId));
+        ampRelCurveParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAmpRelCurveId));
+        ampVelParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAmpVelId));
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto ll = static_cast<size_t>(l);
@@ -364,11 +379,13 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
             e.setLoopPoints(start, end);
     }
 
-    e.setAmpEnvelope(attackParam->load(), decayParam->load(), sustainParam->load(),
-                     releaseParam->load());
-    e.setAmpEnvelopeDAH(ampDelayParam->load(), ampHoldParam->load());
-    e.setAmpCurves(ampAtkCurveParam->load(), ampDecCurveParam->load(), ampRelCurveParam->load());
-    e.setAmpVelocity(ampVelParam->load());
+    const auto tt = static_cast<size_t>(track);
+    e.setAmpEnvelope(attackParam[tt]->load(), decayParam[tt]->load(), sustainParam[tt]->load(),
+                     releaseParam[tt]->load());
+    e.setAmpEnvelopeDAH(ampDelayParam[tt]->load(), ampHoldParam[tt]->load());
+    e.setAmpCurves(ampAtkCurveParam[tt]->load(), ampDecCurveParam[tt]->load(),
+                   ampRelCurveParam[tt]->load());
+    e.setAmpVelocity(ampVelParam[tt]->load());
     e.setModEnvelope(modAttackParam->load(), modDecayParam->load(), modSustainParam->load(),
                      modReleaseParam->load());
     e.setModRouting(modToCutoffParam->load(), modToTypeParam->load());
@@ -409,7 +426,6 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     // once). In Stack, gather this track's layers (slot >= 0) with per-layer gain
     // and tune. `sampleIndex` is the bank slot directly — every track is fed the
     // whole bank by rebuildTrackSamples.
-    const auto tt = static_cast<size_t>(track);
     const auto layerMode =
         static_cast<dsp::Engine::LayerMode>(static_cast<int>(layerModeParam[tt]->load()));
     e.setLayerMode(layerMode);
