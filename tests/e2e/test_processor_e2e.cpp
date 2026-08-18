@@ -484,10 +484,6 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "loopStart",
                            "loopEnd",
                            "rootNote",
-                           "ampAttack",
-                           "ampDecay",
-                           "ampSustain",
-                           "ampRelease",
                            "filterCutoff",
                            "filterResonance",
                            "filterType",
@@ -499,12 +495,6 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "lfoToCutoff",
                            "lfoToType",
                            "track",
-                           "ampDelay",
-                           "ampHold",
-                           "ampAttackCurve",
-                           "ampDecayCurve",
-                           "ampReleaseCurve",
-                           "ampVelocity",
                            "modAttack",
                            "modDecay",
                            "modSustain",
@@ -528,8 +518,58 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "noteMapBase",
                            "t0_lyr0_filterOn",
                            "t0_lyr0_cutoff",
-                           "t2_lyr1_ftype"})
+                           "t2_lyr1_ftype",
+                           "t0_ampAttack",
+                           "t0_ampRelease",
+                           "t0_ampVelocity",
+                           "t7_ampDecay",
+                           "t3_ampHold"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
+}
+
+TEST_CASE("Cold amp envelope is independent per track", "[processor][e2e][pertrack]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    // Same signal in slots 0 and 1 -> tracks 0 and 1 (channels 1 and 2).
+    auto wav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    REQUIRE(proc.loadSampleToSlot(1, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+
+    // Track 0: instant attack. Track 1: a long (1 s) attack — barely open over one
+    // 512-sample block. Proves each track has its own amp envelope.
+    setParam("t0_ampAttack", 0.0f);
+    setParam("t1_ampAttack", 1.0f);
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+
+    buffer.clear();
+    juce::MidiBuffer m0;
+    m0.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0); // channel 1 -> track 0
+    renderBlock(proc, buffer, m0);
+    const float track0Peak = buffer.getMagnitude(0, blockSize);
+
+    buffer.clear();
+    juce::MidiBuffer m1;
+    m1.addEvent(juce::MidiMessage::noteOn(2, 60, 1.0f), 0); // channel 2 -> track 1
+    renderBlock(proc, buffer, m1);
+    const float track1Peak = buffer.getMagnitude(0, blockSize);
+
+    REQUIRE(track0Peak > 0.1f);              // instant attack: sounds at once
+    REQUIRE(track1Peak < 0.1f * track0Peak); // long attack: still near silent
+    proc.releaseResources();
 }
 
 TEST_CASE("Cold processor state save/restore round-trips", "[processor][e2e]")
