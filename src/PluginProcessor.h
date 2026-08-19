@@ -57,6 +57,13 @@ public:
     // so a folder of N samples fills tracks 0..N-1. Returns how many were loaded.
     int loadFolder(const juce::File& directory);
 
+    // Import an NI Battery 3 ".kit": load its samples (resolved by filename under
+    // `sampleFolder`, recursively) into the bank and apply each cell's settings to
+    // the matching track — amp AHDSR (per track), tune/pan/volume (layer 0), and a
+    // Note Map so the cells' root keys play them. Only the first 8 cells fit the 8
+    // tracks. Returns how many cells were applied (0 if the kit could not be read).
+    int importBatteryKit(const juce::File& kitFile, const juce::File& sampleFolder);
+
     // Focus a track for editing / the Load buttons (0..7). Clamped.
     void selectTrack(int track);
     [[nodiscard]] int selectedTrack() const;

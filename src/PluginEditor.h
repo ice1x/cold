@@ -25,6 +25,7 @@ public:
 
 private:
     void chooseFolder();
+    void chooseKit();
     void refreshSampleName();
 
     class Content; // the scrolled panel; defined in the .cpp
@@ -32,6 +33,7 @@ private:
     ColdAudioProcessor& processorRef;
 
     juce::TextButton loadFolderButton;
+    juce::TextButton importKitButton;
     juce::Label sampleNameLabel;
     std::unique_ptr<juce::FileChooser> chooser;
 
