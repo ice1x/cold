@@ -102,6 +102,13 @@ public:
     // the two are independent channels onto the same playback ratio.
     void setTuneSemitones(float semitones);
 
+    // Per-note pitch envelope (the classic drum "pitch blip"): at note-on the pitch
+    // is offset by `amountSemitones` and decays back to the note pitch over
+    // `decaySeconds`. Runs per sample, stacking onto tune + pitch mod. amount 0
+    // disables it. Signed amount: positive sweeps down from above, negative up.
+    void setPitchEnvelope(float amountSemitones, float decaySeconds);
+    [[nodiscard]] bool pitchEnvelopeActive() const noexcept { return usePitchEnv; }
+
     // Stereo placement in [-1, 1] (L..R). Linear balance law: centre (0) leaves
     // both channels at unity (unchanged fan-out), a hard side silences the other.
     // Used to spread a stack's layers across the panorama.
@@ -159,6 +166,10 @@ private:
 
     Envelope ampEnv;
     Envelope modEnv;
+    Envelope pitchEnv; // decaying 1->0; scales the pitch-envelope amount
+
+    float pitchEnvAmount = 0.0f; // semitones at full envelope
+    bool usePitchEnv = false;
 
     // Amp envelope parameter store (delay/hold added on top of the ADSR core).
     float ampDelay = 0.0f;

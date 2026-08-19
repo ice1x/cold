@@ -178,6 +178,14 @@ void Engine::setModRouting(float toCutoffOctaves, float toTypeOffset)
         voices[static_cast<size_t>(i)].setModRouting(modToCutoff, modToType);
 }
 
+void Engine::setPitchEnvelope(float amountSemitones, float decaySeconds)
+{
+    pitchEnvAmount = amountSemitones;
+    pitchEnvDecay = decaySeconds;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setPitchEnvelope(pitchEnvAmount, pitchEnvDecay);
+}
+
 void Engine::configureVoice(int voiceIndex, int sampleIndex)
 {
     auto& voice = voices[static_cast<size_t>(voiceIndex)];
@@ -197,6 +205,7 @@ void Engine::configureVoice(int voiceIndex, int sampleIndex)
     voice.setAmpCurves(ampAttackCurve, ampDecayCurve, ampReleaseCurve);
     voice.setAmpVelocity(ampVelocity);
     voice.setModEnvelope(modAttack, modDecay, modSustain, modRelease);
+    voice.setPitchEnvelope(pitchEnvAmount, pitchEnvDecay);
     voice.setModRouting(modToCutoff, modToType);
     voice.setFilterEnabled(filterEnabled);
     if (filterEnabled)
