@@ -5,6 +5,7 @@
 // and grow into "load a WAV -> hear non-silent output" as playback lands.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include "PluginProcessor.h"
 #include "support/SignalFixtures.h"
@@ -14,6 +15,7 @@
 
 #include <cmath>
 
+using Catch::Matchers::WithinAbs;
 using cold::ColdAudioProcessor;
 
 namespace
@@ -472,6 +474,59 @@ TEST_CASE("Cold processor loads a folder into consecutive slots", "[processor][e
     proc.prepareToPlay(sampleRate, 512);
 
     REQUIRE(proc.loadFolder(dir) == 3);
+    dir.deleteRecursively();
+}
+
+TEST_CASE("Cold imports a Battery .kit onto its tracks", "[processor][e2e][battery]")
+{
+    constexpr double sampleRate = 48000.0;
+
+    // A temp folder with a .kit and the two samples it references.
+    auto dir = juce::File::createTempFile("_cold_kit");
+    dir.deleteFile();
+    REQUIRE(dir.createDirectory());
+    for (const char* name : {"Kick.wav", "Snare.wav"})
+    {
+        juce::WavAudioFormat wav;
+        cold::test::writeKnownSignal(wav, dir.getChildFile(name), sampleRate, 1, 256);
+    }
+    const juce::String kitXml =
+        "<?xml version=\"1.0\"?><BatteryPatch name=\"Kit\"><Cells>"
+        "<SampleSlot label=\"Kick\" vattack=\"0\" vhold=\"0\" vdecay=\"40\" vsustain=\"0\" "
+        "vrelease=\"20\" pitch=\"1.0\" rootKey=\"36\" pan=\"0.5\" volume=\"1.0\">"
+        "<Sample file=\"Kick.wav\"/></SampleSlot>"
+        "<SampleSlot label=\"Snare\" vattack=\"0\" vhold=\"0\" vdecay=\"60\" vsustain=\"80\" "
+        "vrelease=\"40\" pitch=\"2.0\" rootKey=\"38\" pan=\"0.0\" volume=\"0.5\">"
+        "<Sample file=\"Snare.wav\"/></SampleSlot>"
+        "</Cells></BatteryPatch>";
+    auto kitFile = dir.getChildFile("Kit.kit");
+    kitFile.replaceWithText(kitXml);
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, 512);
+    proc.prepareToPlay(sampleRate, 512);
+
+    REQUIRE(proc.importBatteryKit(kitFile, dir) == 2);
+
+    // Samples resolved into slots 0 and 1.
+    REQUIRE(proc.slotSampleName(0).isNotEmpty());
+    REQUIRE(proc.slotSampleName(1).isNotEmpty());
+
+    auto value = [&proc](const char* id)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        return p->convertFrom0to1(p->getValue());
+    };
+
+    // Per-cell settings landed on the right tracks/layers.
+    REQUIRE(value("t0_ampDecay") > 0.0f);                         // decay knob 40 -> >0 s
+    REQUIRE(value("t1_ampDecay") > value("t0_ampDecay"));         // 60 > 40
+    REQUIRE_THAT(value("t1_lyr0_tune"), WithinAbs(12.0f, 0.05f)); // pitch 2 -> +12 st
+    REQUIRE_THAT(value("t1_lyr0_pan"), WithinAbs(-1.0f, 0.01f));  // pan 0 -> hard left
+    REQUIRE_THAT(value("t1_lyr0_gain"), WithinAbs(0.5f, 0.01f));  // volume 0.5
+    REQUIRE(value("midiAddressing") > 0.5f);                      // Note Map enabled
+    REQUIRE_THAT(value("noteMapBase"), WithinAbs(36.0f, 0.5f));   // first cell's root key
+
     dir.deleteRecursively();
 }
 

@@ -566,6 +566,13 @@ ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     addAndMakeVisible(loadFolderButton);
     loadFolderButton.onClick = [this] { chooseFolder(); };
 
+    importKitButton.setButtonText(u8("Import .kit…"));
+    importKitButton.setTooltip("Import an NI Battery 3 .kit: loads its samples and applies each "
+                               "cell's envelope, tune, pan and key mapping to the first 8 cells. "
+                               "You pick the .kit, then the folder holding its samples.");
+    addAndMakeVisible(importKitButton);
+    importKitButton.onClick = [this] { chooseKit(); };
+
     sampleNameLabel.setJustificationType(juce::Justification::centredLeft);
     sampleNameLabel.setColour(juce::Label::textColourId, juce::Colour(0xffd6dbe4));
     addAndMakeVisible(sampleNameLabel);
@@ -610,6 +617,45 @@ void ColdAudioProcessorEditor::chooseFolder()
                          });
 }
 
+void ColdAudioProcessorEditor::chooseKit()
+{
+    chooser =
+        std::make_unique<juce::FileChooser>("Choose a Battery .kit", juce::File{}, "*.kit;*.kt4");
+    const auto flags =
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+    chooser->launchAsync(
+        flags,
+        [this](const juce::FileChooser& fc)
+        {
+            const auto kit = fc.getResult();
+            if (kit == juce::File{})
+                return;
+
+            // Then pick the folder that holds the kit's samples (default: its own).
+            chooser = std::make_unique<juce::FileChooser>(
+                "Choose the folder holding the kit's samples", kit.getParentDirectory());
+            const auto dirFlags = juce::FileBrowserComponent::openMode |
+                                  juce::FileBrowserComponent::canSelectDirectories;
+            chooser->launchAsync(
+                dirFlags,
+                [this, kit](const juce::FileChooser& dfc)
+                {
+                    auto folder = dfc.getResult();
+                    if (folder == juce::File{})
+                        folder = kit.getParentDirectory();
+
+                    const int n = processorRef.importBatteryKit(kit, folder);
+                    sampleNameLabel.setText(
+                        n > 0 ? "Imported " + juce::String(n) + " cell(s) from " + kit.getFileName()
+                              : juce::String("could not read ") + kit.getFileName(),
+                        juce::dontSendNotification);
+                    if (content != nullptr)
+                        content->refreshBank();
+                });
+        });
+}
+
 void ColdAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xff101216));
@@ -620,7 +666,9 @@ void ColdAudioProcessorEditor::resized()
     auto area = getLocalBounds().reduced(8);
 
     auto top = area.removeFromTop(28);
-    loadFolderButton.setBounds(top.removeFromLeft(130));
+    loadFolderButton.setBounds(top.removeFromLeft(120));
+    top.removeFromLeft(6);
+    importKitButton.setBounds(top.removeFromLeft(120));
     top.removeFromLeft(8);
     sampleNameLabel.setBounds(top);
 
