@@ -6,10 +6,9 @@
 namespace cold::io
 {
 
-float batteryEnvToSeconds(float knob)
+float batteryEnvToSeconds(float milliseconds)
 {
-    const float t = juce::jlimit(0.0f, 1.0f, knob / kBatteryKnobMax);
-    return kBatteryEnvMaxSeconds * std::pow(t, kBatteryEnvCurve);
+    return juce::jlimit(0.0f, kBatteryTimeMaxSeconds, milliseconds / 1000.0f);
 }
 
 float BatteryCell::tuneSemitones() const
@@ -29,7 +28,7 @@ float BatteryCell::coldGain() const
 
 float BatteryCell::sustainLevel() const
 {
-    return juce::jlimit(0.0f, 1.0f, vsustain / kBatteryKnobMax);
+    return juce::jlimit(0.0f, 1.0f, vsustain / kBatterySustainMax);
 }
 
 namespace

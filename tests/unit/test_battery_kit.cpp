@@ -61,21 +61,20 @@ TEST_CASE("BatteryKit maps tuning and pan exactly", "[batterykit][io][unit]")
     REQUIRE_THAT(kit.cells[1].coldGain(), WithinAbs(0.5f, 1e-4f));
 }
 
-TEST_CASE("BatteryKit envelope knob maps to seconds/level", "[batterykit][io][unit]")
+TEST_CASE("BatteryKit envelope value maps to seconds/level", "[batterykit][io][unit]")
 {
-    // The time curve: 0 -> 0 s, max knob -> the documented max seconds, monotone up.
+    // Times are milliseconds: 0 -> 0 s, 40 -> 0.040 s, huge -> clamped to the max.
     REQUIRE_THAT(batteryEnvToSeconds(0.0f), WithinAbs(0.0f, 1e-6f));
-    REQUIRE_THAT(batteryEnvToSeconds(cold::io::kBatteryKnobMax),
-                 WithinAbs(cold::io::kBatteryEnvMaxSeconds, 1e-4f));
-    REQUIRE(batteryEnvToSeconds(64.0f) > batteryEnvToSeconds(20.0f));
-    REQUIRE(batteryEnvToSeconds(20.0f) > 0.0f);
+    REQUIRE_THAT(batteryEnvToSeconds(40.0f), WithinAbs(0.040f, 1e-6f));
+    REQUIRE_THAT(batteryEnvToSeconds(6000.0f),
+                 WithinAbs(cold::io::kBatteryTimeMaxSeconds, 1e-4f)); // clamped
 
     const auto kit = parseBatteryKit(kKitXml);
-    // Kick decay knob 40 -> a short positive time; sustain knob 0 -> level 0.
-    REQUIRE(kit.cells[0].decaySeconds() > 0.0f);
+    // Kick decay 40 ms -> 0.040 s; sustain 0 -> level 0.
+    REQUIRE_THAT(kit.cells[0].decaySeconds(), WithinAbs(0.040f, 1e-6f));
     REQUIRE_THAT(kit.cells[0].sustainLevel(), WithinAbs(0.0f, 1e-4f));
-    // Snare sustain knob 80 -> 80/127 level.
-    REQUIRE_THAT(kit.cells[1].sustainLevel(), WithinAbs(80.0f / cold::io::kBatteryKnobMax, 1e-4f));
+    // Snare sustain 80 -> 0.8 on the 0..100 level scale.
+    REQUIRE_THAT(kit.cells[1].sustainLevel(), WithinAbs(0.8f, 1e-4f));
 }
 
 TEST_CASE("BatteryKit returns an invalid kit on junk input", "[batterykit][io][unit]")
