@@ -17,6 +17,7 @@ void SampleVoice::prepare(double newHostSampleRate)
         hostSampleRate = newHostSampleRate;
     ampEnv.setSampleRate(hostSampleRate);
     modEnv.setSampleRate(hostSampleRate);
+    pitchEnv.setSampleRate(hostSampleRate);
     for (auto& f : filters)
         f.prepare(hostSampleRate);
 }
@@ -52,6 +53,15 @@ void SampleVoice::setModEnvelope(float attackSeconds, float decaySeconds, float 
                                  float releaseSeconds)
 {
     modEnv.setParameters(0.0f, attackSeconds, 0.0f, decaySeconds, sustainLevel, releaseSeconds);
+}
+
+void SampleVoice::setPitchEnvelope(float amountSemitones, float decaySeconds)
+{
+    pitchEnvAmount = amountSemitones;
+    usePitchEnv = std::abs(amountSemitones) > 1.0e-4f;
+    // Instant attack to full, then decay to zero over decaySeconds and stay there:
+    // a one-shot decay envelope the amount rides on.
+    pitchEnv.setParameters(0.0f, 0.0f, 0.0f, std::max(0.0f, decaySeconds), 0.0f, 0.0f);
 }
 
 void SampleVoice::setModRouting(float toCutoffOctaves, float toTypeOffset)
@@ -175,6 +185,8 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
     ampEnv.noteOn(gain);
     if (useModEnv)
         modEnv.noteOn(gain);
+    if (usePitchEnv)
+        pitchEnv.noteOn(1.0f); // full-scale; the amount scales it
     // Clear filter state so a new note doesn't inherit the previous one's ring.
     for (auto& f : filters)
         f.reset();
@@ -200,6 +212,7 @@ void SampleVoice::reset()
     direction = 1;
     ampEnv.reset();
     modEnv.reset();
+    pitchEnv.reset();
 }
 
 float SampleVoice::readInterpolated(int channel, double pos) const
@@ -301,7 +314,18 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
             break;
         }
 
-        position += static_cast<double>(direction) * step;
+        // Pitch envelope rides on top of the cached (block-rate) step: recompute the
+        // advance per sample only while it is active, then it returns to `step`.
+        double advance = step;
+        if (usePitchEnv)
+        {
+            const float pe = pitchEnv.getNextSample();
+            advance = baseStep *
+                      std::pow(2.0, (static_cast<double>(pitchMod) + static_cast<double>(tuneMod) +
+                                     static_cast<double>(pitchEnvAmount) * pe) /
+                                        12.0);
+        }
+        position += static_cast<double>(direction) * advance;
 
         if (!looping)
             continue;

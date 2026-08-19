@@ -296,6 +296,15 @@ private:
                   "0.66 = high-pass, 1 = notch — everything in between blends.");
         }
         {
+            auto& s = newSection("Pitch Envelope (selected cell)");
+            tKnob(s, "pitchEnvAmount", "Amount",
+                  "Drum 'blip': the pitch is offset by this many semitones at the "
+                  "note start, then decays back. + sweeps down from above, - up. 0 = off.");
+            tKnob(s, "pitchEnvDecay", "Decay",
+                  "How long the pitch envelope takes to return to the note pitch, in "
+                  "seconds. Short = a snappy click; longer = a falling 'dooo'.");
+        }
+        {
             auto& s = newSection("LFO");
             gCombo(s, "lfoShape", "Shape",
                    "LFO waveform. Random = stepped sample & hold; Custom = the "

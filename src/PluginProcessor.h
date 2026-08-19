@@ -148,6 +148,10 @@ private:
     TrackFloats filterResonanceParam{};
     TrackFloats filterTypeParam{};
 
+    // Per-track pitch envelope (drum blip).
+    TrackFloats pitchEnvAmtParam{};
+    TrackFloats pitchEnvDecayParam{};
+
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
         layerSlotParam{};
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>

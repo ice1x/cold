@@ -579,7 +579,10 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_filterCutoff",
                            "t0_filterResonance",
                            "t0_filterType",
-                           "t5_filterCutoff"})
+                           "t5_filterCutoff",
+                           "t0_pitchEnvAmount",
+                           "t0_pitchEnvDecay",
+                           "t4_pitchEnvAmount"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 
