@@ -106,19 +106,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterInt>(juce::ParameterID{kRootNoteId, 1}, "Root Note",
                                                    0, 127, 60));
 
-    // Amp envelope is PER-TRACK (each track/cell has its own AHDSR) — created in the
-    // per-track loop below. Morph filter: cutoff (log-ish skew), resonance/Q, and the
-    // LP->BP->HP->Notch
-    // morph type. Cutoff defaults wide open so an unconfigured patch is bright.
-    juce::NormalisableRange<float> cutoffRange(20.0f, 20000.0f, 1.0f);
-    cutoffRange.setSkewForCentre(1000.0f);
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kFilterCutoffId, 1},
-                                                     "Filter Cutoff", cutoffRange, 20000.0f));
-    layout.add(std::make_unique<AudioParameterFloat>(
-        juce::ParameterID{kFilterResonanceId, 1}, "Filter Resonance",
-        juce::NormalisableRange<float>(0.1f, 20.0f, 0.01f, 0.5f), 0.707f));
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kFilterTypeId, 1},
-                                                     "Filter Type", 0.0f, 1.0f, 0.0f));
+    // Amp envelope and the morph filter (cutoff/resonance/type) are PER-TRACK (each
+    // track/cell is an independent sound) — created in the per-track loop below.
 
     // LFO: shape, free rate (Hz) or host-tempo sync + division, depth, and the two
     // modulation amounts — to cutoff (octaves) and, distinctively, to filter type.
@@ -242,6 +231,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             std::make_unique<AudioParameterFloat>(juce::ParameterID{trackParamId(t, kAmpVelId), 1},
                                                   tp + "Amp Velocity", 0.0f, 1.0f, 0.0f));
 
+        // Per-track morph filter: cutoff (log-ish skew), resonance/Q, LP->BP->HP->
+        // Notch morph type. Cutoff defaults wide open so a fresh cell is bright.
+        juce::NormalisableRange<float> cutoffRange(20.0f, 20000.0f, 1.0f);
+        cutoffRange.setSkewForCentre(1000.0f);
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kFilterCutoffId), 1}, tp + "Filter Cutoff",
+            cutoffRange, 20000.0f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kFilterResonanceId), 1}, tp + "Filter Resonance",
+            juce::NormalisableRange<float>(0.1f, 20.0f, 0.01f, 0.5f), 0.707f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kFilterTypeId), 1}, tp + "Filter Type", 0.0f, 1.0f,
+            0.0f));
+
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto lp = tp + "L" + juce::String(l + 1) + " ";
@@ -283,9 +286,6 @@ ColdAudioProcessor::ColdAudioProcessor()
     loopStartParam = apvts.getRawParameterValue(kLoopStartId);
     loopEndParam = apvts.getRawParameterValue(kLoopEndId);
     rootNoteParam = apvts.getRawParameterValue(kRootNoteId);
-    filterCutoffParam = apvts.getRawParameterValue(kFilterCutoffId);
-    filterResonanceParam = apvts.getRawParameterValue(kFilterResonanceId);
-    filterTypeParam = apvts.getRawParameterValue(kFilterTypeId);
     lfoShapeParam = apvts.getRawParameterValue(kLfoShapeId);
     lfoRateParam = apvts.getRawParameterValue(kLfoRateId);
     lfoDepthParam = apvts.getRawParameterValue(kLfoDepthId);
@@ -328,6 +328,9 @@ ColdAudioProcessor::ColdAudioProcessor()
         ampDecCurveParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAmpDecCurveId));
         ampRelCurveParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAmpRelCurveId));
         ampVelParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAmpVelId));
+        filterCutoffParam[tt] = apvts.getRawParameterValue(trackParamId(t, kFilterCutoffId));
+        filterResonanceParam[tt] = apvts.getRawParameterValue(trackParamId(t, kFilterResonanceId));
+        filterTypeParam[tt] = apvts.getRawParameterValue(trackParamId(t, kFilterTypeId));
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto ll = static_cast<size_t>(l);
@@ -390,7 +393,8 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     e.setModEnvelope(modAttackParam->load(), modDecayParam->load(), modSustainParam->load(),
                      modReleaseParam->load());
     e.setModRouting(modToCutoffParam->load(), modToTypeParam->load());
-    e.setFilter(filterCutoffParam->load(), filterResonanceParam->load(), filterTypeParam->load());
+    e.setFilter(filterCutoffParam[tt]->load(), filterResonanceParam[tt]->load(),
+                filterTypeParam[tt]->load());
 
     // LFO: free rate in Hz, or host-tempo synced via the selected division.
     const auto shape = static_cast<dsp::LfoShape>(static_cast<int>(lfoShapeParam->load()));

@@ -539,9 +539,6 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "loopStart",
                            "loopEnd",
                            "rootNote",
-                           "filterCutoff",
-                           "filterResonance",
-                           "filterType",
                            "lfoShape",
                            "lfoRate",
                            "lfoDepth",
@@ -578,8 +575,63 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_ampRelease",
                            "t0_ampVelocity",
                            "t7_ampDecay",
-                           "t3_ampHold"})
+                           "t3_ampHold",
+                           "t0_filterCutoff",
+                           "t0_filterResonance",
+                           "t0_filterType",
+                           "t5_filterCutoff"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
+}
+
+TEST_CASE("Cold filter is independent per track", "[processor][e2e][pertrack][filter]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 8000; // long enough for the filter smoother to settle
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // A ~750 Hz tone in slots 0 and 1 -> tracks 0 and 1 (channels 1 and 2).
+    auto wav = writeTempWav(sampleRate, 1, frames);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    REQUIRE(proc.loadSampleToSlot(1, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto tailPeak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int n = b.getNumSamples() - 1000; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    // Track 0 filter wide open; track 1 clamped to a low cutoff (dark).
+    setParam("t0_filterCutoff", 20000.0f);
+    setParam("t1_filterCutoff", 120.0f);
+
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    buffer.clear();
+    juce::MidiBuffer m0;
+    m0.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0); // channel 1 -> track 0
+    renderBlock(proc, buffer, m0);
+    const float open = tailPeak(buffer);
+
+    buffer.clear();
+    juce::MidiBuffer m1;
+    m1.addEvent(juce::MidiMessage::noteOn(2, 60, 1.0f), 0); // channel 2 -> track 1
+    renderBlock(proc, buffer, m1);
+    const float dark = tailPeak(buffer);
+
+    REQUIRE(open > 0.1f);        // track 0 passes the tone
+    REQUIRE(dark < 0.3f * open); // track 1's low cutoff attenuates it
+    proc.releaseResources();
 }
 
 TEST_CASE("Cold amp envelope is independent per track", "[processor][e2e][pertrack]")
