@@ -3,6 +3,7 @@
 #include "PluginEditor.h"
 
 #include "dsp/SampleVoice.h"
+#include "io/BatteryKit.h"
 
 #include <algorithm>
 #include <array>
@@ -607,6 +608,69 @@ int ColdAudioProcessor::loadFolder(const juce::File& directory)
             ++loaded;
     }
     return loaded;
+}
+
+int ColdAudioProcessor::importBatteryKit(const juce::File& kitFile, const juce::File& sampleFolder)
+{
+    const auto kit = io::parseBatteryKitFile(kitFile);
+    if (!kit.valid())
+        return 0;
+
+    auto setParam = [this](const juce::String& id, float value)
+    {
+        if (auto* p = apvts.getParameter(id))
+            p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+
+    // Resolve a sample filename to a real file under the folder (recursive, exact
+    // name, case-insensitive). Returns a non-existent File if nothing matches.
+    auto resolveSample = [&sampleFolder](const juce::String& name) -> juce::File
+    {
+        if (name.isEmpty() || !sampleFolder.isDirectory())
+            return {};
+        auto hits = sampleFolder.findChildFiles(juce::File::findFiles, true, name);
+        if (!hits.isEmpty())
+            return hits[0];
+        for (const auto& f : sampleFolder.findChildFiles(juce::File::findFiles, true, "*"))
+            if (f.getFileName().equalsIgnoreCase(name))
+                return f;
+        return {};
+    };
+
+    const int n = std::min(static_cast<int>(kit.cells.size()), dsp::MultiEngine::kNumTracks);
+    int firstRoot = -1;
+    for (int t = 0; t < n; ++t)
+    {
+        const auto& cell = kit.cells[static_cast<size_t>(t)];
+
+        if (const auto file = resolveSample(cell.file); file.existsAsFile())
+            loadSampleToSlot(t, file);
+
+        // Per-track amp AHDSR (delay 0; curves left linear).
+        setParam(trackParamId(t, kAmpDelayId), 0.0f);
+        setParam(trackParamId(t, kAttackId), cell.attackSeconds());
+        setParam(trackParamId(t, kAmpHoldId), cell.holdSeconds());
+        setParam(trackParamId(t, kDecayId), cell.decaySeconds());
+        setParam(trackParamId(t, kSustainId), cell.sustainLevel());
+        setParam(trackParamId(t, kReleaseId), cell.releaseSeconds());
+
+        // Cell tune / pan / volume land on the track's first layer.
+        setParam(layerParamId(t, 0, "tune"), cell.tuneSemitones());
+        setParam(layerParamId(t, 0, "pan"), cell.coldPan());
+        setParam(layerParamId(t, 0, "gain"), cell.coldGain());
+
+        if (firstRoot < 0 && cell.rootKey >= 0)
+            firstRoot = cell.rootKey;
+    }
+
+    // Play the cells by their root keys: Note Map addressing from the first key.
+    if (firstRoot >= 0)
+    {
+        setParam(kMidiAddressId, 1.0f); // Note Map
+        setParam(kNoteMapBaseId, static_cast<float>(firstRoot));
+    }
+
+    return n;
 }
 
 void ColdAudioProcessor::selectTrack(int track)
