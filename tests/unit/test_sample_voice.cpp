@@ -606,6 +606,47 @@ TEST_CASE("SampleVoice pan places a mono source in the stereo field",
     }
 }
 
+TEST_CASE("SampleVoice pitch envelope sweeps playback speed then settles",
+          "[samplevoice][dsp][unit][pitchenv]")
+{
+    constexpr int frames = 4000;
+    auto ramp = makeRamp(frames);
+
+    // Reference: no pitch envelope -> reads one frame per sample.
+    SampleVoice plain;
+    plain.prepare(48000.0);
+    plain.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 48000.0);
+    plain.startNote(kRootNote, 1.0f, kRootNote);
+    REQUIRE_FALSE(plain.pitchEnvelopeActive());
+
+    // +12 semitones of pitch envelope over a long decay -> starts ~double speed.
+    SampleVoice blip;
+    blip.prepare(48000.0);
+    blip.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 48000.0);
+    blip.setPitchEnvelope(12.0f, 1.0f); // long decay: nearly full over a short block
+    REQUIRE(blip.pitchEnvelopeActive());
+    blip.startNote(kRootNote, 1.0f, kRootNote);
+
+    render(plain, 200);
+    render(blip, 200);
+
+    // The blip voice raced ahead (higher pitch at the start).
+    REQUIRE(blip.readPosition() > 1.7 * plain.readPosition());
+
+    // With a very short decay the envelope collapses, so the tail advances at the
+    // base rate again (settled back to the note pitch).
+    SampleVoice settle;
+    settle.prepare(48000.0);
+    settle.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 48000.0);
+    settle.setPitchEnvelope(12.0f, 0.002f); // ~96-sample decay
+    settle.startNote(kRootNote, 1.0f, kRootNote);
+    render(settle, 400);
+    const double before = settle.readPosition();
+    render(settle, 100);
+    const double advanced = settle.readPosition() - before;
+    REQUIRE_THAT(advanced, WithinAbs(100.0, 2.0)); // back to ~1 frame/sample
+}
+
 TEST_CASE("SampleVoice velocity scales output gain", "[samplevoice][dsp][unit]")
 {
     constexpr int frames = 16;
