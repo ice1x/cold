@@ -20,16 +20,24 @@
 namespace cold::io
 {
 
-// Battery stores envelope times/levels as knob values on a 0..kBatteryKnobMax
-// scale (assumed 127 — Battery's internal range). Times map exponentially to
-// seconds so small knob values give short, drum-like envelopes; levels are
-// linear. These constants are the single place to calibrate against real Battery.
-inline constexpr float kBatteryKnobMax = 127.0f;
-inline constexpr float kBatteryEnvMaxSeconds = 5.0f; // knob at max -> this many seconds
-inline constexpr float kBatteryEnvCurve = 3.0f;      // exponent of the time curve
+// Battery envelope calibration.
+//
+// Battery 3 is 32-bit and no longer runs on modern macOS, so the mapping can't be
+// A/B'd against the real plugin. It is instead grounded in evidence: (a) the .kit
+// stores volume/pan/pitch as normalised 0..1 floats but the envelope v* fields as
+// small integers — a different scale; (b) the Battery 3 manual specifies the
+// envelope times in milliseconds (its "10-30 ms hold" tip matches the stored hold
+// values 25-50 seen across real kits); (c) sustain is universally 80 in those kits
+// — a level on a 0..100 scale (0.8), not a time.
+//
+// So: envelope TIMES are milliseconds (value / 1000, clamped to Cold's range) and
+// SUSTAIN is a 0..100 level (value / 100). These two constants are the single
+// place to adjust if a better reference ever surfaces.
+inline constexpr float kBatteryTimeMaxSeconds = 5.0f; // clamp (matches Cold's env range)
+inline constexpr float kBatterySustainMax = 100.0f;   // sustain level full-scale
 
-// Map a Battery envelope-time knob (0..kBatteryKnobMax) to seconds (approx).
-[[nodiscard]] float batteryEnvToSeconds(float knob);
+// Map a Battery envelope-time value (milliseconds) to seconds, clamped.
+[[nodiscard]] float batteryEnvToSeconds(float milliseconds);
 
 struct BatteryCell
 {
