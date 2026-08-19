@@ -35,7 +35,8 @@ catch_discover_tests(ColdTests PROPERTIES LABELS "unit")
 # ----------------------------------------------------------------------------
 add_executable(ColdIoTests
     unit/test_sample_loader.cpp
-    unit/test_sample_bank.cpp)
+    unit/test_sample_bank.cpp
+    unit/test_battery_kit.cpp)
 target_link_libraries(ColdIoTests PRIVATE
     cold_io
     cold_test_support
