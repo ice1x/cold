@@ -102,9 +102,6 @@ private:
     std::atomic<float>* loopStartParam = nullptr;
     std::atomic<float>* loopEndParam = nullptr;
     std::atomic<float>* rootNoteParam = nullptr;
-    std::atomic<float>* filterCutoffParam = nullptr;
-    std::atomic<float>* filterResonanceParam = nullptr;
-    std::atomic<float>* filterTypeParam = nullptr;
     std::atomic<float>* lfoShapeParam = nullptr;
     std::atomic<float>* lfoRateParam = nullptr;
     std::atomic<float>* lfoDepthParam = nullptr;
@@ -145,6 +142,11 @@ private:
     TrackFloats ampDecCurveParam{};
     TrackFloats ampRelCurveParam{};
     TrackFloats ampVelParam{};
+
+    // Per-track morph filter.
+    TrackFloats filterCutoffParam{};
+    TrackFloats filterResonanceParam{};
+    TrackFloats filterTypeParam{};
 
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
         layerSlotParam{};
