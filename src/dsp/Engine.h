@@ -104,6 +104,10 @@ public:
                         float releaseSeconds);
     void setModRouting(float toCutoffOctaves, float toTypeOffset);
 
+    // Per-note pitch envelope shared by every voice: at each note the pitch is
+    // offset by `amountSemitones` and decays back over `decaySeconds` (drum blip).
+    void setPitchEnvelope(float amountSemitones, float decaySeconds);
+
     // Per-voice morph filter shared by every voice (cutoff Hz, resonance/Q, type
     // in [0, 1]). Enables the filter on the whole pool.
     void setFilter(float cutoffHz, float resonance, float type);
@@ -180,6 +184,9 @@ private:
     float modRelease = 0.0f;
     float modToCutoff = 0.0f;
     float modToType = 0.0f;
+
+    float pitchEnvAmount = 0.0f;
+    float pitchEnvDecay = 0.0f;
 
     bool filterEnabled = false;
     float filterCutoff = 20000.0f;
