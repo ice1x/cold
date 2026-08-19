@@ -287,11 +287,11 @@ private:
                   "(LP→BP→HP→Notch) over the note.");
         }
         {
-            auto& s = newSection("Filter");
-            gKnob(s, "filterCutoff", "Cutoff", "Track filter cutoff frequency, in Hz.");
-            gKnob(s, "filterResonance", "Reso",
+            auto& s = newSection("Filter (selected cell)");
+            tKnob(s, "filterCutoff", "Cutoff", "This cell's filter cutoff frequency, in Hz.");
+            tKnob(s, "filterResonance", "Reso",
                   "Filter resonance (Q): emphasis at the cutoff frequency.");
-            gKnob(s, "filterType", "Type",
+            tKnob(s, "filterType", "Type",
                   "Morphing filter character: 0 = low-pass, 0.33 = band-pass, "
                   "0.66 = high-pass, 1 = notch — everything in between blends.");
         }
