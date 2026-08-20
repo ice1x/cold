@@ -52,6 +52,92 @@ private:
     std::unique_ptr<juce::Component> control;
 };
 
+// Battery-style waveform view of the selected cell's sample (И5c). Draws a
+// min/max peak envelope (from dsp::computeWaveformPeaks, fetched by Content) and
+// the playable start/end window as vertical markers with the outside dimmed.
+// Purely a painter: it holds no processor reference, so Content owns the fetch.
+class WaveformDisplay : public juce::Component
+{
+public:
+    WaveformDisplay() { setInterceptsMouseClicks(false, false); }
+
+    // Show a sample's peaks with its window as fractions [0, 1] of the whole
+    // sample. `startFrac`/`endFrac` place the markers; pass 0/1 for the full clip.
+    void setContent(dsp::WaveformPeaks newPeaks, float startFrac, float endFrac)
+    {
+        peaks = std::move(newPeaks);
+        windowStart = juce::jlimit(0.0f, 1.0f, startFrac);
+        windowEnd = juce::jlimit(windowStart, 1.0f, endFrac);
+        hasSample = !peaks.empty();
+        repaint();
+    }
+
+    void clear()
+    {
+        peaks = {};
+        hasSample = false;
+        repaint();
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat();
+        g.setColour(juce::Colour(0xff15181d));
+        g.fillRoundedRectangle(bounds, 4.0f);
+        g.setColour(juce::Colour(0xff2a2f37));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), 4.0f, 1.0f);
+
+        if (!hasSample)
+        {
+            g.setColour(juce::Colour(0xff5a6470));
+            g.drawText("no sample in this cell", getLocalBounds(), juce::Justification::centred);
+            return;
+        }
+
+        const auto area = bounds.reduced(3.0f);
+        const float midY = area.getCentreY();
+        const float halfH = area.getHeight() * 0.5f;
+        const int n = peaks.numBins();
+
+        // Centre line.
+        g.setColour(juce::Colour(0xff2a2f37));
+        g.drawHorizontalLine(static_cast<int>(midY), area.getX(), area.getRight());
+
+        // One vertical line per bin, mapped across the width (bins may differ
+        // from pixel columns; nearest-bin sampling keeps it cheap and crisp).
+        g.setColour(juce::Colour(0xff58b0f0));
+        const int px = static_cast<int>(area.getWidth());
+        for (int x = 0; x < px; ++x)
+        {
+            const int bin = (n <= 1) ? 0 : juce::jlimit(0, n - 1, x * n / px);
+            const float lo = peaks.minValues[static_cast<size_t>(bin)];
+            const float hi = peaks.maxValues[static_cast<size_t>(bin)];
+            const float y1 = midY - hi * halfH;
+            const float y2 = midY - lo * halfH;
+            const float fx = area.getX() + static_cast<float>(x);
+            g.drawLine(fx, y1, fx, y2, 1.0f);
+        }
+
+        // Dim the region outside the playable window and mark its edges.
+        const float xs = area.getX() + windowStart * area.getWidth();
+        const float xe = area.getX() + windowEnd * area.getWidth();
+        g.setColour(juce::Colour(0x88000000));
+        if (xs > area.getX())
+            g.fillRect(area.withRight(xs));
+        if (xe < area.getRight())
+            g.fillRect(area.withLeft(xe));
+        g.setColour(juce::Colour(0xffe0a53a));
+        g.drawVerticalLine(static_cast<int>(xs), area.getY(), area.getBottom());
+        g.drawVerticalLine(static_cast<int>(xe), area.getY(), area.getBottom());
+    }
+
+private:
+    dsp::WaveformPeaks peaks;
+    float windowStart = 0.0f;
+    float windowEnd = 1.0f;
+    bool hasSample = false;
+};
+
 // Per-track / per-layer id helpers (mirror the processor's scheme).
 juce::String trackId(int track, const juce::String& base)
 {
@@ -72,6 +158,7 @@ public:
     explicit Content(ColdAudioProcessor& p) : proc(p)
     {
         buildCellGrid();
+        addAndMakeVisible(waveformView); // under the cell pads (positioned in resized)
         buildGlobals();
         buildTrackPanel();
 
@@ -87,9 +174,12 @@ public:
 
         const int width = juce::jmax(getWidth(), 320);
 
+        constexpr int waveH = 96;
+
         int y = pad;
-        for (auto& s : sections)
+        for (size_t si = 0; si < sections.size(); ++si)
         {
+            auto& s = sections[si];
             s.header->setBounds(pad, y, width - 2 * pad, headerH);
             y += headerH;
 
@@ -115,11 +205,21 @@ public:
             if (col != 0)
                 rowTop += rowH + gap;
             y = rowTop + gap;
+
+            // The waveform of the selected cell sits directly under the cell grid
+            // (the first section), Battery-style, spanning the full width.
+            if (si == 0)
+            {
+                waveformView.setBounds(pad, y, width - 2 * pad, waveH);
+                y += waveH + gap;
+            }
         }
 
         y += pad;
         if (y != getHeight())
             setSize(width, y); // grow so the Viewport can scroll to everything
+
+        updateWaveform(); // re-fetch at the new pixel width for a crisp envelope
     }
 
     // Refresh the bank slot buttons (call after any sample load).
@@ -132,6 +232,7 @@ public:
                 juce::String(k + 1) + ": " + (name.isEmpty() ? juce::String("(empty)") : name));
         }
         refreshCellPads(); // a slot load changes the cell's default sample name
+        updateWaveform();  // ...and the selected cell's waveform
     }
 
 private:
@@ -425,8 +526,29 @@ private:
             p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(currentTrack)));
         setTrack(currentTrack);
         refreshCellPads();
+        updateWaveform();
         if (onBankChanged)
             onBankChanged();
+    }
+
+    // Pull the selected cell's sample into the waveform view (track t -> slot t).
+    // Fetches peaks at the view's current pixel width so bins map ~1:1 to columns.
+    void updateWaveform()
+    {
+        const int slot = currentTrack; // bank slot t feeds track t
+        const int total = proc.slotTotalFrames(slot);
+        if (total <= 0)
+        {
+            waveformView.clear();
+            return;
+        }
+        const int bins = juce::jmax(1, waveformView.getWidth());
+        const float startFrac =
+            static_cast<float>(proc.slotWindowStart(slot)) / static_cast<float>(total);
+        const float endFrac =
+            static_cast<float>(proc.slotWindowStart(slot) + proc.slotWindowLength(slot)) /
+            static_cast<float>(total);
+        waveformView.setContent(proc.slotWaveform(slot, bins), startFrac, endFrac);
     }
 
     void refreshCellPads()
@@ -557,6 +679,7 @@ private:
 
     std::vector<juce::TextButton*> bankButtons; // owned via `owned`
     std::vector<juce::TextButton*> cellPads;    // one per track, owned via `owned`
+    WaveformDisplay waveformView;               // selected cell's sample + window
     int currentTrack = 0;
     std::unique_ptr<juce::FileChooser> chooser; // per-slot load dialog
 
