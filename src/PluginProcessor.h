@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dsp/MultiEngine.h"
+#include "dsp/Waveform.h"
 #include "io/SampleBank.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -71,6 +72,19 @@ public:
     [[nodiscard]] int numSlots() const;
     [[nodiscard]] juce::String loadedSampleName() const;       // selected track's sample name
     [[nodiscard]] juce::String slotSampleName(int slot) const; // "" for an empty slot
+
+    // Waveform view of slot `slot` (И5c): a `numBins`-column min/max envelope of
+    // the WHOLE decoded sample (not just the playable window). Empty if the slot
+    // is unloaded or the request is degenerate. The editor draws this behind the
+    // start/end markers, which come from the window accessors below.
+    [[nodiscard]] dsp::WaveformPeaks slotWaveform(int slot, int numBins) const;
+
+    // Slot geometry for the waveform markers: total decoded frames, and the
+    // playable window [start, start+length) clamped to the sample. 0 for an
+    // unloaded slot. Fractions (start/total, length/total) place the markers.
+    [[nodiscard]] int slotTotalFrames(int slot) const;
+    [[nodiscard]] int slotWindowStart(int slot) const;
+    [[nodiscard]] int slotWindowLength(int slot) const;
 
     // Max layers per track (Stack mode). Public so the editor can lay out the rows.
     static constexpr int kNumLayers = 4;
