@@ -682,6 +682,53 @@ TEST_CASE("Cold amp envelope is independent per track", "[processor][e2e][pertra
     proc.releaseResources();
 }
 
+TEST_CASE("Cold exposes a waveform view of a loaded slot", "[processor][e2e][waveform]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+    constexpr int numFrames = 2000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    auto wav = writeTempWav(sampleRate, 2, numFrames);
+    REQUIRE(proc.loadSampleToSlot(3, wav));
+    wav.deleteFile();
+
+    SECTION("a loaded slot yields the requested number of finite peak bins")
+    {
+        const auto peaks = proc.slotWaveform(3, 128);
+        REQUIRE(peaks.numBins() == 128);
+        float maxAbs = 0.0f;
+        for (int b = 0; b < peaks.numBins(); ++b)
+        {
+            REQUIRE(std::isfinite(peaks.minValues[static_cast<size_t>(b)]));
+            REQUIRE(std::isfinite(peaks.maxValues[static_cast<size_t>(b)]));
+            REQUIRE(peaks.maxValues[static_cast<size_t>(b)] >=
+                    peaks.minValues[static_cast<size_t>(b)]);
+            maxAbs = std::max(maxAbs, std::abs(peaks.maxValues[static_cast<size_t>(b)]));
+        }
+        REQUIRE(maxAbs > 0.0f); // the known signal is not silent
+    }
+
+    SECTION("slot geometry reports the full sample and its window")
+    {
+        REQUIRE(proc.slotTotalFrames(3) == numFrames);
+        REQUIRE(proc.slotWindowStart(3) == 0);
+        REQUIRE(proc.slotWindowLength(3) == numFrames); // whole sample by default
+    }
+
+    SECTION("an unloaded slot has an empty waveform and zero geometry")
+    {
+        REQUIRE(proc.slotWaveform(5, 128).empty());
+        REQUIRE(proc.slotTotalFrames(5) == 0);
+        REQUIRE(proc.slotWindowLength(5) == 0);
+    }
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold processor state save/restore round-trips", "[processor][e2e]")
 {
     ColdAudioProcessor proc;

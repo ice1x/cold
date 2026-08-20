@@ -719,6 +719,35 @@ juce::String ColdAudioProcessor::slotSampleName(int slot) const
     return s.isLoaded() ? s.name : juce::String();
 }
 
+dsp::WaveformPeaks ColdAudioProcessor::slotWaveform(int slot, int numBins) const
+{
+    const auto& s = bank.slot(slot);
+    if (!s.isLoaded())
+        return {};
+
+    const int numCh = s.data.numChannels();
+    std::vector<const float*> ch(static_cast<size_t>(numCh));
+    for (int c = 0; c < numCh; ++c)
+        ch[static_cast<size_t>(c)] = s.data.channels[static_cast<size_t>(c)].data();
+
+    return dsp::computeWaveformPeaks(ch.data(), numCh, 0, s.data.numFrames(), numBins);
+}
+
+int ColdAudioProcessor::slotTotalFrames(int slot) const
+{
+    return bank.slot(slot).numFrames();
+}
+
+int ColdAudioProcessor::slotWindowStart(int slot) const
+{
+    return bank.slot(slot).effectiveStart();
+}
+
+int ColdAudioProcessor::slotWindowLength(int slot) const
+{
+    return bank.slot(slot).effectiveLength();
+}
+
 juce::AudioProcessorEditor* ColdAudioProcessor::createEditor()
 {
     return new ColdAudioProcessorEditor(*this);
