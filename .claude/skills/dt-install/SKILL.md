@@ -17,16 +17,30 @@ cp -R "$AU"   ~/Library/Audio/Plug-Ins/Components/
 cp -R "$VST3" ~/Library/Audio/Plug-Ins/VST3/      # optional, for other DAWs
 ```
 
+## 1b. Re-sign the installed bundle (REQUIRED — see gotcha)
+
+`cp -R` invalidates the build's ad-hoc code signature, so `dlopen` of the copied
+bundle is killed with `CODESIGNING / Code Signature Invalid` and `auval` crashes
+(SIGKILL) the instant it opens the AU — the report shows `* * PASS` then dies at
+`TESTING OPEN TIMES`. Re-sign ad-hoc after copying, every time:
+
+```sh
+codesign --force --deep -s - ~/Library/Audio/Plug-Ins/Components/Cold.component
+codesign --force --deep -s - ~/Library/Audio/Plug-Ins/VST3/Cold.vst3   # if installed
+codesign -v ~/Library/Audio/Plug-Ins/Components/Cold.component && echo "signature OK"
+```
+
 ## 2. Validate the AU
 
 ```sh
-# List to find the type/subtype/manufacturer codes Cold registered with:
-auval -a | grep -i cold
-# Full validation (substitute the codes printed above, e.g. aumu Cold Cldx):
-auval -v aumu <subtype> <manufacturer>
+# Cold registers as aumu / Cld1 / Cold (from CMakeLists PLUGIN_CODE + manufacturer).
+# `auval -a | grep -i cold` also lists it, but re-scans every AU and is slow after
+# an AudioUnitCache clear — prefer the direct form:
+auval -v aumu Cld1 Cold
 ```
 
-A clean `AU VALIDATION SUCCEEDED` is required before testing in Logic.
+A clean `AU VALIDATION SUCCEEDED` is required before testing in Logic. If it dies
+at `TESTING OPEN TIMES` with no verdict, the signature is the cause — redo step 1b.
 
 ## 3. Force Logic to re-scan (if it cached a bad build)
 
