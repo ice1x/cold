@@ -208,7 +208,7 @@ public:
         // Dragging a marker sets the selected cell's playable window (frames).
         waveformView.onWindowChanged = [this](float startFrac, float endFrac)
         {
-            const int slot = currentTrack; // bank slot t feeds track t
+            const int slot = slotForLayer(0); // the cell's primary sample (layer 0)
             const int total = proc.slotTotalFrames(slot);
             if (total <= 0)
                 return;
@@ -281,17 +281,32 @@ public:
         updateWaveform(); // re-fetch at the new pixel width for a crisp envelope
     }
 
-    // Refresh the bank slot buttons (call after any sample load).
+    // Refresh everything a sample load can change: the cell pads, the selected
+    // cell's per-layer Load buttons, and its waveform.
     void refreshBank()
     {
-        for (int k = 0; k < static_cast<int>(bankButtons.size()); ++k)
+        refreshCellPads();
+        refreshLayerButtons();
+        updateWaveform();
+    }
+
+    // Bank slot backing the selected cell's layer `layer` (its dedicated slot).
+    [[nodiscard]] int slotForLayer(int layer) const
+    {
+        return currentTrack * ColdAudioProcessor::kNumLayers + layer;
+    }
+
+    // Update each layer's Load button to show its loaded sample (or "Load…").
+    void refreshLayerButtons()
+    {
+        for (int l = 0; l < kNumLayers; ++l)
         {
-            const auto name = proc.slotSampleName(k);
-            bankButtons[static_cast<size_t>(k)]->setButtonText(
-                juce::String(k + 1) + ": " + (name.isEmpty() ? juce::String("(empty)") : name));
+            if (layerCtl[static_cast<size_t>(l)].load == nullptr)
+                continue;
+            const auto name = proc.slotSampleName(slotForLayer(l));
+            layerCtl[static_cast<size_t>(l)].load->setButtonText(name.isEmpty() ? u8("Load…")
+                                                                                : name);
         }
-        refreshCellPads(); // a slot load changes the cell's default sample name
-        updateWaveform();  // ...and the selected cell's waveform
     }
 
 private:
@@ -418,7 +433,6 @@ private:
                   "Note Map only: this note plays track 1, the next note track 2, ... "
                   "(8 notes total). 36 = C1, the GM kick.");
         }
-        buildBank();
         {
             auto& s = newSection("Amp Envelope (selected track)");
             tKnob(s, "ampDelay", "Delay", "Silence before the attack starts, in seconds (DAHDSR).");
@@ -539,44 +553,23 @@ private:
     }
 
     // The sample bank: 16 slot buttons showing what's loaded; click = load a file
-    // into that exact slot. Layers reference these slots by number.
-    void buildBank()
+    // Load a file directly into the selected cell's layer `layer` (its own slot).
+    void chooseForLayer(int layer)
     {
-        auto& s = newSection("Sample Bank (click a slot to load; layers reference slots)");
-        s.wideCells = true;
-
-        for (int k = 0; k < proc.numSlots(); ++k)
-        {
-            auto btn = std::make_unique<juce::TextButton>();
-            btn->setTooltip("Load a sample into bank slot " + juce::String(k + 1) + ". Track " +
-                            juce::String(k + 1) +
-                            " plays this slot by default; any layer on any track can "
-                            "reference it via its Slot knob.");
-            auto* ptr = btn.get();
-            ptr->onClick = [this, k] { chooseForSlot(k); };
-            addAndMakeVisible(*ptr);
-            bankButtons.push_back(ptr);
-            owned.push_back(std::move(btn));
-            s.cells.push_back(ptr);
-        }
-        refreshBank();
-    }
-
-    void chooseForSlot(int slot)
-    {
-        chooser =
-            std::make_unique<juce::FileChooser>("Load a sample into slot " + juce::String(slot + 1),
-                                                juce::File{}, "*.wav;*.aiff;*.aif;*.mp3");
+        chooser = std::make_unique<juce::FileChooser>("Load a sample into layer " +
+                                                          juce::String(layer + 1),
+                                                      juce::File{}, "*.wav;*.aiff;*.aif;*.mp3");
         const auto flags =
             juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
 
+        const int track = currentTrack;
         chooser->launchAsync(flags,
-                             [this, slot](const juce::FileChooser& fc)
+                             [this, track, layer](const juce::FileChooser& fc)
                              {
                                  const auto file = fc.getResult();
                                  if (file == juce::File{})
                                      return;
-                                 proc.loadSampleToSlot(slot, file);
+                                 proc.loadSampleToLayer(track, layer, file);
                                  refreshBank();
                                  if (onBankChanged)
                                      onBankChanged();
@@ -624,11 +617,11 @@ private:
             onBankChanged();
     }
 
-    // Pull the selected cell's sample into the waveform view (track t -> slot t).
+    // Pull the selected cell's primary sample (layer 0) into the waveform view.
     // Fetches peaks at the view's current pixel width so bins map ~1:1 to columns.
     void updateWaveform()
     {
-        const int slot = currentTrack; // bank slot t feeds track t
+        const int slot = slotForLayer(0); // the cell's primary sample
         const int total = proc.slotTotalFrames(slot);
         if (total <= 0)
         {
@@ -648,7 +641,8 @@ private:
     {
         for (int t = 0; t < static_cast<int>(cellPads.size()); ++t)
         {
-            const auto name = proc.slotSampleName(t);
+            // A cell's label is its primary sample (layer 0).
+            const auto name = proc.slotSampleName(t * ColdAudioProcessor::kNumLayers);
             cellPads[static_cast<size_t>(t)]->setButtonText(
                 "T" + juce::String(t + 1) + ": " +
                 (name.isEmpty() ? juce::String("(empty)") : name));
@@ -665,18 +659,25 @@ private:
         // Layer mode is per-track; its attachment is rebuilt on cell change.
         layerModeCombo = makeCombo("t0_layerMode");
         place(s, "Layer Mode",
-              "Select: the track plays one sample per note (its own bank slot, or "
-              "wherever LFO→Sample points). Stack: all enabled layers below sound "
-              "TOGETHER on every note — layering.");
+              "Single: the cell plays one layer per note (layer 1, or wherever "
+              "LFO→Sample points among the loaded layers). Stack: every loaded layer "
+              "below sounds TOGETHER on each note — layering.");
 
         for (int l = 0; l < kNumLayers; ++l)
         {
             auto& row = newSection("Layer " + juce::String(l + 1));
             auto& c = layerCtl[static_cast<size_t>(l)];
-            c.slot = makeSlider();
-            place(row, "Slot",
-                  "Bank slot this layer plays (see Sample Bank above). -1 = layer off. "
-                  "Stack mode only.");
+
+            // Per-layer Load button: loads a sample into THIS layer of the selected
+            // cell. Empty layers are silent; in Stack all loaded layers sound at once.
+            auto btn = std::make_unique<juce::TextButton>();
+            btn->setTooltip("Load a sample into this layer of the selected cell. In "
+                            "Stack mode every loaded layer sounds together on one note.");
+            c.load = btn.get();
+            c.load->onClick = [this, l] { chooseForLayer(l); };
+            pendingControl = std::move(btn);
+            place(row, "Sample");
+
             c.gain = makeSlider();
             place(row, "Gain", "Layer level (multiplies note velocity).");
             c.tune = makeSlider();
@@ -719,8 +720,6 @@ private:
         {
             auto& c = layerCtl[static_cast<size_t>(l)];
             trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
-                proc.apvts, layerId(track, l, "slot"), *c.slot));
-            trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
                 proc.apvts, layerId(track, l, "gain"), *c.gain));
             trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
                 proc.apvts, layerId(track, l, "tune"), *c.tune));
@@ -733,6 +732,8 @@ private:
             trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
                 proc.apvts, layerId(track, l, "ftype"), *c.ftype));
         }
+
+        refreshLayerButtons(); // the Load buttons show the new cell's layer samples
     }
 
     // ---- state ---------------------------------------------------------------
@@ -741,7 +742,7 @@ private:
 
     struct LayerCtl
     {
-        juce::Slider* slot = nullptr;
+        juce::TextButton* load = nullptr; // per-layer sample Load button
         juce::Slider* gain = nullptr;
         juce::Slider* tune = nullptr;
         juce::Slider* pan = nullptr;
@@ -782,9 +783,8 @@ private:
     };
     std::vector<PerTrackToggle> perTrackToggles;
 
-    std::vector<juce::TextButton*> bankButtons; // owned via `owned`
-    std::vector<juce::TextButton*> cellPads;    // one per track, owned via `owned`
-    WaveformDisplay waveformView;               // selected cell's sample + window
+    std::vector<juce::TextButton*> cellPads; // one per track, owned via `owned`
+    WaveformDisplay waveformView;            // selected cell's sample + window
     int currentTrack = 0;
     std::unique_ptr<juce::FileChooser> chooser; // per-slot load dialog
 
