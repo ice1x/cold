@@ -109,6 +109,12 @@ public:
     void setPitchEnvelope(float amountSemitones, float decaySeconds);
     [[nodiscard]] bool pitchEnvelopeActive() const noexcept { return usePitchEnv; }
 
+    // Velocity -> pitch (Battery-style modulation): at note-on the pitch is offset
+    // by `semitones * velocity` (velocity in [0, 1]), so harder hits play higher
+    // (or lower, for a negative amount). Captured per note like a static tune; 0
+    // disables it. Independent of the tune and pitch-mod channels.
+    void setVelToPitch(float semitones);
+
     // Stereo placement in [-1, 1] (L..R). Linear balance law: centre (0) leaves
     // both channels at unity (unchanged fan-out), a hard side silences the other.
     // Used to spread a stack's layers across the panorama.
@@ -170,6 +176,9 @@ private:
 
     float pitchEnvAmount = 0.0f; // semitones at full envelope
     bool usePitchEnv = false;
+
+    float velToPitchAmount = 0.0f; // semitones at full velocity (velocity -> pitch)
+    float velPitchMod = 0.0f;      // captured per note: velToPitchAmount * velocity
 
     // Amp envelope parameter store (delay/hold added on top of the ADSR core).
     float ampDelay = 0.0f;

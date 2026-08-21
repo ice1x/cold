@@ -582,8 +582,69 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t5_filterCutoff",
                            "t0_pitchEnvAmount",
                            "t0_pitchEnvDecay",
-                           "t4_pitchEnvAmount"})
+                           "t4_pitchEnvAmount",
+                           "t0_velToPitch",
+                           "t6_velToPitch"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
+}
+
+TEST_CASE("Cold velocity modulates pitch per track", "[processor][e2e][pertrack][velocity]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 4000;
+    constexpr int sampleFrames = 16000; // outlast the render window even sped up
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // A tonal sample (~750 Hz), longer than the block so a sped-up one-shot still
+    // fills the whole render window (otherwise it would end early and undercount).
+    auto wav = writeTempWav(sampleRate, 1, sampleFrames);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    // Count sign changes on channel 0 — a scale-independent pitch proxy.
+    auto zeroCrossings = [](const juce::AudioBuffer<float>& b)
+    {
+        int count = 0;
+        for (int n = 1; n < b.getNumSamples(); ++n)
+            if ((b.getSample(0, n - 1) <= 0.0f) != (b.getSample(0, n) <= 0.0f))
+                ++count;
+        return count;
+    };
+
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    // Same full velocity in both renders, so only the pitch (not amplitude) changes.
+    setParam("t0_velToPitch", 0.0f);
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    const int baseCrossings = zeroCrossings(buffer);
+    REQUIRE(baseCrossings > 0);
+
+    // +12 semitones at full velocity -> ~one octave up -> ~twice the crossings.
+    setParam("t0_velToPitch", 12.0f);
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    const int highCrossings = zeroCrossings(buffer);
+
+    REQUIRE(highCrossings > baseCrossings * 3 / 2); // markedly higher pitch
+
+    proc.releaseResources();
 }
 
 TEST_CASE("Cold filter is independent per track", "[processor][e2e][pertrack][filter]")
