@@ -83,6 +83,12 @@ void SampleVoice::setTuneSemitones(float semitones)
     updateStep();
 }
 
+void SampleVoice::setVelToPitch(float semitones)
+{
+    // Amount only; the actual per-note offset is captured from velocity at note-on.
+    velToPitchAmount = semitones;
+}
+
 void SampleVoice::setPan(float pan)
 {
     // Linear balance law: centre leaves both channels at unity; panning attenuates
@@ -96,7 +102,8 @@ void SampleVoice::updateStep()
 {
     // Both the block-rate pitch mod and the static per-note tune ride on the note's
     // captured base step (magnitude), summed in semitones.
-    const double semis = static_cast<double>(pitchMod) + static_cast<double>(tuneMod);
+    const double semis = static_cast<double>(pitchMod) + static_cast<double>(tuneMod) +
+                         static_cast<double>(velPitchMod);
     step = baseStep * std::pow(2.0, semis / 12.0);
 }
 
@@ -177,6 +184,9 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
     gain = std::clamp(velocity, 0.0f, 1.0f);
     position = 0.0;
     direction = 1;
+
+    // Velocity -> pitch: harder hits ride higher, captured once for this note.
+    velPitchMod = velToPitchAmount * gain;
 
     const double rateCorrection = sourceSampleRate / hostSampleRate;
     baseStep = noteToRatio(newMidiNote, rootNote) * rateCorrection;
@@ -322,6 +332,7 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
             const float pe = pitchEnv.getNextSample();
             advance = baseStep *
                       std::pow(2.0, (static_cast<double>(pitchMod) + static_cast<double>(tuneMod) +
+                                     static_cast<double>(velPitchMod) +
                                      static_cast<double>(pitchEnvAmount) * pe) /
                                         12.0);
         }
