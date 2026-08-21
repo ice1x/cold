@@ -47,15 +47,22 @@ public:
     // Decode a file and hand it to the engine. Thread-safe against the audio
     // thread (guards the engine while the sample buffers are swapped). Returns
     // false if the file could not be decoded. Called from the UI / state restore.
-    // Load a file into the selected track's bank slot and play it on that track.
+    // Load a file into the selected cell's primary sample (its layer 0).
     bool loadSampleFile(const juce::File& file);
 
-    // Load a file into bank slot `slot`. Bank slot t feeds track t (t < 8), so the
-    // matching track starts playing it. Returns false on decode failure / bad index.
+    // Load a file into a specific cell layer (track 0..7, layer 0..kNumLayers-1) or
+    // the cell's primary sample (layer 0). Each cell owns its layers, so the sample
+    // plays on that cell only. Returns false on decode failure / bad index.
+    bool loadSampleToLayer(int track, int layer, const juce::File& file);
+    bool loadSampleToTrack(int track, const juce::File& file);
+
+    // Load a file into raw bank slot `slot` (internal store: slot = track*kNumLayers
+    // + layer). Prefer loadSampleToLayer / loadSampleToTrack. Returns false on
+    // decode failure / bad index.
     bool loadSampleToSlot(int slot, const juce::File& file);
 
-    // Load every decodable audio file in a folder into consecutive slots from 0,
-    // so a folder of N samples fills tracks 0..N-1. Returns how many were loaded.
+    // Load up to 8 decodable audio files from a folder into cells 0..7 (each as the
+    // cell's primary sample). Returns how many were loaded.
     int loadFolder(const juce::File& directory);
 
     // Import an NI Battery 3 ".kit": load its samples (resolved by filename under
@@ -180,8 +187,6 @@ private:
     TrackFloats compReleaseParam{};
     TrackFloats compMakeupParam{};
 
-    std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
-        layerSlotParam{};
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
         layerGainParam{};
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
