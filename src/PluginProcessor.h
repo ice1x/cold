@@ -165,6 +165,7 @@ private:
     // Per-track pitch envelope (drum blip).
     TrackFloats pitchEnvAmtParam{};
     TrackFloats pitchEnvDecayParam{};
+    TrackFloats velToPitchParam{};
 
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
         layerSlotParam{};

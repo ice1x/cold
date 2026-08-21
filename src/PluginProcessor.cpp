@@ -52,6 +52,7 @@ constexpr auto kModToCutoffId = "modToCutoff";
 constexpr auto kModToTypeId = "modToType";
 constexpr auto kPitchEnvAmtId = "pitchEnvAmount";
 constexpr auto kPitchEnvDecayId = "pitchEnvDecay";
+constexpr auto kVelToPitchId = "velToPitch";
 constexpr auto kMidiAddressId = "midiAddressing";
 constexpr auto kNoteMapBaseId = "noteMapBase";
 
@@ -255,6 +256,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             juce::ParameterID{trackParamId(t, kPitchEnvDecayId), 1}, tp + "Pitch Env Decay",
             timeRange(5.0f), 0.05f));
 
+        // Per-track velocity -> pitch (Battery-style): semitones at full velocity.
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kVelToPitchId), 1}, tp + "Velocity to Pitch",
+            juce::NormalisableRange<float>(-48.0f, 48.0f, 0.01f), 0.0f));
+
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto lp = tp + "L" + juce::String(l + 1) + " ";
@@ -343,6 +349,7 @@ ColdAudioProcessor::ColdAudioProcessor()
         filterTypeParam[tt] = apvts.getRawParameterValue(trackParamId(t, kFilterTypeId));
         pitchEnvAmtParam[tt] = apvts.getRawParameterValue(trackParamId(t, kPitchEnvAmtId));
         pitchEnvDecayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kPitchEnvDecayId));
+        velToPitchParam[tt] = apvts.getRawParameterValue(trackParamId(t, kVelToPitchId));
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto ll = static_cast<size_t>(l);
@@ -406,6 +413,7 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
                      modReleaseParam->load());
     e.setModRouting(modToCutoffParam->load(), modToTypeParam->load());
     e.setPitchEnvelope(pitchEnvAmtParam[tt]->load(), pitchEnvDecayParam[tt]->load());
+    e.setVelToPitch(velToPitchParam[tt]->load());
     e.setFilter(filterCutoffParam[tt]->load(), filterResonanceParam[tt]->load(),
                 filterTypeParam[tt]->load());
 

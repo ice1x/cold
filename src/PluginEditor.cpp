@@ -406,6 +406,13 @@ private:
                   "seconds. Short = a snappy click; longer = a falling 'dooo'.");
         }
         {
+            auto& s = newSection("Velocity (selected cell)");
+            tKnob(s, "velToPitch", u8("Vel→Pitch"),
+                  "Velocity modulates pitch: this many semitones at full velocity, "
+                  "scaled down for softer hits. + = harder plays higher, - = lower, "
+                  "0 = off. (Velocity→volume is the Amp Envelope 'Vel' knob.)");
+        }
+        {
             auto& s = newSection("LFO");
             gCombo(s, "lfoShape", "Shape",
                    "LFO waveform. Random = stepped sample & hold; Custom = the "
