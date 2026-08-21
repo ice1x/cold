@@ -108,4 +108,47 @@ BatteryKit parseBatteryKitFile(const juce::File& file)
     return parseBatteryKit(file.loadFileAsString());
 }
 
+int bestKitSampleMatch(const juce::String& storedName, const juce::StringArray& candidateFileNames,
+                       int minPrefix)
+{
+    if (storedName.isEmpty() || candidateFileNames.isEmpty())
+        return -1;
+
+    const auto baseOf = [](const juce::String& n)
+    { return n.upToLastOccurrenceOf(".", false, false); };
+    const juce::String storedBase = baseOf(storedName);
+
+    // Pass 1: exact match (case-insensitive), comparing whole names and bases so a
+    // stored name with or without an extension both resolve.
+    for (int i = 0; i < candidateFileNames.size(); ++i)
+    {
+        const auto& cand = candidateFileNames[i];
+        if (cand.equalsIgnoreCase(storedName) || baseOf(cand).equalsIgnoreCase(storedBase))
+            return i;
+    }
+
+    // Pass 2: prefix match — a candidate base that begins with the (truncated)
+    // stored base. Choose the shortest such base (closest to the stub). Skipped for
+    // stubs shorter than minPrefix so a 1-2 char name can't grab an arbitrary file.
+    if (storedBase.length() < minPrefix)
+        return -1;
+
+    int best = -1;
+    int bestLen = 0;
+    for (int i = 0; i < candidateFileNames.size(); ++i)
+    {
+        const juce::String candBase = baseOf(candidateFileNames[i]);
+        if (candBase.startsWithIgnoreCase(storedBase))
+        {
+            const int len = candBase.length();
+            if (best < 0 || len < bestLen)
+            {
+                best = i;
+                bestLen = len;
+            }
+        }
+    }
+    return best;
+}
+
 } // namespace cold::io
