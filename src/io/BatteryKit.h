@@ -84,4 +84,16 @@ struct BatteryKit
 // Parse a Battery .kit file from disk. Returns an empty kit on read/parse failure.
 [[nodiscard]] BatteryKit parseBatteryKitFile(const juce::File& file);
 
+// Resolve a Battery-stored sample name against a list of real filenames on disk,
+// returning the index of the best match or -1. Battery often TRUNCATES the stored
+// name, so matching is: (1) exact, case-insensitive, comparing both with and
+// without extension; then (2) prefix — a candidate whose name (sans extension)
+// begins with the stored name (sans extension), case-insensitive, choosing the
+// SHORTEST such candidate (closest to the truncation). Prefix matching is skipped
+// for stored names under `minPrefix` characters, so a 1-2 char stub can't grab an
+// arbitrary file. Empty stored name or candidates -> -1.
+[[nodiscard]] int bestKitSampleMatch(const juce::String& storedName,
+                                     const juce::StringArray& candidateFileNames,
+                                     int minPrefix = 3);
+
 } // namespace cold::io

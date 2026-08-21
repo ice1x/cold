@@ -6,6 +6,7 @@
 using Catch::Matchers::WithinAbs;
 using cold::io::batteryEnvToSeconds;
 using cold::io::BatteryKit;
+using cold::io::bestKitSampleMatch;
 using cold::io::parseBatteryKit;
 
 namespace
@@ -81,4 +82,54 @@ TEST_CASE("BatteryKit returns an invalid kit on junk input", "[batterykit][io][u
 {
     REQUIRE_FALSE(parseBatteryKit("not xml at all").valid());
     REQUIRE_FALSE(parseBatteryKit("<BatteryPatch name=\"empty\"></BatteryPatch>").valid());
+}
+
+TEST_CASE("bestKitSampleMatch resolves exact and truncated names", "[batterykit][io][unit]")
+{
+    const juce::StringArray files{"Kick.wav", "KickAlt.wav", "Snare.aif", "HiHat.wav"};
+
+    SECTION("exact filename wins")
+    {
+        REQUIRE(bestKitSampleMatch("Snare.aif", files) == 2);
+    }
+
+    SECTION("exact base name matches regardless of the stored extension")
+    {
+        REQUIRE(bestKitSampleMatch("Snare", files) == 2);     // stored without ext
+        REQUIRE(bestKitSampleMatch("HiHat.wav", files) == 3); // stored with ext
+    }
+
+    SECTION("matching is case-insensitive")
+    {
+        REQUIRE(bestKitSampleMatch("snare", files) == 2);
+    }
+
+    SECTION("a truncated stored name prefix-matches the shortest candidate")
+    {
+        // "Kic" is a truncation: both Kick and KickAlt start with it; the shorter
+        // (closest to the stub) wins.
+        REQUIRE(bestKitSampleMatch("Kic", files) == 0);
+    }
+
+    SECTION("an exact match beats a longer prefix sibling")
+    {
+        REQUIRE(bestKitSampleMatch("Kick", files) == 0); // not KickAlt
+    }
+
+    SECTION("no match returns -1")
+    {
+        REQUIRE(bestKitSampleMatch("Tom", files) == -1);
+    }
+
+    SECTION("too-short a stub does not prefix-match arbitrarily")
+    {
+        // "K" (< minPrefix) must not grab Kick/KickAlt.
+        REQUIRE(bestKitSampleMatch("K", files) == -1);
+    }
+
+    SECTION("empty inputs return -1")
+    {
+        REQUIRE(bestKitSampleMatch("", files) == -1);
+        REQUIRE(bestKitSampleMatch("Kick", {}) == -1);
+    }
 }
