@@ -8,6 +8,7 @@
 // mode / points and the assigned sample are shared configuration applied to every
 // voice; each note gets its own read position and pitch.
 
+#include "dsp/Compressor.h"
 #include "dsp/Lfo.h"
 #include "dsp/ModMatrix.h"
 #include "dsp/SampleVoice.h"
@@ -112,6 +113,13 @@ public:
     // `semitones * velocity`. Harder hits play higher (negative = lower).
     void setVelToPitch(float semitones);
 
+    // Per-track compressor on the summed track output (post voice mix). When
+    // enabled, the track renders into a scratch buffer, compresses it, then sums
+    // into the output — so each cell can have its own punch/glue. Disabled = the
+    // voices render straight to the output (no scratch, no cost).
+    void setCompressor(bool enabled, float thresholdDb, float ratio, float attackSeconds,
+                       float releaseSeconds, float makeupDb);
+
     // Per-voice morph filter shared by every voice (cutoff Hz, resonance/Q, type
     // in [0, 1]). Enables the filter on the whole pool.
     void setFilter(float cutoffHz, float resonance, float type);
@@ -201,6 +209,10 @@ private:
 
     Lfo lfo;
     ModMatrix modMatrix;
+
+    Compressor compressor;                      // per-track dynamics on the summed mix
+    std::vector<std::vector<float>> compBuffer; // scratch: [channel][sample], grown as needed
+    std::vector<float*> compPtrs;               // channel pointers into compBuffer
 };
 
 } // namespace cold::dsp

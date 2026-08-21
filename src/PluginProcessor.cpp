@@ -53,6 +53,12 @@ constexpr auto kModToTypeId = "modToType";
 constexpr auto kPitchEnvAmtId = "pitchEnvAmount";
 constexpr auto kPitchEnvDecayId = "pitchEnvDecay";
 constexpr auto kVelToPitchId = "velToPitch";
+constexpr auto kCompOnId = "compOn";
+constexpr auto kCompThreshId = "compThreshold";
+constexpr auto kCompRatioId = "compRatio";
+constexpr auto kCompAttackId = "compAttack";
+constexpr auto kCompReleaseId = "compRelease";
+constexpr auto kCompMakeupId = "compMakeup";
 constexpr auto kMidiAddressId = "midiAddressing";
 constexpr auto kNoteMapBaseId = "noteMapBase";
 
@@ -261,6 +267,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             juce::ParameterID{trackParamId(t, kVelToPitchId), 1}, tp + "Velocity to Pitch",
             juce::NormalisableRange<float>(-48.0f, 48.0f, 0.01f), 0.0f));
 
+        // Per-track compressor (punch/glue on the cell's summed output).
+        layout.add(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{trackParamId(t, kCompOnId), 1}, tp + "Comp On", false));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kCompThreshId), 1}, tp + "Comp Threshold",
+            juce::NormalisableRange<float>(-60.0f, 0.0f, 0.1f), -12.0f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kCompRatioId), 1}, tp + "Comp Ratio",
+            juce::NormalisableRange<float>(1.0f, 20.0f, 0.01f, 0.5f), 4.0f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kCompAttackId), 1}, tp + "Comp Attack",
+            juce::NormalisableRange<float>(0.0001f, 0.1f, 0.0001f, 0.4f), 0.005f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kCompReleaseId), 1}, tp + "Comp Release",
+            juce::NormalisableRange<float>(0.005f, 1.0f, 0.001f, 0.4f), 0.1f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kCompMakeupId), 1}, tp + "Comp Makeup",
+            juce::NormalisableRange<float>(0.0f, 24.0f, 0.1f), 0.0f));
+
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto lp = tp + "L" + juce::String(l + 1) + " ";
@@ -350,6 +375,12 @@ ColdAudioProcessor::ColdAudioProcessor()
         pitchEnvAmtParam[tt] = apvts.getRawParameterValue(trackParamId(t, kPitchEnvAmtId));
         pitchEnvDecayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kPitchEnvDecayId));
         velToPitchParam[tt] = apvts.getRawParameterValue(trackParamId(t, kVelToPitchId));
+        compOnParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompOnId));
+        compThreshParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompThreshId));
+        compRatioParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompRatioId));
+        compAttackParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompAttackId));
+        compReleaseParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompReleaseId));
+        compMakeupParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompMakeupId));
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto ll = static_cast<size_t>(l);
@@ -414,6 +445,9 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     e.setModRouting(modToCutoffParam->load(), modToTypeParam->load());
     e.setPitchEnvelope(pitchEnvAmtParam[tt]->load(), pitchEnvDecayParam[tt]->load());
     e.setVelToPitch(velToPitchParam[tt]->load());
+    e.setCompressor(compOnParam[tt]->load() > 0.5f, compThreshParam[tt]->load(),
+                    compRatioParam[tt]->load(), compAttackParam[tt]->load(),
+                    compReleaseParam[tt]->load(), compMakeupParam[tt]->load());
     e.setFilter(filterCutoffParam[tt]->load(), filterResonanceParam[tt]->load(),
                 filterTypeParam[tt]->load());
 
