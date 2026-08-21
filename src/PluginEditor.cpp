@@ -56,10 +56,20 @@ private:
 // min/max peak envelope (from dsp::computeWaveformPeaks, fetched by Content) and
 // the playable start/end window as vertical markers with the outside dimmed.
 // Purely a painter: it holds no processor reference, so Content owns the fetch.
-class WaveformDisplay : public juce::Component
+class WaveformDisplay : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    WaveformDisplay() { setInterceptsMouseClicks(false, false); }
+    WaveformDisplay()
+    {
+        setInterceptsMouseClicks(true, false);
+        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+        setTooltip("Waveform of the selected cell. Drag the left/right edges to set "
+                   "the sample start and end (the playable window).");
+    }
+
+    // Fired while the user drags a marker: the new window as fractions [0, 1] of
+    // the whole sample. The editor maps these to frames and sets the slot window.
+    std::function<void(float startFrac, float endFrac)> onWindowChanged;
 
     // Show a sample's peaks with its window as fractions [0, 1] of the whole
     // sample. `startFrac`/`endFrac` place the markers; pass 0/1 for the full clip.
@@ -78,6 +88,32 @@ public:
         hasSample = false;
         repaint();
     }
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (!hasSample)
+            return;
+        // Grab the nearer of the two markers.
+        const float f = xToFrac(e.x);
+        dragMarker = (std::abs(f - windowStart) <= std::abs(f - windowEnd)) ? 1 : 2;
+        mouseDrag(e);
+    }
+
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (!hasSample || dragMarker == 0)
+            return;
+        const float f = xToFrac(e.x);
+        if (dragMarker == 1)
+            windowStart = juce::jlimit(0.0f, windowEnd, f);
+        else
+            windowEnd = juce::jlimit(windowStart, 1.0f, f);
+        repaint();
+        if (onWindowChanged)
+            onWindowChanged(windowStart, windowEnd);
+    }
+
+    void mouseUp(const juce::MouseEvent&) override { dragMarker = 0; }
 
     void paint(juce::Graphics& g) override
     {
@@ -132,10 +168,20 @@ public:
     }
 
 private:
+    // Pixel x -> fraction [0, 1] within the drawn area (paint insets by 3px).
+    [[nodiscard]] float xToFrac(int x) const
+    {
+        const auto area = getLocalBounds().toFloat().reduced(3.0f);
+        if (area.getWidth() <= 0.0f)
+            return 0.0f;
+        return juce::jlimit(0.0f, 1.0f, (static_cast<float>(x) - area.getX()) / area.getWidth());
+    }
+
     dsp::WaveformPeaks peaks;
     float windowStart = 0.0f;
     float windowEnd = 1.0f;
     bool hasSample = false;
+    int dragMarker = 0; // 0 none, 1 start, 2 end
 };
 
 // Per-track / per-layer id helpers (mirror the processor's scheme).
@@ -159,6 +205,19 @@ public:
     {
         buildCellGrid();
         addAndMakeVisible(waveformView); // under the cell pads (positioned in resized)
+        // Dragging a marker sets the selected cell's playable window (frames).
+        waveformView.onWindowChanged = [this](float startFrac, float endFrac)
+        {
+            const int slot = currentTrack; // bank slot t feeds track t
+            const int total = proc.slotTotalFrames(slot);
+            if (total <= 0)
+                return;
+            const int start = juce::roundToInt(startFrac * static_cast<float>(total));
+            const int length =
+                juce::jmax(1, juce::roundToInt((endFrac - startFrac) * static_cast<float>(total)));
+            proc.setSlotStartFrames(slot, start);
+            proc.setSlotLengthFrames(slot, length);
+        };
         buildGlobals();
         buildTrackPanel();
 

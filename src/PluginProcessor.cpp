@@ -756,6 +756,20 @@ int ColdAudioProcessor::slotWindowLength(int slot) const
     return bank.slot(slot).effectiveLength();
 }
 
+void ColdAudioProcessor::setSlotStartFrames(int slot, int startFrames)
+{
+    const juce::ScopedLock sl(engineLock);
+    bank.setSlotStart(slot, startFrames);
+    rebuildTrackSamples(); // re-offset the tracks' sample views to the new window
+}
+
+void ColdAudioProcessor::setSlotLengthFrames(int slot, int lengthFrames)
+{
+    const juce::ScopedLock sl(engineLock);
+    bank.setSlotLength(slot, lengthFrames);
+    rebuildTrackSamples();
+}
+
 juce::AudioProcessorEditor* ColdAudioProcessor::createEditor()
 {
     return new ColdAudioProcessorEditor(*this);
