@@ -612,3 +612,32 @@ TEST_CASE("Engine reset frees every voice", "[engine][dsp][unit]")
     engine.reset();
     REQUIRE(engine.activeVoiceCount() == 0);
 }
+
+TEST_CASE("Engine per-track compressor attenuates the loud mix", "[engine][dsp][unit][compressor]")
+{
+    constexpr int kRoot = 60;
+    auto s = makeConstant(20000, 1.0f); // constant full-scale -> 0 dBFS mix
+
+    auto engine = makeEngine(s, 4);
+
+    // Baseline: no compressor -> the mix sits near full level.
+    engine.noteOn(kRoot, 1.0f, kRoot);
+    auto dry = renderChunked(engine, 4000, 256);
+    REQUIRE(windowRms(dry, 3000, 500) > 0.9);
+
+    // Heavy compressor on a fresh note: the summed track output is pulled down.
+    engine.reset();
+    engine.setCompressor(true, -20.0f, 8.0f, 0.001f, 0.05f, 0.0f);
+    engine.noteOn(kRoot, 1.0f, kRoot);
+    auto wet = renderChunked(engine, 4000, 256);
+    const double wetRms = windowRms(wet, 3000, 500);
+    REQUIRE(wetRms < 0.5);  // clearly compressed from ~1.0
+    REQUIRE(wetRms > 0.05); // but still audible
+
+    // Disabling it restores the full-level path.
+    engine.reset();
+    engine.setCompressor(false, -20.0f, 8.0f, 0.001f, 0.05f, 0.0f);
+    engine.noteOn(kRoot, 1.0f, kRoot);
+    auto restored = renderChunked(engine, 4000, 256);
+    REQUIRE(windowRms(restored, 3000, 500) > 0.9);
+}

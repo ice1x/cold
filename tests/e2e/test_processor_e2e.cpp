@@ -621,8 +621,68 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_pitchEnvDecay",
                            "t4_pitchEnvAmount",
                            "t0_velToPitch",
-                           "t6_velToPitch"})
+                           "t6_velToPitch",
+                           "t0_compOn",
+                           "t0_compThreshold",
+                           "t0_compRatio",
+                           "t3_compMakeup"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
+}
+
+TEST_CASE("Cold per-cell compressor tames a loud track", "[processor][e2e][pertrack][compressor]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 8000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    auto wav = writeTempWav(sampleRate, 1, frames);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto tailPeak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int n = b.getNumSamples() - 1000; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    // Dry: no compressor.
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    const float dry = tailPeak(buffer);
+    REQUIRE(dry > 0.1f);
+
+    // Heavy compressor on track 0 -> the settled tail is pulled down.
+    setParam("t0_compOn", 1.0f);
+    setParam("t0_compThreshold", -24.0f);
+    setParam("t0_compRatio", 10.0f);
+    setParam("t0_compAttack", 0.001f);
+    setParam("t0_compRelease", 0.05f);
+    setParam("t0_compMakeup", 0.0f);
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    REQUIRE(tailPeak(buffer) < dry * 0.7f); // clearly compressed
+
+    proc.releaseResources();
 }
 
 TEST_CASE("Cold velocity modulates pitch per track", "[processor][e2e][pertrack][velocity]")

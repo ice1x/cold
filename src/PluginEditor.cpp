@@ -389,6 +389,15 @@ private:
         place(s, name, tip);
     }
 
+    // Per-track toggle: like tKnob, its attachment is rebuilt in setTrack().
+    void tToggle(Section& s, const juce::String& base, const juce::String& name,
+                 const juce::String& tip = {})
+    {
+        auto* tg = makeToggle();
+        perTrackToggles.push_back({tg, base});
+        place(s, name, tip);
+    }
+
     // ---- section construction ------------------------------------------------
 
     void buildGlobals()
@@ -470,6 +479,24 @@ private:
                   "Velocity modulates pitch: this many semitones at full velocity, "
                   "scaled down for softer hits. + = harder plays higher, - = lower, "
                   "0 = off. (Velocity→volume is the Amp Envelope 'Vel' knob.)");
+        }
+        {
+            auto& s = newSection("Compressor (selected cell)");
+            tToggle(s, "compOn", "On", "Enable this cell's compressor (punch / glue).");
+            tKnob(s, "compThreshold", "Thresh",
+                  "Level (dBFS) above which the cell is compressed. Lower = more of "
+                  "the hit is caught.");
+            tKnob(s, "compRatio", "Ratio",
+                  "How hard it clamps above the threshold (input:output). 4:1 is a "
+                  "firm drum squeeze; 20:1 is near-limiting.");
+            tKnob(s, "compAttack", "Attack",
+                  "How fast it grabs the transient, in seconds. Fast = tames the "
+                  "click; slow = lets the attack punch through.");
+            tKnob(s, "compRelease", "Release",
+                  "How fast it lets go after the level drops, in seconds.");
+            tKnob(s, "compMakeup", "Makeup",
+                  "Output gain in dB to make up for the reduction (bring the level "
+                  "back up).");
         }
         {
             auto& s = newSection("LFO");
@@ -684,6 +711,10 @@ private:
             trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
                 proc.apvts, trackId(track, k.base), *k.ctl));
 
+        for (const auto& tg : perTrackToggles)
+            trackAtt.button.push_back(std::make_unique<APVTS::ButtonAttachment>(
+                proc.apvts, trackId(track, tg.base), *tg.ctl));
+
         for (int l = 0; l < kNumLayers; ++l)
         {
             auto& c = layerCtl[static_cast<size_t>(l)];
@@ -742,6 +773,14 @@ private:
         juce::String base; // un-prefixed id, e.g. "ampAttack"
     };
     std::vector<PerTrackKnob> perTrackKnobs;
+
+    // Per-track toggles whose attachment is rebuilt for the selected track.
+    struct PerTrackToggle
+    {
+        juce::ToggleButton* ctl;
+        juce::String base;
+    };
+    std::vector<PerTrackToggle> perTrackToggles;
 
     std::vector<juce::TextButton*> bankButtons; // owned via `owned`
     std::vector<juce::TextButton*> cellPads;    // one per track, owned via `owned`

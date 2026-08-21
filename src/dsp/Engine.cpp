@@ -17,6 +17,7 @@ void Engine::prepare(double newHostSampleRate)
         hostSampleRate = newHostSampleRate;
 
     lfo.setSampleRate(hostSampleRate);
+    compressor.prepare(hostSampleRate);
 
     for (int i = 0; i < polyphony(); ++i)
         configureVoice(i, currentIndex);
@@ -193,6 +194,13 @@ void Engine::setVelToPitch(float semitones)
         voices[static_cast<size_t>(i)].setVelToPitch(velToPitch);
 }
 
+void Engine::setCompressor(bool enabled, float thresholdDb, float ratio, float attackSeconds,
+                           float releaseSeconds, float makeupDb)
+{
+    compressor.setParameters(thresholdDb, ratio, attackSeconds, releaseSeconds, makeupDb);
+    compressor.setEnabled(enabled);
+}
+
 void Engine::configureVoice(int voiceIndex, int sampleIndex)
 {
     auto& voice = voices[static_cast<size_t>(voiceIndex)];
@@ -360,8 +368,37 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
         }
     }
 
+    if (!compressor.enabled())
+    {
+        // Fast path: voices sum straight into the output, no scratch buffer.
+        for (auto& voice : voices)
+            voice.renderNextBlock(out, numOutChannels, startSample, numSamples);
+        return;
+    }
+
+    // Compressed path: render the whole track into a cleared scratch buffer, run
+    // the per-track compressor over it, then sum the result into the output.
+    const auto ch = static_cast<size_t>(numOutChannels);
+    if (compBuffer.size() < ch)
+        compBuffer.resize(ch);
+    compPtrs.clear();
+    for (int c = 0; c < numOutChannels; ++c)
+    {
+        auto& row = compBuffer[static_cast<size_t>(c)];
+        if (static_cast<int>(row.size()) < numSamples)
+            row.resize(static_cast<size_t>(numSamples));
+        std::fill_n(row.data(), numSamples, 0.0f);
+        compPtrs.push_back(row.data());
+    }
+
     for (auto& voice : voices)
-        voice.renderNextBlock(out, numOutChannels, startSample, numSamples);
+        voice.renderNextBlock(compPtrs.data(), numOutChannels, 0, numSamples);
+
+    compressor.processBlock(compPtrs.data(), numOutChannels, numSamples);
+
+    for (int c = 0; c < numOutChannels; ++c)
+        for (int n = 0; n < numSamples; ++n)
+            out[c][startSample + n] += compPtrs[static_cast<size_t>(c)][n];
 }
 
 int Engine::activeVoiceCount() const
