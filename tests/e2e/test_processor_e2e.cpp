@@ -145,9 +145,9 @@ TEST_CASE("Cold processor routes MIDI channels to tracks", "[processor][e2e][mul
     proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
     proc.prepareToPlay(sampleRate, blockSize);
 
-    // Bank slot 2 feeds track 2, which is driven by MIDI channel 3.
+    // Cell 2's primary sample; track 2 is driven by MIDI channel 3.
     auto wav = writeTempWav(sampleRate, 2, blockSize);
-    REQUIRE(proc.loadSampleToSlot(2, wav));
+    REQUIRE(proc.loadSampleToTrack(2, wav));
     wav.deleteFile();
 
     juce::AudioBuffer<float> buffer(2, blockSize);
@@ -407,11 +407,11 @@ TEST_CASE("Cold Stack layer mode sums a track's layers into one hit", "[processo
     proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
     proc.prepareToPlay(sampleRate, blockSize);
 
-    // Slots 0 and 1 hold the same signal; track 0 (channel 1) stacks both, so the
-    // in-phase sum is ~2x a single layer.
+    // Cell 0's layers 0 and 1 hold the same signal; in Stack, track 0 (channel 1)
+    // sounds both, so the in-phase sum is ~2x a single layer.
     auto wav = writeTempWav(sampleRate, 1, blockSize);
-    REQUIRE(proc.loadSampleToSlot(0, wav));
-    REQUIRE(proc.loadSampleToSlot(1, wav));
+    REQUIRE(proc.loadSampleToLayer(0, 0, wav));
+    REQUIRE(proc.loadSampleToLayer(0, 1, wav));
     wav.deleteFile();
 
     auto setParam = [&proc](const char* id, float value)
@@ -440,9 +440,8 @@ TEST_CASE("Cold Stack layer mode sums a track's layers into one hit", "[processo
         REQUIRE(selectPeak > 0.1f); // the single base layer sounds
     }
 
-    // Switch track 0 to Stack with layer 0 = slot 0 (default) and layer 1 = slot 1.
+    // Switch track 0 to Stack: layers 0 and 1 are both loaded, so both sound.
     setParam("t0_layerMode", 1.0f); // Stack
-    setParam("t0_lyr1_slot", 1.0f); // enable a second layer on slot 1
     {
         buffer.clear();
         juce::MidiBuffer midi;
@@ -450,6 +449,70 @@ TEST_CASE("Cold Stack layer mode sums a track's layers into one hit", "[processo
         renderBlock(proc, buffer, midi);
         REQUIRE(bufferIsFinite(buffer));
         REQUIRE(peak(buffer) > 1.5f * selectPeak); // two in-phase layers sum louder
+    }
+
+    proc.releaseResources();
+}
+
+TEST_CASE("Cold cells own their layer samples", "[processor][e2e][stack][layers]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    // Load two samples directly into cell 3's own layers 0 and 1 (channel 4).
+    auto wav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToLayer(3, 0, wav));
+    REQUIRE(proc.loadSampleToLayer(3, 1, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto peak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int n = 0; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+
+    // A different cell is unaffected: cell 4 (channel 5) has no samples -> silent.
+    // Checked first so no earlier note can bleed across the block boundary.
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(5, 60, 1.0f), 0); // channel 5 -> cell 4
+        renderBlock(proc, buffer, midi);
+        REQUIRE(buffer.getMagnitude(0, blockSize) == 0.0f);
+    }
+
+    // Single mode: cell 3 plays only its primary layer.
+    float single = 0.0f;
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(4, 60, 1.0f), 0); // channel 4 -> cell 3
+        renderBlock(proc, buffer, midi);
+        single = peak(buffer);
+        REQUIRE(single > 0.1f);
+    }
+
+    // Stack mode: both of cell 3's loaded layers sound together (in-phase ~2x).
+    setParam("t3_layerMode", 1.0f);
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(4, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(peak(buffer) > 1.5f * single);
     }
 
     proc.releaseResources();
@@ -508,9 +571,9 @@ TEST_CASE("Cold imports a Battery .kit onto its tracks", "[processor][e2e][batte
 
     REQUIRE(proc.importBatteryKit(kitFile, dir) == 2);
 
-    // Samples resolved into slots 0 and 1.
-    REQUIRE(proc.slotSampleName(0).isNotEmpty());
-    REQUIRE(proc.slotSampleName(1).isNotEmpty());
+    // Samples resolved into cell 0 and cell 1 (their primary slots 0 and 4).
+    REQUIRE(proc.slotSampleName(0).isNotEmpty());                              // cell 0 layer 0
+    REQUIRE(proc.slotSampleName(ColdAudioProcessor::kNumLayers).isNotEmpty()); // cell 1 layer 0
 
     auto value = [&proc](const char* id)
     {
@@ -560,9 +623,10 @@ TEST_CASE("Cold imports a Battery .kit with truncated sample names", "[processor
     proc.prepareToPlay(sampleRate, 512);
 
     REQUIRE(proc.importBatteryKit(kitFile, dir) == 2);
-    // The truncated stubs resolved to the full-named files on disk.
+    // The truncated stubs resolved to the full-named files on disk (cells 0 and 1,
+    // primary slots 0 and kNumLayers).
     REQUIRE(proc.slotSampleName(0) == juce::String("KickDrumLong"));
-    REQUIRE(proc.slotSampleName(1) == juce::String("SnareTight"));
+    REQUIRE(proc.slotSampleName(ColdAudioProcessor::kNumLayers) == juce::String("SnareTight"));
 
     dir.deleteRecursively();
 }
@@ -597,7 +661,7 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "lfoStep4",
                            "lfoStep8",
                            "t0_layerMode",
-                           "t0_lyr0_slot",
+                           "t0_lyr0_gain",
                            "t0_lyr1_gain",
                            "t0_lyr3_tune",
                            "t7_layerMode",
@@ -753,10 +817,10 @@ TEST_CASE("Cold filter is independent per track", "[processor][e2e][pertrack][fi
     proc.setPlayConfigDetails(0, 2, sampleRate, frames);
     proc.prepareToPlay(sampleRate, frames);
 
-    // A ~750 Hz tone in slots 0 and 1 -> tracks 0 and 1 (channels 1 and 2).
+    // A ~750 Hz tone into cells 0 and 1 (channels 1 and 2).
     auto wav = writeTempWav(sampleRate, 1, frames);
-    REQUIRE(proc.loadSampleToSlot(0, wav));
-    REQUIRE(proc.loadSampleToSlot(1, wav));
+    REQUIRE(proc.loadSampleToTrack(0, wav));
+    REQUIRE(proc.loadSampleToTrack(1, wav));
     wav.deleteFile();
 
     auto setParam = [&proc](const char* id, float value)
@@ -804,10 +868,10 @@ TEST_CASE("Cold amp envelope is independent per track", "[processor][e2e][pertra
     proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
     proc.prepareToPlay(sampleRate, blockSize);
 
-    // Same signal in slots 0 and 1 -> tracks 0 and 1 (channels 1 and 2).
+    // Same signal into cells 0 and 1 (channels 1 and 2).
     auto wav = writeTempWav(sampleRate, 1, blockSize);
-    REQUIRE(proc.loadSampleToSlot(0, wav));
-    REQUIRE(proc.loadSampleToSlot(1, wav));
+    REQUIRE(proc.loadSampleToTrack(0, wav));
+    REQUIRE(proc.loadSampleToTrack(1, wav));
     wav.deleteFile();
 
     auto setParam = [&proc](const char* id, float value)

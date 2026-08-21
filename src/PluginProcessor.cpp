@@ -62,8 +62,16 @@ constexpr auto kCompMakeupId = "compMakeup";
 constexpr auto kMidiAddressId = "midiAddressing";
 constexpr auto kNoteMapBaseId = "noteMapBase";
 
-// Number of sample-bank slots exposed in M4; bank slot t feeds track t (t < 8).
-constexpr int kNumSlots = 16;
+// Each cell (track) owns kNumLayers dedicated sample slots for layering: cell t's
+// layer l is slot (t * kNumLayers + l). The bank is these ranges laid end to end,
+// so it is an internal store — there is no separate shared "sample bank" any more.
+constexpr int kNumSlots = dsp::MultiEngine::kNumTracks * ColdAudioProcessor::kNumLayers;
+
+// Bank slot backing cell `track`'s layer `layer`.
+constexpr int slotForLayer(int track, int layer)
+{
+    return track * ColdAudioProcessor::kNumLayers + layer;
+}
 
 // Host-sync divisions (parallel to the lfoDivision choice list), in quarter-note
 // beats per LFO cycle: "1/16" = 0.25 beats ... "4 bars" = 16 beats.
@@ -206,7 +214,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         const auto tp = "T" + juce::String(t + 1) + " ";
         layout.add(std::make_unique<AudioParameterChoice>(
             juce::ParameterID{trackParamId(t, "layerMode"), 1}, tp + "Layer Mode",
-            juce::StringArray{"Select", "Stack"}, 0));
+            juce::StringArray{"Single", "Stack"}, 0));
 
         // Per-track amp envelope (each track/cell is an independent sound).
         layout.add(
@@ -289,10 +297,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto lp = tp + "L" + juce::String(l + 1) + " ";
-            const int defSlot = (l == 0) ? t : -1;
-            layout.add(std::make_unique<AudioParameterInt>(
-                juce::ParameterID{layerParamId(t, l, "slot"), 1}, lp + "Slot", -1, kNumSlots - 1,
-                defSlot));
+            // A layer plays its own dedicated slot (slotForLayer(t, l)); it is loaded
+            // via loadSampleToLayer, so there is no per-layer slot-select parameter.
             layout.add(std::make_unique<AudioParameterFloat>(
                 juce::ParameterID{layerParamId(t, l, "gain"), 1}, lp + "Gain", 0.0f, 1.0f, 1.0f));
             layout.add(std::make_unique<AudioParameterFloat>(
@@ -384,7 +390,6 @@ ColdAudioProcessor::ColdAudioProcessor()
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto ll = static_cast<size_t>(l);
-            layerSlotParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "slot"));
             layerGainParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "gain"));
             layerTuneParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "tune"));
             layerPanParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "pan"));
@@ -482,10 +487,11 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     if (std::abs(lfoToSampleParam->load()) > 1.0e-4f)
         e.addModRoute(dsp::ModDestination::SampleSelect, lfoToSampleParam->load());
 
-    // Multilayer: Select (one sample per trig) or Stack (all enabled layers at
-    // once). In Stack, gather this track's layers (slot >= 0) with per-layer gain
-    // and tune. `sampleIndex` is the bank slot directly — every track is fed the
-    // whole bank by rebuildTrackSamples.
+    // Multilayer: Single (one sample per trig — layer 0, or LFO->sample roaming the
+    // cell's loaded layers) or Stack (all loaded layers at once). Each layer plays
+    // its own dedicated slot, so `sampleIndex` is the LOCAL index l into the track's
+    // per-cell sample list built by rebuildTrackSamples. A layer with no sample
+    // loaded contributes nothing.
     const auto layerMode =
         static_cast<dsp::Engine::LayerMode>(static_cast<int>(layerModeParam[tt]->load()));
     e.setLayerMode(layerMode);
@@ -495,12 +501,11 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto ll = static_cast<size_t>(l);
-            const int slot = static_cast<int>(layerSlotParam[tt][ll]->load());
-            if (slot < 0)
-                continue;
+            if (!bank.isSlotLoaded(slotForLayer(track, l)))
+                continue; // empty layer -> silent
             const bool filterOn = layerFilterOnParam[tt][ll]->load() > 0.5f;
             layerScratch.push_back(
-                {slot, layerGainParam[tt][ll]->load(), layerTuneParam[tt][ll]->load(), true,
+                {l, layerGainParam[tt][ll]->load(), layerTuneParam[tt][ll]->load(), true,
                  layerPanParam[tt][ll]->load(), filterOn, layerCutoffParam[tt][ll]->load(), 0.707f,
                  layerTypeParam[tt][ll]->load()});
         }
@@ -596,41 +601,40 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
 
 void ColdAudioProcessor::rebuildTrackSamples()
 {
-    // Layering: every track is fed the whole bank as its sample-select list (so an
-    // LFO/mod -> sample-select can roam across the loaded slots at each trig).
-    // Track t's base index is slot t, so with no modulation track t still plays
-    // slot t exactly. Each slot carries its own [start, length) window; empty slots
-    // become invalid refs (silent if ever selected).
-    const int numSlots = bank.numSlots();
-    std::vector<dsp::Engine::SampleRef> refs(static_cast<size_t>(numSlots));
-
-    for (int k = 0; k < numSlots; ++k)
-    {
-        const auto& s = bank.slot(k);
-        auto& ptrs = slotPtrs[static_cast<size_t>(k)];
-        ptrs.clear();
-
-        if (!s.isLoaded())
-        {
-            slotNumFrames[static_cast<size_t>(k)] = 0;
-            continue; // leave refs[k] as a default (invalid) SampleRef
-        }
-
-        const int start = s.effectiveStart();
-        const int length = s.effectiveLength();
-        for (const auto& ch : s.data.channels)
-            ptrs.push_back(ch.data() + start);
-        slotNumFrames[static_cast<size_t>(k)] = length;
-
-        refs[static_cast<size_t>(k)] = {ptrs.data(), s.data.numChannels(), length,
-                                        s.data.sampleRate};
-    }
-
+    // Each cell owns kNumLayers dedicated slots: track t's sample list is exactly
+    // its own layers [slotForLayer(t, 0) .. slotForLayer(t, kNumLayers-1)], so the
+    // LOCAL sample index l is layer l. Base index 0 is layer 0 (what Single plays);
+    // an LFO->sample-select roams the cell's loaded layers (round-robin). Each slot
+    // carries its own [start, length) window; empty layers are invalid refs.
     for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
     {
+        std::vector<dsp::Engine::SampleRef> refs(static_cast<size_t>(kNumLayers));
+        for (int l = 0; l < kNumLayers; ++l)
+        {
+            const int k = slotForLayer(t, l);
+            const auto& s = bank.slot(k);
+            auto& ptrs = slotPtrs[static_cast<size_t>(k)];
+            ptrs.clear();
+
+            if (!s.isLoaded())
+            {
+                slotNumFrames[static_cast<size_t>(k)] = 0;
+                continue; // leave refs[l] as a default (invalid) SampleRef
+            }
+
+            const int start = s.effectiveStart();
+            const int length = s.effectiveLength();
+            for (const auto& ch : s.data.channels)
+                ptrs.push_back(ch.data() + start);
+            slotNumFrames[static_cast<size_t>(k)] = length;
+
+            refs[static_cast<size_t>(l)] = {ptrs.data(), s.data.numChannels(), length,
+                                            s.data.sampleRate};
+        }
+
         auto& e = multi.track(t);
         e.setSampleList(refs);
-        e.setBaseSampleIndex(t); // track t defaults to slot t
+        e.setBaseSampleIndex(0); // layer 0 is the cell's primary sample
     }
     lastPolyphony = -1; // setSampleList reset the pools; force a param re-apply
 }
@@ -640,14 +644,26 @@ bool ColdAudioProcessor::loadSampleToSlot(int slot, const juce::File& file)
     const juce::ScopedLock sl(engineLock);
     if (!bank.loadSlot(slot, file))
         return false;
-    // Any slot is part of every track's sample-select list, so rebuild all tracks.
+    // A slot belongs to one cell's layer set, so rebuild the tracks' sample views.
     rebuildTrackSamples();
     return true;
 }
 
+bool ColdAudioProcessor::loadSampleToLayer(int track, int layer, const juce::File& file)
+{
+    if (track < 0 || track >= dsp::MultiEngine::kNumTracks || layer < 0 || layer >= kNumLayers)
+        return false;
+    return loadSampleToSlot(slotForLayer(track, layer), file);
+}
+
+bool ColdAudioProcessor::loadSampleToTrack(int track, const juce::File& file)
+{
+    return loadSampleToLayer(track, 0, file); // the cell's primary sample (layer 0)
+}
+
 bool ColdAudioProcessor::loadSampleFile(const juce::File& file)
 {
-    return loadSampleToSlot(selectedTrack(), file);
+    return loadSampleToTrack(selectedTrack(), file);
 }
 
 int ColdAudioProcessor::loadFolder(const juce::File& directory)
@@ -661,9 +677,9 @@ int ColdAudioProcessor::loadFolder(const juce::File& directory)
     int loaded = 0;
     for (const auto& file : files)
     {
-        if (loaded >= bank.numSlots())
-            break;
-        if (loadSampleToSlot(loaded, file))
+        if (loaded >= dsp::MultiEngine::kNumTracks)
+            break; // one sample per cell (its layer 0)
+        if (loadSampleToTrack(loaded, file))
             ++loaded;
     }
     return loaded;
@@ -704,7 +720,7 @@ int ColdAudioProcessor::importBatteryKit(const juce::File& kitFile, const juce::
         const auto& cell = kit.cells[static_cast<size_t>(t)];
 
         if (const auto file = resolveSample(cell.file); file.existsAsFile())
-            loadSampleToSlot(t, file);
+            loadSampleToTrack(t, file); // the cell's primary sample (layer 0)
 
         // Per-track amp AHDSR (delay 0; curves left linear).
         setParam(trackParamId(t, kAmpDelayId), 0.0f);
@@ -752,7 +768,7 @@ int ColdAudioProcessor::numSlots() const
 
 juce::String ColdAudioProcessor::loadedSampleName() const
 {
-    const auto& s = bank.slot(selectedTrack()); // bank slot t feeds track t
+    const auto& s = bank.slot(slotForLayer(selectedTrack(), 0)); // the cell's primary sample
     return s.isLoaded() ? s.name : juce::String("(no sample)");
 }
 
