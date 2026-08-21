@@ -86,6 +86,13 @@ public:
     [[nodiscard]] int slotWindowStart(int slot) const;
     [[nodiscard]] int slotWindowLength(int slot) const;
 
+    // Set a slot's playable window (И5e): first frame / length in frames (0 length
+    // = to the end). Clamped to the sample; rebuilds the tracks' sample views under
+    // the engine lock so playback follows immediately. No-op on a bad/empty slot.
+    // The editor calls these when the waveform start/end markers are dragged.
+    void setSlotStartFrames(int slot, int startFrames);
+    void setSlotLengthFrames(int slot, int lengthFrames);
+
     // Max layers per track (Stack mode). Public so the editor can lay out the rows.
     static constexpr int kNumLayers = 4;
 
