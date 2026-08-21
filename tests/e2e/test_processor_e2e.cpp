@@ -790,6 +790,72 @@ TEST_CASE("Cold exposes a waveform view of a loaded slot", "[processor][e2e][wav
     proc.releaseResources();
 }
 
+TEST_CASE("Cold slot start/length window the playback", "[processor][e2e][window]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 4000;
+    constexpr int sampleFrames = 16000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    auto wav = writeTempWav(sampleRate, 1, sampleFrames);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    SECTION("geometry reflects the set start and length")
+    {
+        proc.setSlotStartFrames(0, 8000);
+        REQUIRE(proc.slotWindowStart(0) == 8000);
+        REQUIRE(proc.slotWindowLength(0) == sampleFrames - 8000); // to the end
+
+        proc.setSlotLengthFrames(0, 4000);
+        REQUIRE(proc.slotWindowLength(0) == 4000);
+
+        // Out-of-range start clamps to the sample bounds.
+        proc.setSlotStartFrames(0, 999999);
+        REQUIRE(proc.slotWindowStart(0) == sampleFrames);
+    }
+
+    SECTION("a short length frees the one-shot early (silent tail)")
+    {
+        auto tailPeak = [](const juce::AudioBuffer<float>& b)
+        {
+            float p = 0.0f;
+            for (int n = b.getNumSamples() - 1000; n < b.getNumSamples(); ++n)
+                p = std::max(p, std::abs(b.getSample(0, n)));
+            return p;
+        };
+
+        juce::AudioBuffer<float> buffer(2, blockSize);
+
+        // Full window: the one-shot plays through the whole block.
+        buffer.clear();
+        {
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+            renderBlock(proc, buffer, midi);
+        }
+        const float fullTail = tailPeak(buffer);
+        REQUIRE(fullTail > 0.1f);
+
+        // Narrow the window to 200 frames -> the voice frees long before the block
+        // ends, so the tail is silent.
+        proc.setSlotStartFrames(0, 0);
+        proc.setSlotLengthFrames(0, 200);
+        buffer.clear();
+        {
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+            renderBlock(proc, buffer, midi);
+        }
+        REQUIRE(tailPeak(buffer) < fullTail * 0.05f);
+    }
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold processor state save/restore round-trips", "[processor][e2e]")
 {
     ColdAudioProcessor proc;
