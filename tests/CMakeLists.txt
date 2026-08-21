@@ -24,7 +24,8 @@ add_executable(ColdTests
     unit/test_sample_voice.cpp
     unit/test_engine.cpp
     unit/test_multi_engine.cpp
-    unit/test_waveform.cpp)
+    unit/test_waveform.cpp
+    unit/test_compressor.cpp)
 target_link_libraries(ColdTests PRIVATE
     cold_dsp
     Catch2::Catch2WithMain)

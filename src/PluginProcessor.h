@@ -173,6 +173,12 @@ private:
     TrackFloats pitchEnvAmtParam{};
     TrackFloats pitchEnvDecayParam{};
     TrackFloats velToPitchParam{};
+    TrackFloats compOnParam{};
+    TrackFloats compThreshParam{};
+    TrackFloats compRatioParam{};
+    TrackFloats compAttackParam{};
+    TrackFloats compReleaseParam{};
+    TrackFloats compMakeupParam{};
 
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
         layerSlotParam{};
