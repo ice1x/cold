@@ -186,6 +186,13 @@ void Engine::setPitchEnvelope(float amountSemitones, float decaySeconds)
         voices[static_cast<size_t>(i)].setPitchEnvelope(pitchEnvAmount, pitchEnvDecay);
 }
 
+void Engine::setVelToPitch(float semitones)
+{
+    velToPitch = semitones;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setVelToPitch(velToPitch);
+}
+
 void Engine::configureVoice(int voiceIndex, int sampleIndex)
 {
     auto& voice = voices[static_cast<size_t>(voiceIndex)];
@@ -206,6 +213,7 @@ void Engine::configureVoice(int voiceIndex, int sampleIndex)
     voice.setAmpVelocity(ampVelocity);
     voice.setModEnvelope(modAttack, modDecay, modSustain, modRelease);
     voice.setPitchEnvelope(pitchEnvAmount, pitchEnvDecay);
+    voice.setVelToPitch(velToPitch);
     voice.setModRouting(modToCutoff, modToType);
     voice.setFilterEnabled(filterEnabled);
     if (filterEnabled)

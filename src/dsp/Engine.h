@@ -108,6 +108,10 @@ public:
     // offset by `amountSemitones` and decays back over `decaySeconds` (drum blip).
     void setPitchEnvelope(float amountSemitones, float decaySeconds);
 
+    // Velocity -> pitch shared by every voice: each note's pitch is offset by
+    // `semitones * velocity`. Harder hits play higher (negative = lower).
+    void setVelToPitch(float semitones);
+
     // Per-voice morph filter shared by every voice (cutoff Hz, resonance/Q, type
     // in [0, 1]). Enables the filter on the whole pool.
     void setFilter(float cutoffHz, float resonance, float type);
@@ -187,6 +191,8 @@ private:
 
     float pitchEnvAmount = 0.0f;
     float pitchEnvDecay = 0.0f;
+
+    float velToPitch = 0.0f; // velocity -> pitch, semitones at full velocity
 
     bool filterEnabled = false;
     float filterCutoff = 20000.0f;

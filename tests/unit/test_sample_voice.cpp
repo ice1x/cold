@@ -173,6 +173,51 @@ TEST_CASE("SampleVoice reads position at the pitch ratio", "[samplevoice][dsp][u
     }
 }
 
+TEST_CASE("SampleVoice velocity maps to pitch", "[samplevoice][dsp][unit][velocity]")
+{
+    constexpr int frames = 64;
+    auto ramp = makeRamp(frames);
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+    voice.setVelToPitch(12.0f); // +1 octave at full velocity
+
+    SECTION("full velocity raises pitch by the full amount")
+    {
+        voice.startNote(kRootNote, 1.0f, kRootNote);
+        REQUIRE_THAT(voice.increment(), WithinAbs(2.0, 1e-6)); // one octave up
+    }
+
+    SECTION("half velocity raises pitch by half the semitone amount")
+    {
+        voice.startNote(kRootNote, 0.5f, kRootNote);
+        REQUIRE_THAT(voice.increment(), WithinAbs(std::pow(2.0, 6.0 / 12.0), 1e-6));
+    }
+
+    SECTION("a negative amount lowers pitch with velocity")
+    {
+        voice.setVelToPitch(-12.0f);
+        voice.startNote(kRootNote, 1.0f, kRootNote);
+        REQUIRE_THAT(voice.increment(), WithinAbs(0.5, 1e-6)); // one octave down
+    }
+
+    SECTION("zero amount leaves the note at its natural pitch")
+    {
+        voice.setVelToPitch(0.0f);
+        voice.startNote(kRootNote, 1.0f, kRootNote);
+        REQUIRE_THAT(voice.increment(), WithinAbs(1.0, 1e-6));
+    }
+
+    SECTION("stacks additively with a static tune")
+    {
+        voice.setVelToPitch(12.0f);
+        voice.setTuneSemitones(12.0f); // +1 octave tune
+        voice.startNote(kRootNote, 1.0f, kRootNote);
+        REQUIRE_THAT(voice.increment(), WithinAbs(4.0, 1e-6)); // +24 semitones total
+    }
+}
+
 TEST_CASE("SampleVoice source sample rate corrects playback speed", "[samplevoice][dsp][unit]")
 {
     constexpr int frames = 64;
