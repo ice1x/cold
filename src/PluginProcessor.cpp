@@ -647,19 +647,20 @@ int ColdAudioProcessor::importBatteryKit(const juce::File& kitFile, const juce::
             p->setValueNotifyingHost(p->convertTo0to1(value));
     };
 
-    // Resolve a sample filename to a real file under the folder (recursive, exact
-    // name, case-insensitive). Returns a non-existent File if nothing matches.
+    // Resolve a Battery-stored sample name to a real file under the folder
+    // (recursive). Handles exact and truncated names via io::bestKitSampleMatch —
+    // Battery often truncates the stored name. Returns a non-existent File if
+    // nothing matches. Enumerated once per call (kits hold a few dozen cells).
     auto resolveSample = [&sampleFolder](const juce::String& name) -> juce::File
     {
         if (name.isEmpty() || !sampleFolder.isDirectory())
             return {};
-        auto hits = sampleFolder.findChildFiles(juce::File::findFiles, true, name);
-        if (!hits.isEmpty())
-            return hits[0];
-        for (const auto& f : sampleFolder.findChildFiles(juce::File::findFiles, true, "*"))
-            if (f.getFileName().equalsIgnoreCase(name))
-                return f;
-        return {};
+        const auto files = sampleFolder.findChildFiles(juce::File::findFiles, true, "*");
+        juce::StringArray names;
+        for (const auto& f : files)
+            names.add(f.getFileName());
+        const int idx = io::bestKitSampleMatch(name, names);
+        return idx >= 0 ? files[idx] : juce::File{};
     };
 
     const int n = std::min(static_cast<int>(kit.cells.size()), dsp::MultiEngine::kNumTracks);

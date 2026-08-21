@@ -530,6 +530,43 @@ TEST_CASE("Cold imports a Battery .kit onto its tracks", "[processor][e2e][batte
     dir.deleteRecursively();
 }
 
+TEST_CASE("Cold imports a Battery .kit with truncated sample names", "[processor][e2e][battery]")
+{
+    constexpr double sampleRate = 48000.0;
+
+    auto dir = juce::File::createTempFile("_cold_kit_trunc");
+    dir.deleteFile();
+    REQUIRE(dir.createDirectory());
+    // Real files have full names; the .kit stores TRUNCATED stubs (as Battery does).
+    for (const char* name : {"KickDrumLong.wav", "SnareTight.wav"})
+    {
+        juce::WavAudioFormat wav;
+        cold::test::writeKnownSignal(wav, dir.getChildFile(name), sampleRate, 1, 256);
+    }
+    const juce::String kitXml =
+        "<?xml version=\"1.0\"?><BatteryPatch name=\"Kit\"><Cells>"
+        "<SampleSlot label=\"Kick\" vattack=\"0\" vhold=\"0\" vdecay=\"40\" vsustain=\"0\" "
+        "vrelease=\"20\" pitch=\"1.0\" rootKey=\"36\" pan=\"0.5\" volume=\"1.0\">"
+        "<Sample file=\"KickDr\"/></SampleSlot>" // truncated stub -> KickDrumLong.wav
+        "<SampleSlot label=\"Snare\" vattack=\"0\" vhold=\"0\" vdecay=\"60\" vsustain=\"80\" "
+        "vrelease=\"40\" pitch=\"1.0\" rootKey=\"38\" pan=\"0.0\" volume=\"0.5\">"
+        "<Sample file=\"SnareTi\"/></SampleSlot>" // truncated stub -> SnareTight.wav
+        "</Cells></BatteryPatch>";
+    auto kitFile = dir.getChildFile("Kit.kit");
+    kitFile.replaceWithText(kitXml);
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, 512);
+    proc.prepareToPlay(sampleRate, 512);
+
+    REQUIRE(proc.importBatteryKit(kitFile, dir) == 2);
+    // The truncated stubs resolved to the full-named files on disk.
+    REQUIRE(proc.slotSampleName(0) == juce::String("KickDrumLong"));
+    REQUIRE(proc.slotSampleName(1) == juce::String("SnareTight"));
+
+    dir.deleteRecursively();
+}
+
 TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
 {
     ColdAudioProcessor proc;
