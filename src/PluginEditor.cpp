@@ -419,7 +419,9 @@ private:
     {
         {
             auto& s = newSection("Master");
-            gKnob(s, "gain", "Gain", "Output gain in dB, applied to the mix of all 8 tracks.");
+            const auto nTracks = juce::String(dsp::MultiEngine::kNumTracks);
+            gKnob(s, "gain", "Gain",
+                  "Output gain in dB, applied to the mix of all " + nTracks + " cells.");
             gKnob(s, "polyphony", "Poly",
                   "Voices per track. 1 = mono (Digitakt-style); higher lets notes overlap "
                   "and chords ring.");
@@ -430,8 +432,8 @@ private:
                    "How MIDI picks a track. Channel: MIDI channel N plays track N. "
                    "Note Map: one channel, the note number picks the track (GM-drum style).");
             gKnob(s, "noteMapBase", "Map Base",
-                  "Note Map only: this note plays track 1, the next note track 2, ... "
-                  "(8 notes total). 36 = C1, the GM kick.");
+                  "Note Map only: this note plays cell 1, the next note cell 2, ... (" + nTracks +
+                      " notes total). 36 = C1, the GM kick.");
         }
         {
             auto& s = newSection("Amp Envelope (selected track)");
@@ -798,15 +800,17 @@ ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     : AudioProcessorEditor(&p), processorRef(p)
 {
     loadFolderButton.setButtonText(u8("Load Folder…"));
-    loadFolderButton.setTooltip("Load every sample in a folder into bank slots 1..16 "
-                                "in file order — the quickest way to fill the bank.");
+    loadFolderButton.setTooltip("Load samples from a folder into the cells (1.." +
+                                juce::String(dsp::MultiEngine::kNumTracks) +
+                                ") in file order — the quickest way to fill the kit.");
     addAndMakeVisible(loadFolderButton);
     loadFolderButton.onClick = [this] { chooseFolder(); };
 
     importKitButton.setButtonText(u8("Import .kit…"));
     importKitButton.setTooltip("Import an NI Battery 3 .kit: loads its samples and applies each "
-                               "cell's envelope, tune, pan and key mapping to the first 8 cells. "
-                               "You pick the .kit, then the folder holding its samples.");
+                               "cell's envelope, tune, pan and key mapping to the first " +
+                               juce::String(dsp::MultiEngine::kNumTracks) +
+                               " cells. You pick the .kit, then the folder holding its samples.");
     addAndMakeVisible(importKitButton);
     importKitButton.onClick = [this] { chooseKit(); };
 
