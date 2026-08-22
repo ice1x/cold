@@ -215,7 +215,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         const auto tp = "T" + juce::String(t + 1) + " ";
         layout.add(std::make_unique<AudioParameterChoice>(
             juce::ParameterID{trackParamId(t, "layerMode"), 1}, tp + "Layer Mode",
-            juce::StringArray{"Single", "Stack"}, 0));
+            juce::StringArray{"Single", "Stack", "Round-Robin"}, 0));
 
         // Per-track amp envelope (each track/cell is an independent sound).
         layout.add(
@@ -512,14 +512,15 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
         e.addModRoute(dsp::ModDestination::SampleSelect, lfoToSampleParam->load());
 
     // Multilayer: Single (one sample per trig — layer 0, or LFO->sample roaming the
-    // cell's loaded layers) or Stack (all loaded layers at once). Each layer plays
-    // its own dedicated slot, so `sampleIndex` is the LOCAL index l into the track's
-    // per-cell sample list built by rebuildTrackSamples. A layer with no sample
-    // loaded contributes nothing.
+    // cell's loaded layers), Stack (all loaded layers at once), or RoundRobin (one
+    // loaded layer per trig, cycling). Each layer plays its own dedicated slot, so
+    // `sampleIndex` is the LOCAL index l into the track's per-cell sample list built
+    // by rebuildTrackSamples. A layer with no sample loaded contributes nothing.
     const auto layerMode =
         static_cast<dsp::Engine::LayerMode>(static_cast<int>(layerModeParam[tt]->load()));
     e.setLayerMode(layerMode);
-    if (layerMode == dsp::Engine::LayerMode::Stack)
+    if (layerMode == dsp::Engine::LayerMode::Stack ||
+        layerMode == dsp::Engine::LayerMode::RoundRobin)
     {
         layerScratch.clear();
         for (int l = 0; l < kNumLayers; ++l)
