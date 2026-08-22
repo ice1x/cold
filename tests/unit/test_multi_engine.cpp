@@ -52,11 +52,11 @@ std::vector<float> render(MultiEngine& e, int numSamples)
 }
 } // namespace
 
-TEST_CASE("MultiEngine has eight tracks", "[multiengine][dsp][unit]")
+TEST_CASE("MultiEngine exposes kNumTracks tracks", "[multiengine][dsp][unit]")
 {
     MultiEngine e;
     e.prepare(44100.0);
-    REQUIRE(e.numTracks() == 8);
+    REQUIRE(e.numTracks() == MultiEngine::kNumTracks);
     REQUIRE(e.activeVoiceCount() == 0);
 }
 
@@ -111,9 +111,9 @@ TEST_CASE("MultiEngine maps MIDI channels to tracks Digitakt-style",
 {
     REQUIRE(MultiEngine::trackForChannel(1) == 0);
     REQUIRE(MultiEngine::trackForChannel(8) == 7);
-    REQUIRE(MultiEngine::trackForChannel(9) == -1);  // beyond the 8 tracks
+    REQUIRE(MultiEngine::trackForChannel(MultiEngine::kNumTracks) == MultiEngine::kNumTracks - 1);
     REQUIRE(MultiEngine::trackForChannel(0) == -1);  // invalid
-    REQUIRE(MultiEngine::trackForChannel(17) == -1); // invalid
+    REQUIRE(MultiEngine::trackForChannel(17) == -1); // beyond the 16 MIDI channels
 }
 
 TEST_CASE("MultiEngine routes note on/off by channel", "[multiengine][dsp][unit][routing]")
