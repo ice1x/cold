@@ -56,12 +56,15 @@ public:
     void setBaseSampleIndex(int index);
 
     // How a note maps to the sample list.
-    //   Select — pick ONE sample per trig (LFO/mod -> sample-select; the default).
-    //   Stack  — trigger every enabled layer together (a drum built from layers).
+    //   Select     — pick ONE sample per trig (LFO/mod -> sample-select; default).
+    //   Stack      — trigger every enabled layer together (a drum from layers).
+    //   RoundRobin — trigger ONE layer per trig, cycling the enabled layers in
+    //                order (anti-machine-gun: consecutive hits use different takes).
     enum class LayerMode
     {
         Select,
-        Stack
+        Stack,
+        RoundRobin
     };
 
     // One stacked layer: which sample it plays, plus per-layer gain (scales
@@ -164,7 +167,11 @@ public:
 private:
     [[nodiscard]] int allocateVoice();
     void configureVoice(int voiceIndex, int sampleIndex);
+    [[nodiscard]] bool layerPlayable(const Layer& layer) const;    // enabled + valid sample
     void triggerStack(int midiNote, float velocity, int rootNote); // Stack-mode note-on
+    void triggerLayer(const Layer& layer, int midiNote, float velocity,
+                      int rootNote); // fire one layer on its own voice
+    void triggerRoundRobin(int midiNote, float velocity, int rootNote); // RoundRobin note-on
     [[nodiscard]] int selectSampleIndex() const; // note-time index from the LFO/mod
 
     std::vector<SampleVoice> voices;
@@ -178,8 +185,9 @@ private:
     std::vector<SampleRef> samples; // sample-select set; index 0 is the primary
     int baseSampleIndex = 0;
     int currentIndex = 0;
-    LayerMode layerStackMode = LayerMode::Select; // Select (one) vs Stack (all layers)
-    std::vector<Layer> layers;                    // active layers in Stack mode
+    LayerMode layerStackMode = LayerMode::Select; // Select (one) / Stack (all) / RoundRobin
+    std::vector<Layer> layers;                    // active layers in Stack / RoundRobin mode
+    int roundRobinCursor = 0;                     // next layer index for RoundRobin trigs
     float lfoToSampleSelect = 0.0f;               // SampleSelect route amount, cached for note-time
     SampleVoice::LoopMode loopMode = SampleVoice::LoopMode::OneShot;
     int loopStartFrame = 0;

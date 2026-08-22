@@ -800,7 +800,8 @@ private:
         place(s, "Layer Mode",
               "Single: the cell plays one layer per note (layer 1, or wherever "
               "LFO→Sample points among the loaded layers). Stack: every loaded layer "
-              "below sounds TOGETHER on each note — layering.");
+              "below sounds TOGETHER on each note — layering. Round-Robin: one loaded "
+              "layer per note, cycling in order — different take on each hit.");
 
         tKnob(s, "mapNote", "Note",
               "Note Map mode: the MIDI note that triggers this cell (0-127; 36 = C1). "

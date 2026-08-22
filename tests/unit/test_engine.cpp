@@ -591,6 +591,92 @@ TEST_CASE("Engine stack per-layer filter shapes each layer independently",
     REQUIRE(tail(1) > 0.7f); // right (layer B) passes the 6 kHz tone
 }
 
+TEST_CASE("Engine round-robin plays one layer per trig, cycling in order",
+          "[engine][dsp][unit][roundrobin]")
+{
+    // Three distinct constant samples; each trig should sound exactly ONE of them,
+    // advancing 0 -> 1 -> 2 -> 0 on successive note-ons (anti-machine-gun).
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.3f);
+    auto c = makeConstant(64, 0.5f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setPolyphony(1); // each trig steals the single voice, so we read it cleanly
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0},
+                          {c.data(), c.numChannels(), c.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::RoundRobin);
+    engine.setLayers({{0, 1.0f, 0.0f, true}, {1, 1.0f, 0.0f, true}, {2, 1.0f, 0.0f, true}});
+
+    const float expected[] = {0.2f, 0.3f, 0.5f, 0.2f, 0.3f};
+    for (float want : expected)
+    {
+        engine.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE(engine.activeVoiceCount() == 1); // one layer, not a stack
+        REQUIRE_THAT(render(engine, 2).front(), WithinAbs(want, 1e-4));
+    }
+}
+
+TEST_CASE("Engine round-robin honours per-layer gain, tune and pan",
+          "[engine][dsp][unit][roundrobin]")
+{
+    auto a = makeConstant(64, 0.4f);
+    auto b = makeConstant(64, 0.6f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setPolyphony(1);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::RoundRobin);
+    engine.setLayers({{0, 0.5f, 0.0f, true, -1.0f},  // layer A: half gain, hard left
+                      {1, 1.0f, 0.0f, true, 1.0f}}); // layer B: full gain, hard right
+
+    // First trig -> layer A on the left only, scaled by 0.5.
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    std::vector<std::vector<float>> out(2, std::vector<float>(2, 0.0f));
+    std::vector<float*> ptrs{out[0].data(), out[1].data()};
+    engine.renderNextBlock(ptrs.data(), 2, 0, 2);
+    REQUIRE_THAT(out[0][0], WithinAbs(0.2f, 1e-4)); // 0.4 * 0.5, left
+    REQUIRE_THAT(out[1][0], WithinAbs(0.0f, 1e-4)); // nothing on the right
+
+    // Second trig -> layer B on the right only, full gain.
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    for (auto& ch : out)
+        std::fill(ch.begin(), ch.end(), 0.0f);
+    engine.renderNextBlock(ptrs.data(), 2, 0, 2);
+    REQUIRE_THAT(out[0][0], WithinAbs(0.0f, 1e-4));
+    REQUIRE_THAT(out[1][0], WithinAbs(0.6f, 1e-4));
+}
+
+TEST_CASE("Engine round-robin skips disabled and invalid layers in the cycle",
+          "[engine][dsp][unit][roundrobin]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.3f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setPolyphony(1);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::RoundRobin);
+    // layer 0 on; layer 1 disabled; layer 2 out-of-range -> only 0 and 3 sound.
+    engine.setLayers({{0, 1.0f, 0.0f, true},
+                      {1, 1.0f, 0.0f, false},
+                      {5, 1.0f, 0.0f, true},
+                      {1, 1.0f, 0.0f, true}});
+
+    const float expected[] = {0.2f, 0.3f, 0.2f, 0.3f}; // cycles only the playable pair
+    for (float want : expected)
+    {
+        engine.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE(engine.activeVoiceCount() == 1);
+        REQUIRE_THAT(render(engine, 2).front(), WithinAbs(want, 1e-4));
+    }
+}
+
 TEST_CASE("Engine defaults to Select mode (one voice per note)", "[engine][dsp][unit][stack]")
 {
     auto s = makeConstant(64);

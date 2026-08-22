@@ -275,6 +275,11 @@ void Engine::noteOn(int midiNote, float velocity, int rootNote)
         triggerStack(midiNote, velocity, rootNote);
         return;
     }
+    if (layerStackMode == LayerMode::RoundRobin && !layers.empty())
+    {
+        triggerRoundRobin(midiNote, velocity, rootNote);
+        return;
+    }
 
     // Select mode: pick the sample for this trig (LFO/mod -> sample-select) and
     // hand it to the allocated voice, re-applying the voice config for the chosen
@@ -295,37 +300,54 @@ void Engine::noteOn(int midiNote, float velocity, int rootNote)
     voice.startNote(midiNote, velocity, rootNote);
 }
 
+bool Engine::layerPlayable(const Layer& layer) const
+{
+    return layer.enabled && layer.sampleIndex >= 0 && layer.sampleIndex < sampleCount() &&
+           samples[static_cast<size_t>(layer.sampleIndex)].valid();
+}
+
+void Engine::triggerLayer(const Layer& layer, int midiNote, float velocity, int rootNote)
+{
+    // Fire one layer on its own voice: its sample, per-layer gain (scales velocity),
+    // per-layer tune (semitones, independent of the pitch mod channel) and pan.
+    const int index = allocateVoice();
+    configureVoice(index, layer.sampleIndex);
+    voiceNote[static_cast<size_t>(index)] = midiNote;
+    voiceAge[static_cast<size_t>(index)] = ++noteCounter;
+
+    auto& voice = voices[static_cast<size_t>(index)];
+    voice.setTuneSemitones(layer.tuneSemitones);
+    voice.setPan(layer.pan);
+    // Per-layer filter overrides the track filter base for this voice.
+    if (layer.filterOverride)
+        voice.setFilter(layer.cutoffHz, layer.resonance, layer.type);
+    voice.startNote(midiNote, std::clamp(velocity * layer.gain, 0.0f, 1.0f), rootNote);
+    currentIndex = layer.sampleIndex; // last sounding layer, for queries
+}
+
 void Engine::triggerStack(int midiNote, float velocity, int rootNote)
 {
-    // Trigger every enabled, valid layer together (a drum built from layers). Each
-    // layer gets its own voice with its sample, per-layer gain (scales velocity)
-    // and per-layer tune (semitones, independent of the pitch mod channel).
-    bool any = false;
+    // Trigger every enabled, valid layer together (a drum built from layers).
     for (const auto& layer : layers)
+        if (layerPlayable(layer))
+            triggerLayer(layer, midiNote, velocity, rootNote);
+}
+
+void Engine::triggerRoundRobin(int midiNote, float velocity, int rootNote)
+{
+    // Trigger ONE playable layer per trig, advancing round-robin over the enabled,
+    // valid layers so consecutive hits alternate takes (anti-machine-gun). Disabled
+    // / out-of-range layers are skipped without consuming a step.
+    const int count = static_cast<int>(layers.size());
+    for (int step = 0; step < count; ++step)
     {
-        if (!layer.enabled)
-            continue;
-        if (layer.sampleIndex < 0 || layer.sampleIndex >= sampleCount() ||
-            !samples[static_cast<size_t>(layer.sampleIndex)].valid())
-            continue;
-
-        const int index = allocateVoice();
-        configureVoice(index, layer.sampleIndex);
-        voiceNote[static_cast<size_t>(index)] = midiNote;
-        voiceAge[static_cast<size_t>(index)] = ++noteCounter;
-
-        auto& voice = voices[static_cast<size_t>(index)];
-        voice.setTuneSemitones(layer.tuneSemitones);
-        voice.setPan(layer.pan);
-        // Per-layer filter overrides the track filter base for this voice.
-        if (layer.filterOverride)
-            voice.setFilter(layer.cutoffHz, layer.resonance, layer.type);
-        voice.startNote(midiNote, std::clamp(velocity * layer.gain, 0.0f, 1.0f), rootNote);
-
-        if (!any)
+        const int idx = ((roundRobinCursor % count) + count) % count;
+        roundRobinCursor = idx + 1;
+        const auto& layer = layers[static_cast<size_t>(idx)];
+        if (layerPlayable(layer))
         {
-            currentIndex = layer.sampleIndex; // first sounding layer, for queries
-            any = true;
+            triggerLayer(layer, midiNote, velocity, rootNote);
+            return;
         }
     }
 }
@@ -352,6 +374,7 @@ void Engine::reset()
         voiceAge[static_cast<size_t>(i)] = 0;
     }
     noteCounter = 0;
+    roundRobinCursor = 0;
 }
 
 void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSample, int numSamples)
