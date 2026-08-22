@@ -677,6 +677,86 @@ TEST_CASE("Engine round-robin skips disabled and invalid layers in the cycle",
     }
 }
 
+TEST_CASE("Engine velocity mode picks the layer by hit strength", "[engine][dsp][unit][velolayers]")
+{
+    // Three layers panned hard-left / centre / hard-right so the sounding layer is
+    // identified by WHICH channel carries signal, independent of velocity level.
+    // Equal velocity bands over 3 layers: [0,1/3)->L, [1/3,2/3)->C, [2/3,1]->R.
+    auto s = makeConstant(64, 0.5f);
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setPolyphony(1);
+    engine.setSampleList({{s.data(), s.numChannels(), s.numFrames(), 44100.0},
+                          {s.data(), s.numChannels(), s.numFrames(), 44100.0},
+                          {s.data(), s.numChannels(), s.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::Velocity);
+    engine.setLayers({{0, 1.0f, 0.0f, true, -1.0f},  // soft: hard left
+                      {1, 1.0f, 0.0f, true, 0.0f},   // medium: centre
+                      {2, 1.0f, 0.0f, true, 1.0f}}); // loud: hard right
+
+    auto hit = [&](float vel)
+    {
+        engine.noteOn(kRootNote, vel, kRootNote);
+        std::vector<std::vector<float>> out(2, std::vector<float>(2, 0.0f));
+        std::vector<float*> ptrs{out[0].data(), out[1].data()};
+        engine.renderNextBlock(ptrs.data(), 2, 0, 2);
+        REQUIRE(engine.activeVoiceCount() == 1); // one layer, not a stack
+        return std::pair{std::abs(out[0][0]), std::abs(out[1][0])};
+    };
+
+    auto soft = hit(0.2f);
+    REQUIRE(soft.first > 0.05f);  // left carries the soft layer
+    REQUIRE(soft.second < 0.01f); // right silent
+
+    auto medium = hit(0.5f);
+    REQUIRE(medium.first > 0.05f); // centre spreads to both channels
+    REQUIRE(medium.second > 0.05f);
+
+    auto loud = hit(0.95f);
+    REQUIRE(loud.second > 0.05f); // right carries the loud layer
+    REQUIRE(loud.first < 0.01f);  // left silent
+
+    // Full velocity clamps to the last (loudest) layer, not out of range.
+    auto full = hit(1.0f);
+    REQUIRE(full.second > 0.05f);
+    REQUIRE(full.first < 0.01f);
+}
+
+TEST_CASE("Engine velocity mode maps bands over only the playable layers",
+          "[engine][dsp][unit][velolayers]")
+{
+    // Two playable layers (0 and 3) with a disabled and an out-of-range layer
+    // between them: bands split in HALF over the two that sound, not over 4 slots.
+    auto s = makeConstant(64, 0.5f);
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setPolyphony(1);
+    engine.setSampleList({{s.data(), s.numChannels(), s.numFrames(), 44100.0},
+                          {s.data(), s.numChannels(), s.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::Velocity);
+    engine.setLayers({{0, 1.0f, 0.0f, true, -1.0f},  // playable, hard left
+                      {1, 1.0f, 0.0f, false, 0.0f},  // disabled
+                      {5, 1.0f, 0.0f, true, 0.0f},   // out-of-range index
+                      {1, 1.0f, 0.0f, true, 1.0f}}); // playable, hard right
+
+    auto hit = [&](float vel)
+    {
+        engine.noteOn(kRootNote, vel, kRootNote);
+        std::vector<std::vector<float>> out(2, std::vector<float>(2, 0.0f));
+        std::vector<float*> ptrs{out[0].data(), out[1].data()};
+        engine.renderNextBlock(ptrs.data(), 2, 0, 2);
+        return std::pair{std::abs(out[0][0]), std::abs(out[1][0])};
+    };
+
+    auto lo = hit(0.3f); // lower half -> first playable (left)
+    REQUIRE(lo.first > 0.05f);
+    REQUIRE(lo.second < 0.01f);
+
+    auto hi = hit(0.8f); // upper half -> last playable (right)
+    REQUIRE(hi.second > 0.05f);
+    REQUIRE(hi.first < 0.01f);
+}
+
 TEST_CASE("Engine defaults to Select mode (one voice per note)", "[engine][dsp][unit][stack]")
 {
     auto s = makeConstant(64);

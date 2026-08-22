@@ -280,6 +280,11 @@ void Engine::noteOn(int midiNote, float velocity, int rootNote)
         triggerRoundRobin(midiNote, velocity, rootNote);
         return;
     }
+    if (layerStackMode == LayerMode::Velocity && !layers.empty())
+    {
+        triggerVelocity(midiNote, velocity, rootNote);
+        return;
+    }
 
     // Select mode: pick the sample for this trig (LFO/mod -> sample-select) and
     // hand it to the allocated voice, re-applying the voice config for the chosen
@@ -350,6 +355,26 @@ void Engine::triggerRoundRobin(int midiNote, float velocity, int rootNote)
             return;
         }
     }
+}
+
+void Engine::triggerVelocity(int midiNote, float velocity, int rootNote)
+{
+    // Trigger ONE layer chosen by hit strength. Gather the playable layers in order
+    // (layer 0 = softest), then split [0, 1] into equal velocity bands over them and
+    // fire the band the velocity falls into. Full velocity clamps to the last layer.
+    std::vector<const Layer*> playable;
+    playable.reserve(layers.size());
+    for (const auto& layer : layers)
+        if (layerPlayable(layer))
+            playable.push_back(&layer);
+    if (playable.empty())
+        return;
+
+    const int count = static_cast<int>(playable.size());
+    const float v = std::clamp(velocity, 0.0f, 1.0f);
+    int band = static_cast<int>(v * static_cast<float>(count));
+    band = std::clamp(band, 0, count - 1);
+    triggerLayer(*playable[static_cast<size_t>(band)], midiNote, velocity, rootNote);
 }
 
 void Engine::noteOff(int midiNote)
