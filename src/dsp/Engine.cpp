@@ -17,6 +17,7 @@ void Engine::prepare(double newHostSampleRate)
         hostSampleRate = newHostSampleRate;
 
     lfo.setSampleRate(hostSampleRate);
+    saturator.prepare(hostSampleRate);
     compressor.prepare(hostSampleRate);
 
     for (int i = 0; i < polyphony(); ++i)
@@ -201,6 +202,12 @@ void Engine::setCompressor(bool enabled, float thresholdDb, float ratio, float a
     compressor.setEnabled(enabled);
 }
 
+void Engine::setSaturator(bool enabled, float drive, float mix)
+{
+    saturator.setParameters(drive, mix);
+    saturator.setEnabled(enabled);
+}
+
 void Engine::configureVoice(int voiceIndex, int sampleIndex)
 {
     auto& voice = voices[static_cast<size_t>(voiceIndex)];
@@ -368,7 +375,7 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
         }
     }
 
-    if (!compressor.enabled())
+    if (!compressor.enabled() && !saturator.enabled())
     {
         // Fast path: voices sum straight into the output, no scratch buffer.
         for (auto& voice : voices)
@@ -376,8 +383,9 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
         return;
     }
 
-    // Compressed path: render the whole track into a cleared scratch buffer, run
-    // the per-track compressor over it, then sum the result into the output.
+    // FX path: render the whole track into a cleared scratch buffer, run the
+    // per-track saturator then compressor over it (each a no-op if disabled), then
+    // sum the result into the output.
     const auto ch = static_cast<size_t>(numOutChannels);
     if (compBuffer.size() < ch)
         compBuffer.resize(ch);
@@ -394,6 +402,7 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
     for (auto& voice : voices)
         voice.renderNextBlock(compPtrs.data(), numOutChannels, 0, numSamples);
 
+    saturator.processBlock(compPtrs.data(), numOutChannels, numSamples);
     compressor.processBlock(compPtrs.data(), numOutChannels, numSamples);
 
     for (int c = 0; c < numOutChannels; ++c)

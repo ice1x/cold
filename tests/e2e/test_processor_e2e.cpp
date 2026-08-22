@@ -715,8 +715,58 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_compOn",
                            "t0_compThreshold",
                            "t0_compRatio",
-                           "t3_compMakeup"})
+                           "t3_compMakeup",
+                           "t0_satOn",
+                           "t0_satDrive",
+                           "t5_satMix"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
+}
+
+TEST_CASE("Cold per-cell saturator drives a track", "[processor][e2e][pertrack][saturator]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 4000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    auto wav = writeTempWav(sampleRate, 1, frames);
+    REQUIRE(proc.loadSampleToTrack(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    // Dry.
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    const float dryPeak = buffer.getMagnitude(0, frames);
+    REQUIRE(dryPeak > 0.0f);
+
+    // Heavy drive: the tanh shaper squares off the sub-full-scale tone, pushing its
+    // peak up toward full scale -> measurably louder / reshaped vs the dry tone.
+    setParam("t0_satOn", 1.0f);
+    setParam("t0_satDrive", 36.0f);
+    setParam("t0_satMix", 1.0f);
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    REQUIRE(buffer.getMagnitude(0, frames) > dryPeak * 1.2f);
+
+    proc.releaseResources();
 }
 
 TEST_CASE("Cold per-cell compressor tames a loud track", "[processor][e2e][pertrack][compressor]")
