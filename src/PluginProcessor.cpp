@@ -63,7 +63,7 @@ constexpr auto kSatOnId = "satOn";
 constexpr auto kSatDriveId = "satDrive";
 constexpr auto kSatMixId = "satMix";
 constexpr auto kMidiAddressId = "midiAddressing";
-constexpr auto kNoteMapBaseId = "noteMapBase";
+constexpr auto kMapNoteId = "mapNote";
 
 // Each cell (track) owns kNumLayers dedicated sample slots for layering: cell t's
 // layer l is slot (t * kNumLayers + l). The bank is these ranges laid end to end,
@@ -204,8 +204,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterChoice>(juce::ParameterID{kMidiAddressId, 1},
                                                       "MIDI Addressing",
                                                       juce::StringArray{"Channel", "Note Map"}, 0));
-    layout.add(std::make_unique<AudioParameterInt>(juce::ParameterID{kNoteMapBaseId, 1},
-                                                   "Note Map Base", 0, 119, 36));
 
     // Multilayer one-shot stacks: per track, a layer mode (Select = one sample per
     // trig; Stack = all layers together) plus kNumLayers layers. Each layer is a
@@ -277,6 +275,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         layout.add(std::make_unique<AudioParameterFloat>(
             juce::ParameterID{trackParamId(t, kVelToPitchId), 1}, tp + "Velocity to Pitch",
             juce::NormalisableRange<float>(-48.0f, 48.0f, 0.01f), 0.0f));
+
+        // Per-cell Note Map key: the MIDI note that triggers this cell (Note Map
+        // mode). Default is a chromatic map from C1 (36) so cells are addressable
+        // out of the box; a .kit import sets each cell's own rootKey (GM-drum style).
+        layout.add(std::make_unique<AudioParameterInt>(
+            juce::ParameterID{trackParamId(t, kMapNoteId), 1}, tp + "Note Map Key", 0, 127,
+            juce::jmin(127, 36 + t)));
 
         // Per-track compressor (punch/glue on the cell's summed output).
         layout.add(std::make_unique<juce::AudioParameterBool>(
@@ -372,7 +377,6 @@ ColdAudioProcessor::ColdAudioProcessor()
     modToCutoffParam = apvts.getRawParameterValue(kModToCutoffId);
     modToTypeParam = apvts.getRawParameterValue(kModToTypeId);
     midiAddressParam = apvts.getRawParameterValue(kMidiAddressId);
-    noteMapBaseParam = apvts.getRawParameterValue(kNoteMapBaseId);
 
     for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
     {
@@ -394,6 +398,7 @@ ColdAudioProcessor::ColdAudioProcessor()
         pitchEnvAmtParam[tt] = apvts.getRawParameterValue(trackParamId(t, kPitchEnvAmtId));
         pitchEnvDecayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kPitchEnvDecayId));
         velToPitchParam[tt] = apvts.getRawParameterValue(trackParamId(t, kVelToPitchId));
+        mapNoteParam[tt] = apvts.getRawParameterValue(trackParamId(t, kMapNoteId));
         compOnParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompOnId));
         compThreshParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompThreshId));
         compRatioParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompRatioId));
@@ -574,7 +579,6 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     // Notes route to a track either by MIDI channel (Digitakt-style: channel N ->
     // track N-1) or, in Note Map mode, by note number like a GM drum map.
     const bool noteMap = midiAddressParam->load() > 0.5f;
-    const int noteBase = static_cast<int>(noteMapBaseParam->load());
     int pos = 0;
     for (const auto meta : midi)
     {
@@ -591,15 +595,19 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
 
         if (noteMap && (isOn || isOff))
         {
-            // Note number selects the track; the sample plays at its natural pitch
+            // The note number triggers every cell whose Note Map key matches it, so
+            // cells can sit on arbitrary (non-consecutive) notes like a GM drum map,
+            // and several cells can share a note. Each plays at its natural pitch
             // (trigger at rootNote so the playback ratio is 1).
-            const int track = msg.getNoteNumber() - noteBase;
-            if (track >= 0 && track < dsp::MultiEngine::kNumTracks)
+            const int note = msg.getNoteNumber();
+            for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
             {
+                if (static_cast<int>(mapNoteParam[static_cast<size_t>(t)]->load()) != note)
+                    continue;
                 if (isOn)
-                    multi.noteOn(track, rootNote, msg.getFloatVelocity(), rootNote);
+                    multi.noteOn(t, rootNote, msg.getFloatVelocity(), rootNote);
                 else
-                    multi.noteOff(track, rootNote);
+                    multi.noteOff(t, rootNote);
             }
         }
         else if (isOn)
@@ -733,7 +741,7 @@ int ColdAudioProcessor::importBatteryKit(const juce::File& kitFile, const juce::
     };
 
     const int n = std::min(static_cast<int>(kit.cells.size()), dsp::MultiEngine::kNumTracks);
-    int firstRoot = -1;
+    bool mappedAnyKey = false;
     for (int t = 0; t < n; ++t)
     {
         const auto& cell = kit.cells[static_cast<size_t>(t)];
@@ -754,16 +762,17 @@ int ColdAudioProcessor::importBatteryKit(const juce::File& kitFile, const juce::
         setParam(layerParamId(t, 0, "pan"), cell.coldPan());
         setParam(layerParamId(t, 0, "gain"), cell.coldGain());
 
-        if (firstRoot < 0 && cell.rootKey >= 0)
-            firstRoot = cell.rootKey;
+        // Each cell answers to its own root key (GM-drum style, non-consecutive).
+        if (cell.rootKey >= 0)
+        {
+            setParam(trackParamId(t, kMapNoteId), static_cast<float>(cell.rootKey));
+            mappedAnyKey = true;
+        }
     }
 
-    // Play the cells by their root keys: Note Map addressing from the first key.
-    if (firstRoot >= 0)
-    {
-        setParam(kMidiAddressId, 1.0f); // Note Map
-        setParam(kNoteMapBaseId, static_cast<float>(firstRoot));
-    }
+    // If any cell carried a key, switch to Note Map so the kit plays by its keys.
+    if (mappedAnyKey)
+        setParam(kMidiAddressId, 1.0f);
 
     return n;
 }

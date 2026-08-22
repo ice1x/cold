@@ -551,9 +551,6 @@ private:
             gCombo(s, "midiAddressing", "MIDI",
                    "How MIDI picks a track. Channel: MIDI channel N plays track N. "
                    "Note Map: one channel, the note number picks the track (GM-drum style).");
-            gKnob(s, "noteMapBase", "Map Base",
-                  "Note Map only: this note plays cell 1, the next note cell 2, ... (" + nTracks +
-                      " notes total). 36 = C1, the GM kick.");
         }
         {
             auto& s = newSection("Amp Envelope (selected track)");
@@ -804,6 +801,10 @@ private:
               "Single: the cell plays one layer per note (layer 1, or wherever "
               "LFO→Sample points among the loaded layers). Stack: every loaded layer "
               "below sounds TOGETHER on each note — layering.");
+
+        tKnob(s, "mapNote", "Note",
+              "Note Map mode: the MIDI note that triggers this cell (0-127; 36 = C1). "
+              "Cells can sit on any notes — a .kit import sets each cell's own key.");
 
         for (int l = 0; l < kNumLayers; ++l)
         {
