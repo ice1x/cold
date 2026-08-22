@@ -11,7 +11,8 @@ add_library(cold_dsp STATIC
     dsp/Engine.cpp
     dsp/MultiEngine.cpp
     dsp/Waveform.cpp
-    dsp/Compressor.cpp)
+    dsp/Compressor.cpp
+    dsp/Saturator.cpp)
 target_include_directories(cold_dsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(cold_dsp PUBLIC cxx_std_20)
 
