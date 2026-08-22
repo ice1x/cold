@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 
 #include <array>
+#include <iterator>
 #include <vector>
 
 namespace cold
@@ -266,59 +267,138 @@ public:
         };
         buildGlobals();
         buildTrackPanel();
+        buildTabs();  // after all sections exist
+        assignTabs(); // route each section to a tab
 
         selectCell(proc.selectedTrack()); // initial attachments + pad highlight
     }
 
-    void resized() override
+    // ---- tabs ----------------------------------------------------------------
+
+    // The editing sections are grouped under tabs (the cell grid + waveform stay
+    // pinned above). Keeps the panel short instead of one long scroll.
+    static constexpr const char* kTabNames[] = {"Main", "FX", "Mod", "Layers"};
+
+    void buildTabs()
+    {
+        for (int i = 0; i < static_cast<int>(std::size(kTabNames)); ++i)
+        {
+            auto btn = std::make_unique<juce::TextButton>(kTabNames[i]);
+            btn->setClickingTogglesState(false);
+            auto* ptr = btn.get();
+            ptr->onClick = [this, i]
+            {
+                currentTab = i;
+                refreshTabs();
+                resized();
+            };
+            addAndMakeVisible(*ptr);
+            tabButtons.push_back(ptr);
+            owned.push_back(std::move(btn));
+        }
+        refreshTabs();
+    }
+
+    // Route each section to a tab by its header text (the cell grid stays pinned).
+    void assignTabs()
+    {
+        for (size_t si = 0; si < sections.size(); ++si)
+        {
+            const auto title = sections[si].header->getText();
+            int tab = 0; // Main
+            if (si == 0)
+                tab = -1; // the cell grid: always visible
+            else if (title.startsWith("Compressor") || title.startsWith("Saturation"))
+                tab = 1; // FX
+            else if (title.startsWith("Mod Envelope") || title == "LFO")
+                tab = 2; // Mod
+            else if (title == "Selected cell" || title.startsWith("Layer "))
+                tab = 3; // Layers
+            sections[si].tab = tab;
+        }
+    }
+
+    void refreshTabs()
+    {
+        for (int i = 0; i < static_cast<int>(tabButtons.size()); ++i)
+            tabButtons[static_cast<size_t>(i)]->setColour(
+                juce::TextButton::buttonColourId,
+                i == currentTab ? juce::Colour(0xff2b6cb0) : juce::Colour(0xff21252b));
+    }
+
+    struct Section
+    {
+        juce::Label* header;
+        std::vector<juce::Component*> cells; // LabeledControl* (or raw buttons if wide)
+        bool wideCells = false;              // stretched short rows (the cell grid)
+        int tab = 0;                         // which tab shows it; -1 = always visible
+    };
+
+    // Lay a section's header + cell grid starting at `y`; returns the y below it.
+    // `tallPads` gives the cell grid its taller Battery-style pad rows.
+    int layoutSection(Section& s, int width, int y, bool tallPads = false)
     {
         constexpr int pad = 10;
         constexpr int cellH = 78; // taller cells so the Battery-style knobs read clearly
         constexpr int headerH = 22;
         constexpr int gap = 6;
 
+        s.header->setBounds(pad, y, width - 2 * pad, headerH);
+        y += headerH;
+
+        const int cellW = s.wideCells ? (width - 2 * pad - 3 * gap) / 4 : 84;
+        const int rowH = s.wideCells ? (tallPads ? 40 : 24) : cellH;
+        const int cols = s.wideCells ? 4 : juce::jmax(1, (width - 2 * pad + gap) / (cellW + gap));
+
+        int col = 0;
+        int rowTop = y;
+        for (auto* cell : s.cells)
+        {
+            const int x = pad + col * (cellW + gap);
+            cell->setBounds(x, rowTop, cellW, rowH);
+            if (++col >= cols)
+            {
+                col = 0;
+                rowTop += rowH + gap;
+            }
+        }
+        if (col != 0)
+            rowTop += rowH + gap;
+        return rowTop + gap;
+    }
+
+    void resized() override
+    {
+        constexpr int pad = 10;
+        constexpr int gap = 6;
+        constexpr int waveH = 96;
+        constexpr int tabH = 28;
+
         const int width = juce::jmax(getWidth(), 320);
 
-        constexpr int waveH = 96;
-
+        // Always-on header: the cell grid (section 0) + the selected cell's waveform.
         int y = pad;
-        for (size_t si = 0; si < sections.size(); ++si)
+        y = layoutSection(sections[0], width, y, /*tallPads*/ true);
+        waveformView.setBounds(pad, y, width - 2 * pad, waveH);
+        y += waveH + gap;
+
+        // Tab bar: switches which editing sections are shown below.
+        const int tabW = (width - 2 * pad - gap * (static_cast<int>(tabButtons.size()) - 1)) /
+                         juce::jmax(1, static_cast<int>(tabButtons.size()));
+        for (int i = 0; i < static_cast<int>(tabButtons.size()); ++i)
+            tabButtons[static_cast<size_t>(i)]->setBounds(pad + i * (tabW + gap), y, tabW, tabH);
+        y += tabH + gap;
+
+        // Only the active tab's sections are visible / laid out.
+        for (size_t si = 1; si < sections.size(); ++si)
         {
             auto& s = sections[si];
-            s.header->setBounds(pad, y, width - 2 * pad, headerH);
-            y += headerH;
-
-            // Wide sections (the sample bank) use 4 stretched columns of short
-            // rows; knob sections use a fixed-size cell grid.
-            const int cellW = s.wideCells ? (width - 2 * pad - 3 * gap) / 4 : 84;
-            // The cell grid (section 0) gets taller pads; other wide rows stay short.
-            const int rowH = s.wideCells ? (si == 0 ? 40 : 24) : cellH;
-            const int cols =
-                s.wideCells ? 4 : juce::jmax(1, (width - 2 * pad + gap) / (cellW + gap));
-
-            int col = 0;
-            int rowTop = y;
-            for (auto* cell : s.cells)
-            {
-                const int x = pad + col * (cellW + gap);
-                cell->setBounds(x, rowTop, cellW, rowH);
-                if (++col >= cols)
-                {
-                    col = 0;
-                    rowTop += rowH + gap;
-                }
-            }
-            if (col != 0)
-                rowTop += rowH + gap;
-            y = rowTop + gap;
-
-            // The waveform of the selected cell sits directly under the cell grid
-            // (the first section), Battery-style, spanning the full width.
-            if (si == 0)
-            {
-                waveformView.setBounds(pad, y, width - 2 * pad, waveH);
-                y += waveH + gap;
-            }
+            const bool vis = (s.tab == currentTab);
+            s.header->setVisible(vis);
+            for (auto* c : s.cells)
+                c->setVisible(vis);
+            if (vis)
+                y = layoutSection(s, width, y);
         }
 
         y += pad;
@@ -357,13 +437,6 @@ public:
     }
 
 private:
-    struct Section
-    {
-        juce::Label* header;
-        std::vector<juce::Component*> cells; // LabeledControl* (or raw buttons if wide)
-        bool wideCells = false;              // stretched short rows (the sample bank)
-    };
-
     // ---- control factories ---------------------------------------------------
 
     juce::Slider* makeSlider()
@@ -852,8 +925,10 @@ private:
     };
     std::vector<PerTrackToggle> perTrackToggles;
 
-    std::vector<juce::TextButton*> cellPads; // one per track, owned via `owned`
-    WaveformDisplay waveformView;            // selected cell's sample + window
+    std::vector<juce::TextButton*> cellPads;   // one per track, owned via `owned`
+    std::vector<juce::TextButton*> tabButtons; // Main/FX/Mod/Layers, owned via `owned`
+    int currentTab = 0;
+    WaveformDisplay waveformView; // selected cell's sample + window
     int currentTrack = 0;
     std::unique_ptr<juce::FileChooser> chooser; // per-slot load dialog
 
