@@ -557,6 +557,64 @@ TEST_CASE("Cold Round-Robin layer mode alternates a cell's layers per hit",
     proc.releaseResources();
 }
 
+TEST_CASE("Cold Velocity layer mode selects a cell's layer by hit strength",
+          "[processor][e2e][velolayers]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    // Cell 0's layers 0 and 1 hold the same signal but are panned hard left / hard
+    // right, so the sounding layer shows up in one channel only. In Velocity mode a
+    // soft note picks layer 0 (left), a hard note picks layer 1 (right).
+    auto wav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToLayer(0, 0, wav));
+    REQUIRE(proc.loadSampleToLayer(0, 1, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto chanPeak = [](const juce::AudioBuffer<float>& b, int ch)
+    {
+        float p = 0.0f;
+        for (int n = 0; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(ch, n)));
+        return p;
+    };
+
+    setParam("polyphony", 1.0f);
+    setParam("t0_layerMode", 3.0f); // Velocity
+    setParam("t0_lyr0_pan", -1.0f); // soft layer hard left
+    setParam("t0_lyr1_pan", 1.0f);  // loud layer hard right
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    auto hit = [&](float vel)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, vel), 0); // channel 1 -> cell 0
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        return std::pair{chanPeak(buffer, 0), chanPeak(buffer, 1)};
+    };
+
+    auto soft = hit(0.2f); // -> layer 0, left only
+    REQUIRE(soft.first > 0.05f);
+    REQUIRE(soft.second < 0.01f);
+
+    auto loud = hit(0.95f); // -> layer 1, right only
+    REQUIRE(loud.second > 0.05f);
+    REQUIRE(loud.first < 0.01f);
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
