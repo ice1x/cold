@@ -515,6 +515,16 @@ private:
                   "back up).");
         }
         {
+            auto& s = newSection("Saturation (selected cell)");
+            tToggle(s, "satOn", "On", "Enable this cell's drive / saturation (warmth, grit).");
+            tKnob(s, "satDrive", "Drive",
+                  "How hard the signal is pushed into the tanh shaper, in dB. More = "
+                  "more harmonics / grit.");
+            tKnob(s, "satMix", "Mix",
+                  "Dry/wet blend: 0 = clean, 1 = fully saturated. Lower for parallel "
+                  "drive that keeps the transient.");
+        }
+        {
             auto& s = newSection("LFO");
             gCombo(s, "lfoShape", "Shape",
                    "LFO waveform. Random = stepped sample & hold; Custom = the "

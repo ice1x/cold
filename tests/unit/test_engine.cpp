@@ -641,3 +641,30 @@ TEST_CASE("Engine per-track compressor attenuates the loud mix", "[engine][dsp][
     auto restored = renderChunked(engine, 4000, 256);
     REQUIRE(windowRms(restored, 3000, 500) > 0.9);
 }
+
+TEST_CASE("Engine per-track saturator shapes the summed mix", "[engine][dsp][unit][saturator]")
+{
+    constexpr int kRoot = 60;
+    auto s = makeConstant(20000, 0.5f); // constant 0.5 -> a steady 0.5 mix
+
+    auto engine = makeEngine(s, 4);
+
+    // Dry baseline: the mix sits at ~0.5.
+    engine.noteOn(kRoot, 1.0f, kRoot);
+    auto dry = renderChunked(engine, 2000, 256);
+    REQUIRE_THAT(windowRms(dry, 1000, 500), WithinAbs(0.5, 0.02));
+
+    // Drive 4, full wet: tanh(4 * 0.5) = tanh(2) ~= 0.964 -> the mix is pushed up.
+    engine.reset();
+    engine.setSaturator(true, 4.0f, 1.0f);
+    engine.noteOn(kRoot, 1.0f, kRoot);
+    auto wet = renderChunked(engine, 2000, 256);
+    REQUIRE_THAT(windowRms(wet, 1000, 500), WithinAbs(std::tanh(2.0), 0.02));
+
+    // Disabling restores the dry level.
+    engine.reset();
+    engine.setSaturator(false, 4.0f, 1.0f);
+    engine.noteOn(kRoot, 1.0f, kRoot);
+    auto restored = renderChunked(engine, 2000, 256);
+    REQUIRE_THAT(windowRms(restored, 1000, 500), WithinAbs(0.5, 0.02));
+}

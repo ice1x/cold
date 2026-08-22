@@ -186,6 +186,9 @@ private:
     TrackFloats compAttackParam{};
     TrackFloats compReleaseParam{};
     TrackFloats compMakeupParam{};
+    TrackFloats satOnParam{};
+    TrackFloats satDriveParam{};
+    TrackFloats satMixParam{};
 
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
         layerGainParam{};
