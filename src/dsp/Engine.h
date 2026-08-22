@@ -60,11 +60,14 @@ public:
     //   Stack      — trigger every enabled layer together (a drum from layers).
     //   RoundRobin — trigger ONE layer per trig, cycling the enabled layers in
     //                order (anti-machine-gun: consecutive hits use different takes).
+    //   Velocity   — trigger ONE layer chosen by hit strength: velocity splits into
+    //                equal bands over the enabled layers (layer 0 = softest).
     enum class LayerMode
     {
         Select,
         Stack,
-        RoundRobin
+        RoundRobin,
+        Velocity
     };
 
     // One stacked layer: which sample it plays, plus per-layer gain (scales
@@ -172,6 +175,7 @@ private:
     void triggerLayer(const Layer& layer, int midiNote, float velocity,
                       int rootNote); // fire one layer on its own voice
     void triggerRoundRobin(int midiNote, float velocity, int rootNote); // RoundRobin note-on
+    void triggerVelocity(int midiNote, float velocity, int rootNote);   // Velocity note-on
     [[nodiscard]] int selectSampleIndex() const; // note-time index from the LFO/mod
 
     std::vector<SampleVoice> voices;
