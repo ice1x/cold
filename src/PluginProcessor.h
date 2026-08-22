@@ -151,7 +151,6 @@ private:
     std::atomic<float>* modToCutoffParam = nullptr;
     std::atomic<float>* modToTypeParam = nullptr;
     std::atomic<float>* midiAddressParam = nullptr; // 0 = channel->track, 1 = note map
-    std::atomic<float>* noteMapBaseParam = nullptr; // note that maps to track 0
 
     // Multilayer one-shot stacks: per-track layer mode + up to kNumLayers layers
     // (kNumLayers declared public above), each a bank slot (-1 = off) with
@@ -180,6 +179,7 @@ private:
     TrackFloats pitchEnvAmtParam{};
     TrackFloats pitchEnvDecayParam{};
     TrackFloats velToPitchParam{};
+    TrackFloats mapNoteParam{}; // per-cell Note Map key (MIDI note)
     TrackFloats compOnParam{};
     TrackFloats compThreshParam{};
     TrackFloats compRatioParam{};

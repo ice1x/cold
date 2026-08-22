@@ -276,6 +276,50 @@ TEST_CASE("Cold Note Map addressing routes by note number", "[processor][e2e][no
     proc.releaseResources();
 }
 
+TEST_CASE("Cold Note Map routes non-consecutive per-cell keys", "[processor][e2e][notemap]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    // Two cells on GM-drum-style non-consecutive keys: cell 0 = 36, cell 3 = 42.
+    auto wav = writeTempWav(sampleRate, 2, blockSize);
+    REQUIRE(proc.loadSampleToTrack(0, wav));
+    REQUIRE(proc.loadSampleToTrack(3, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    setParam("midiAddressing", 1.0f); // Note Map
+    setParam("t0_mapNote", 36.0f);
+    setParam("t3_mapNote", 42.0f);
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+
+    auto plays = [&](int note)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, note, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        return buffer.getMagnitude(0, blockSize) > 0.0f;
+    };
+
+    // Silent cases first, so no earlier loaded note can bleed across the block.
+    REQUIRE_FALSE(plays(37)); // cell 1's key, but cell 1 is empty
+    REQUIRE_FALSE(plays(50)); // no cell maps 50
+    REQUIRE(plays(36));       // -> cell 0 (loaded)
+    REQUIRE(plays(42));       // -> cell 3 (loaded), a non-consecutive key
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold LFO->sample-select roams the bank for layering", "[processor][e2e][sampleselect]")
 {
     constexpr double sampleRate = 44100.0;
@@ -614,7 +658,8 @@ TEST_CASE("Cold imports a Battery .kit onto its tracks", "[processor][e2e][batte
     REQUIRE_THAT(value("t1_lyr0_pan"), WithinAbs(-1.0f, 0.01f));  // pan 0 -> hard left
     REQUIRE_THAT(value("t1_lyr0_gain"), WithinAbs(0.5f, 0.01f));  // volume 0.5
     REQUIRE(value("midiAddressing") > 0.5f);                      // Note Map enabled
-    REQUIRE_THAT(value("noteMapBase"), WithinAbs(36.0f, 0.5f));   // first cell's root key
+    REQUIRE_THAT(value("t0_mapNote"), WithinAbs(36.0f, 0.5f));    // Kick's own root key
+    REQUIRE_THAT(value("t1_mapNote"), WithinAbs(38.0f, 0.5f));    // Snare's (non-consecutive) key
 
     dir.deleteRecursively();
 }
@@ -694,7 +739,8 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_lyr0_pan",
                            "t3_lyr2_pan",
                            "midiAddressing",
-                           "noteMapBase",
+                           "t0_mapNote",
+                           "t7_mapNote",
                            "t0_lyr0_filterOn",
                            "t0_lyr0_cutoff",
                            "t2_lyr1_ftype",
