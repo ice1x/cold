@@ -18,6 +18,52 @@ juce::String u8(const char* s)
     return juce::String(juce::CharPointer_UTF8(s));
 }
 
+// Battery-style knob: a dark background track arc, a bright value arc, a solid
+// knob body and a clear pointer — far more legible than JUCE's default dot. Only
+// the rotary drawing is overridden; combos/toggles keep the LookAndFeel_V4 look.
+class ColdKnobLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
+                          float startAngle, float endAngle, juce::Slider&) override
+    {
+        const auto bounds = juce::Rectangle<int>(x, y, width, height).toFloat().reduced(4.0f);
+        const float radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) / 2.0f;
+        const float cx = bounds.getCentreX();
+        const float cy = bounds.getCentreY();
+        const float lineW = juce::jmax(2.5f, radius * 0.16f);
+        const float arcR = radius - lineW * 0.5f;
+        const float toAngle = startAngle + sliderPos * (endAngle - startAngle);
+
+        // Background track.
+        juce::Path back;
+        back.addCentredArc(cx, cy, arcR, arcR, 0.0f, startAngle, endAngle, true);
+        g.setColour(juce::Colour(0xff2a2f37));
+        g.strokePath(back, juce::PathStrokeType(lineW, juce::PathStrokeType::curved,
+                                                juce::PathStrokeType::rounded));
+
+        // Filled value arc.
+        juce::Path arc;
+        arc.addCentredArc(cx, cy, arcR, arcR, 0.0f, startAngle, toAngle, true);
+        g.setColour(juce::Colour(0xff58b0f0));
+        g.strokePath(arc, juce::PathStrokeType(lineW, juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
+
+        // Knob body + pointer.
+        const float bodyR = arcR - lineW;
+        g.setColour(juce::Colour(0xff31363f));
+        g.fillEllipse(cx - bodyR, cy - bodyR, bodyR * 2.0f, bodyR * 2.0f);
+        g.setColour(juce::Colour(0xff3d4450));
+        g.drawEllipse(cx - bodyR, cy - bodyR, bodyR * 2.0f, bodyR * 2.0f, 1.0f);
+
+        const juce::Point<float> tip(cx + arcR * std::sin(toAngle), cy - arcR * std::cos(toAngle));
+        const juce::Point<float> base(cx + bodyR * 0.35f * std::sin(toAngle),
+                                      cy - bodyR * 0.35f * std::cos(toAngle));
+        g.setColour(juce::Colours::white);
+        g.drawLine({base, tip}, juce::jmax(2.0f, lineW * 0.6f));
+    }
+};
+
 // A caption above a single control (knob / combo / toggle). Owns its control so
 // the whole grid is a flat list of these.
 class LabeledControl : public juce::Component
@@ -227,7 +273,7 @@ public:
     void resized() override
     {
         constexpr int pad = 10;
-        constexpr int cellH = 62;
+        constexpr int cellH = 78; // taller cells so the Battery-style knobs read clearly
         constexpr int headerH = 22;
         constexpr int gap = 6;
 
@@ -244,8 +290,9 @@ public:
 
             // Wide sections (the sample bank) use 4 stretched columns of short
             // rows; knob sections use a fixed-size cell grid.
-            const int cellW = s.wideCells ? (width - 2 * pad - 3 * gap) / 4 : 74;
-            const int rowH = s.wideCells ? 24 : cellH;
+            const int cellW = s.wideCells ? (width - 2 * pad - 3 * gap) / 4 : 84;
+            // The cell grid (section 0) gets taller pads; other wide rows stay short.
+            const int rowH = s.wideCells ? (si == 0 ? 40 : 24) : cellH;
             const int cols =
                 s.wideCells ? 4 : juce::jmax(1, (width - 2 * pad + gap) / (cellW + gap));
 
@@ -655,12 +702,22 @@ private:
         {
             // A cell's label is its primary sample (layer 0).
             const auto name = proc.slotSampleName(t * ColdAudioProcessor::kNumLayers);
-            cellPads[static_cast<size_t>(t)]->setButtonText(
-                "T" + juce::String(t + 1) + ": " +
-                (name.isEmpty() ? juce::String("(empty)") : name));
-            cellPads[static_cast<size_t>(t)]->setColour(
-                juce::TextButton::buttonColourId,
-                t == currentTrack ? juce::Colour(0xff2b6cb0) : juce::Colour(0xff21252b));
+            const bool loaded = name.isNotEmpty();
+            const bool selected = (t == currentTrack);
+            auto* pad = cellPads[static_cast<size_t>(t)];
+
+            pad->setButtonText("T" + juce::String(t + 1) + (loaded ? "  " + name : u8("  ·")));
+
+            // Selected = blue; loaded = teal; empty = dark. Text brightens when there
+            // is a sample, so a full kit reads at a glance.
+            const auto fill = selected ? juce::Colour(0xff2b6cb0)
+                              : loaded ? juce::Colour(0xff2d5f57)
+                                       : juce::Colour(0xff21252b);
+            pad->setColour(juce::TextButton::buttonColourId, fill);
+            const auto text = selected ? juce::Colours::white
+                              : loaded ? juce::Colour(0xffdfeae6)
+                                       : juce::Colour(0xff6b7280);
+            pad->setColour(juce::TextButton::textColourOffId, text);
         }
     }
 
@@ -809,6 +866,10 @@ private:
 ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     : AudioProcessorEditor(&p), processorRef(p)
 {
+    // Battery-style knobs across the whole editor (descendants inherit this).
+    knobLookAndFeel = std::make_unique<ColdKnobLookAndFeel>();
+    setLookAndFeel(knobLookAndFeel.get());
+
     loadFolderButton.setButtonText(u8("Load Folder…"));
     loadFolderButton.setTooltip("Load samples from a folder into the cells (1.." +
                                 juce::String(dsp::MultiEngine::kNumTracks) +
@@ -838,7 +899,10 @@ ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     setSize(660, 560);
 }
 
-ColdAudioProcessorEditor::~ColdAudioProcessorEditor() = default;
+ColdAudioProcessorEditor::~ColdAudioProcessorEditor()
+{
+    setLookAndFeel(nullptr); // detach before knobLookAndFeel is destroyed
+}
 
 void ColdAudioProcessorEditor::refreshSampleName()
 {
