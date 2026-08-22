@@ -12,6 +12,7 @@
 #include "dsp/Lfo.h"
 #include "dsp/ModMatrix.h"
 #include "dsp/SampleVoice.h"
+#include "dsp/Saturator.h"
 
 #include <cstdint>
 #include <vector>
@@ -120,6 +121,11 @@ public:
     void setCompressor(bool enabled, float thresholdDb, float ratio, float attackSeconds,
                        float releaseSeconds, float makeupDb);
 
+    // Per-track saturator on the summed track output, applied BEFORE the compressor
+    // (drive into the comp). `drive` is a linear pre-gain into the tanh shaper;
+    // `mix` is dry/wet in [0, 1]. Shares the compressor's scratch-buffer render path.
+    void setSaturator(bool enabled, float drive, float mix);
+
     // Per-voice morph filter shared by every voice (cutoff Hz, resonance/Q, type
     // in [0, 1]). Enables the filter on the whole pool.
     void setFilter(float cutoffHz, float resonance, float type);
@@ -210,6 +216,7 @@ private:
     Lfo lfo;
     ModMatrix modMatrix;
 
+    Saturator saturator;                        // per-track drive, applied pre-compressor
     Compressor compressor;                      // per-track dynamics on the summed mix
     std::vector<std::vector<float>> compBuffer; // scratch: [channel][sample], grown as needed
     std::vector<float*> compPtrs;               // channel pointers into compBuffer
