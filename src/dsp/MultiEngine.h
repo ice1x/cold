@@ -17,7 +17,7 @@ namespace cold::dsp
 class MultiEngine
 {
 public:
-    static constexpr int kNumTracks = 8;
+    static constexpr int kNumTracks = 16;
 
     void prepare(double hostSampleRate);
 
