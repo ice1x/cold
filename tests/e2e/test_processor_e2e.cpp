@@ -454,6 +454,32 @@ TEST_CASE("Cold Stack layer mode sums a track's layers into one hit", "[processo
     proc.releaseResources();
 }
 
+TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    REQUIRE(proc.numSlots() == cold::ColdAudioProcessor::kNumLayers * 16); // 16 cells * layers
+
+    // Cell 12 (MIDI channel 13 in Channel mode) is beyond the old 8-track limit.
+    auto wav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToTrack(12, wav));
+    wav.deleteFile();
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    buffer.clear();
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(13, 60, 1.0f), 0); // channel 13 -> cell 12
+    renderBlock(proc, buffer, midi);
+    REQUIRE(buffer.getMagnitude(0, blockSize) > 0.0f);
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold cells own their layer samples", "[processor][e2e][stack][layers]")
 {
     constexpr double sampleRate = 44100.0;

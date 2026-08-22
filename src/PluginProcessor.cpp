@@ -190,8 +190,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         juce::ParameterID{kModToTypeId, 1}, "Mod Env -> Filter Type",
         juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
 
-    // Selected track for editing / the Load buttons. All 8 tracks play; MIDI
-    // channel N routes to track N-1. Track t plays bank slot t.
+    // Selected cell for editing / the Load buttons. All cells play; MIDI channel N
+    // routes to cell N-1. Each cell plays its own layer slots.
     layout.add(std::make_unique<AudioParameterInt>(juce::ParameterID{kTrackId, 1}, "Track", 0,
                                                    dsp::MultiEngine::kNumTracks - 1, 0));
 
