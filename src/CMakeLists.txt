@@ -41,9 +41,10 @@ target_link_libraries(cold_io
 juce_add_plugin(Cold
     PLUGIN_NAME "Cold"
     PRODUCT_NAME "Cold"
-    COMPANY_NAME "Cold"
-    BUNDLE_ID com.cold.cold
-    PLUGIN_MANUFACTURER_CODE Cold
+    COMPANY_NAME "ice1x"
+    BUNDLE_ID com.ice1x.cold
+    # AU manufacturer 4-char code (needs >= 1 uppercase): "Ice1" == ice1x.
+    PLUGIN_MANUFACTURER_CODE Ice1
     PLUGIN_CODE Cld1
     FORMATS AU VST3 Standalone
     IS_SYNTH TRUE
