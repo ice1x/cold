@@ -498,6 +498,65 @@ TEST_CASE("Cold Stack layer mode sums a track's layers into one hit", "[processo
     proc.releaseResources();
 }
 
+TEST_CASE("Cold Round-Robin layer mode alternates a cell's layers per hit",
+          "[processor][e2e][roundrobin]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    // Cell 0 holds the same signal in layers 0 and 1, but layer 1 is quieter. In
+    // Round-Robin each hit sounds ONE layer, cycling 0 -> 1 -> 0, so the peak
+    // alternates loud/soft/loud (anti-machine-gun; not summed like Stack).
+    auto wav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToLayer(0, 0, wav));
+    REQUIRE(proc.loadSampleToLayer(0, 1, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto peak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int n = 0; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    setParam("polyphony", 1.0f);     // one voice: each hit steals it, read cleanly
+    setParam("t0_layerMode", 2.0f);  // Round-Robin
+    setParam("t0_lyr0_gain", 1.0f);  // layer 0 loud
+    setParam("t0_lyr1_gain", 0.25f); // layer 1 soft
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    auto hit = [&]()
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0); // channel 1 -> cell 0
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        return peak(buffer);
+    };
+
+    const float first = hit();  // layer 0 (loud)
+    const float second = hit(); // layer 1 (soft)
+    const float third = hit();  // back to layer 0 (loud)
+
+    REQUIRE(first > 0.1f);
+    REQUIRE(second < 0.5f * first); // the soft layer, not a sum of both
+    REQUIRE(third > 1.8f * second); // cycled back to the loud layer
+    REQUIRE_THAT(third, WithinAbs(first, 0.05f));
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
