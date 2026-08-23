@@ -31,6 +31,12 @@ void MultiEngine::noteOff(int trackIndex, int midiNote)
         tracks[static_cast<size_t>(trackIndex)].noteOff(midiNote);
 }
 
+void MultiEngine::stopAllNotes(int trackIndex)
+{
+    if (validTrack(trackIndex))
+        tracks[static_cast<size_t>(trackIndex)].stopAllNotes();
+}
+
 int MultiEngine::trackForChannel(int midiChannel)
 {
     // MIDI channels are 1-based; channel N maps to track N-1 for the first 8.

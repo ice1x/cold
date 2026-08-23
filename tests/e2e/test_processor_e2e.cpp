@@ -615,6 +615,74 @@ TEST_CASE("Cold Velocity layer mode selects a cell's layer by hit strength",
     proc.releaseResources();
 }
 
+TEST_CASE("Cold choke group cuts off another cell in the same group", "[processor][e2e][choke]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int frames = 2000; // one long block: cell A rings, then B fires mid-block
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // Cell 0 (channel 1) panned hard left, cell 1 (channel 2) hard right, so each
+    // cell's sound is identifiable by channel. Stack mode applies the layer pan.
+    auto wav = writeTempWav(sampleRate, 1, frames);
+    REQUIRE(proc.loadSampleToLayer(0, 0, wav));
+    REQUIRE(proc.loadSampleToLayer(1, 0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    // Peak of channel `ch` over the second half of the block (after cell 1 fires).
+    auto tailPeak = [](const juce::AudioBuffer<float>& b, int ch)
+    {
+        float p = 0.0f;
+        for (int n = b.getNumSamples() / 2 + 50; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(ch, n)));
+        return p;
+    };
+
+    setParam("t0_layerMode", 1.0f); // Stack (so layer pan applies)
+    setParam("t1_layerMode", 1.0f);
+    setParam("t0_lyr0_pan", -1.0f);  // cell 0 hard left
+    setParam("t1_lyr0_pan", 1.0f);   // cell 1 hard right
+    setParam("t0_ampRelease", 0.0f); // fast release so a choke silences cell 0 at once
+
+    juce::AudioBuffer<float> buffer(2, frames);
+    auto run = [&]()
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);    // cell 0 at the start
+        midi.addEvent(juce::MidiMessage::noteOn(2, 60, 1.0f), 1000); // cell 1 mid-block
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+    };
+
+    SECTION("same group: cell 1 chokes cell 0")
+    {
+        setParam("t0_chokeGroup", 1.0f);
+        setParam("t1_chokeGroup", 1.0f);
+        run();
+        REQUIRE(tailPeak(buffer, 1) > 0.05f); // cell 1 (right) sounds
+        REQUIRE(tailPeak(buffer, 0) < 0.01f); // cell 0 (left) was choked
+    }
+
+    SECTION("different groups: cell 0 keeps ringing")
+    {
+        setParam("t0_chokeGroup", 1.0f);
+        setParam("t1_chokeGroup", 2.0f);
+        run();
+        REQUIRE(tailPeak(buffer, 1) > 0.05f); // cell 1 (right) sounds
+        REQUIRE(tailPeak(buffer, 0) > 0.05f); // cell 0 (left) still rings — no choke
+    }
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
@@ -858,6 +926,8 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "midiAddressing",
                            "t0_mapNote",
                            "t7_mapNote",
+                           "t0_chokeGroup",
+                           "t7_chokeGroup",
                            "t0_lyr0_filterOn",
                            "t0_lyr0_cutoff",
                            "t2_lyr1_ftype",
