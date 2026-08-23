@@ -45,6 +45,30 @@ juce::File writeTempWav(double sampleRate, int numChannels, int numFrames)
     return file;
 }
 
+// Write a mono WAV whose amplitude ramps linearly 0 -> 0.9 (a fade-in). Played
+// forwards it starts quiet and ends loud; reversed it starts loud — so the two
+// directions are distinguishable by the level of the first samples.
+juce::File writeFadeInWav(double sampleRate, int numFrames)
+{
+    auto file = juce::File::createTempFile(".wav");
+    juce::AudioBuffer<float> buffer(1, numFrames);
+    for (int n = 0; n < numFrames; ++n)
+        buffer.setSample(0, n, 0.9f * static_cast<float>(n) / static_cast<float>(numFrames - 1));
+
+    juce::WavAudioFormat wav;
+    if (auto os = std::unique_ptr<juce::FileOutputStream>(file.createOutputStream()))
+    {
+        std::unique_ptr<juce::AudioFormatWriter> writer(
+            wav.createWriterFor(os.get(), sampleRate, 1, 16, {}, 0));
+        if (writer != nullptr)
+        {
+            os.release(); // the writer owns the stream now
+            writer->writeFromAudioSampleBuffer(buffer, 0, numFrames);
+        }
+    }
+    return file;
+}
+
 } // namespace
 
 TEST_CASE("Cold processor exposes the expected plugin contract", "[processor][e2e]")
@@ -683,6 +707,56 @@ TEST_CASE("Cold choke group cuts off another cell in the same group", "[processo
     proc.releaseResources();
 }
 
+TEST_CASE("Cold reverse plays a cell's sample backwards", "[processor][e2e][reverse]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int frames = 1024;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // A fade-in sample on cell 0: forwards it starts near-silent, reversed it starts
+    // loud. So the peak over the FIRST quarter of the block flips with Reverse.
+    auto wav = writeFadeInWav(sampleRate, frames);
+    REQUIRE(proc.loadSampleToTrack(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto headPeak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int n = 0; n < b.getNumSamples() / 8; ++n) // first eighth
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    juce::AudioBuffer<float> buffer(2, frames);
+    auto play = [&]()
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0); // channel 1 -> cell 0
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        return headPeak(buffer);
+    };
+
+    const float forwardHead = play(); // fade-in: quiet at the start
+    setParam("t0_reverse", 1.0f);
+    const float reverseHead = play(); // reversed: loud at the start
+
+    REQUIRE(forwardHead < 0.2f);
+    REQUIRE(reverseHead > 0.5f);
+    REQUIRE(reverseHead > 3.0f * forwardHead);
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
@@ -928,6 +1002,7 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t7_mapNote",
                            "t0_chokeGroup",
                            "t7_chokeGroup",
+                           "t0_reverse",
                            "t0_lyr0_filterOn",
                            "t0_lyr0_cutoff",
                            "t2_lyr1_ftype",

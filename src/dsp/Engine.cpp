@@ -78,6 +78,13 @@ void Engine::setLoopMode(SampleVoice::LoopMode mode)
         voices[static_cast<size_t>(i)].setLoopMode(mode);
 }
 
+void Engine::setReverse(bool shouldReverse)
+{
+    reversePlayback = shouldReverse;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setReversed(shouldReverse);
+}
+
 void Engine::setLoopPoints(int startFrame, int endFrame)
 {
     loopStartFrame = startFrame;
@@ -220,6 +227,7 @@ void Engine::configureVoice(int voiceIndex, int sampleIndex)
         voice.setSample(s.channels, s.numChannels, s.numFrames, s.sampleRate);
     }
     voice.setLoopMode(loopMode);
+    voice.setReversed(reversePlayback);
     if (loopEndFrame > loopStartFrame)
         voice.setLoopPoints(loopStartFrame, loopEndFrame);
     voice.setAmpEnvelope(ampAttack, ampDecay, ampSustain, ampRelease);

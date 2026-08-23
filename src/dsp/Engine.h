@@ -98,6 +98,10 @@ public:
     void setLoopMode(SampleVoice::LoopMode mode);
     void setLoopPoints(int startFrame, int endFrame);
 
+    // Reverse playback for every voice (classic reverse one-shot). Applied to new
+    // notes; a currently-sounding note keeps its direction until retriggered.
+    void setReverse(bool shouldReverse);
+
     // Amp ADSR shared by every voice (seconds; sustain in [0, 1]), plus the extra
     // DAHDSR stages, per-segment curves and velocity sensitivity.
     void setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
@@ -198,6 +202,7 @@ private:
     int roundRobinCursor = 0;                     // next layer index for RoundRobin trigs
     float lfoToSampleSelect = 0.0f;               // SampleSelect route amount, cached for note-time
     SampleVoice::LoopMode loopMode = SampleVoice::LoopMode::OneShot;
+    bool reversePlayback = false;
     int loopStartFrame = 0;
     int loopEndFrame = 0; // 0 => leave voice default (whole sample)
 

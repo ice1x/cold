@@ -779,6 +779,29 @@ TEST_CASE("Engine reset frees every voice", "[engine][dsp][unit]")
     REQUIRE(engine.activeVoiceCount() == 0);
 }
 
+TEST_CASE("Engine reverse plays a voice back-to-front", "[engine][dsp][unit][reverse]")
+{
+    // A ramp 0,1,2,...,N-1; reversed, the voice reads N-1 down to 0.
+    constexpr int frames = 16;
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] = static_cast<float>(n);
+    s.rebuild();
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setPolyphony(1);
+    engine.setSample(s.data(), s.numChannels(), s.numFrames(), 44100.0);
+    engine.setReverse(true);
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    auto out = render(engine, frames);
+    for (int n = 0; n < frames; ++n)
+        REQUIRE_THAT(out[static_cast<size_t>(n)],
+                     WithinAbs(static_cast<float>(frames - 1 - n), 1e-4));
+}
+
 TEST_CASE("Engine stopAllNotes releases every active voice", "[engine][dsp][unit][choke]")
 {
     // Sustaining (looped) voices keep sounding until stopped; stopAllNotes releases
