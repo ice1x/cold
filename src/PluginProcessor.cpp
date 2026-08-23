@@ -101,6 +101,7 @@ juce::String layerParamId(int track, int layer, const char* base)
 
 juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createParameterLayout()
 {
+    using juce::AudioParameterBool;
     using juce::AudioParameterChoice;
     using juce::AudioParameterFloat;
     using juce::AudioParameterInt;
@@ -222,6 +223,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         // choke). Battery-style "MuteGroup".
         layout.add(std::make_unique<AudioParameterInt>(
             juce::ParameterID{trackParamId(t, "chokeGroup"), 1}, tp + "Choke Group", 0, 8, 0));
+
+        // Reverse playback: the cell plays its sample backwards (reverse one-shot).
+        layout.add(std::make_unique<AudioParameterBool>(
+            juce::ParameterID{trackParamId(t, "reverse"), 1}, tp + "Reverse", false));
 
         // Per-track amp envelope (each track/cell is an independent sound).
         layout.add(
@@ -389,6 +394,7 @@ ColdAudioProcessor::ColdAudioProcessor()
         const auto tt = static_cast<size_t>(t);
         layerModeParam[tt] = apvts.getRawParameterValue(trackParamId(t, "layerMode"));
         chokeGroupParam[tt] = apvts.getRawParameterValue(trackParamId(t, "chokeGroup"));
+        reverseParam[tt] = apvts.getRawParameterValue(trackParamId(t, "reverse"));
         attackParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAttackId));
         decayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kDecayId));
         sustainParam[tt] = apvts.getRawParameterValue(trackParamId(t, kSustainId));
@@ -455,6 +461,7 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     const auto mode =
         static_cast<dsp::SampleVoice::LoopMode>(static_cast<int>(loopModeParam->load()));
     e.setLoopMode(mode);
+    e.setReverse(reverseParam[static_cast<size_t>(track)]->load() > 0.5f);
 
     // Loop points are relative to the track's base slot (slot == track index).
     const int frames = slotNumFrames[static_cast<size_t>(track)];
