@@ -157,6 +157,10 @@ private:
     // per-layer gain and tune.
     std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> layerModeParam{};
 
+    // Per-cell choke / mute group (0 = off, 1..8). Cells sharing a group cut each
+    // other off on trig.
+    std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> chokeGroupParam{};
+
     // Per-track amp envelope (each track/cell is an independent sound).
     using TrackFloats = std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks>;
     TrackFloats attackParam{};
