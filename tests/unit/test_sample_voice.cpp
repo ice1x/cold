@@ -145,6 +145,32 @@ TEST_CASE("SampleVoice at root pitch reproduces the sample sample-for-sample",
         REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(static_cast<float>(n), 1e-4));
 }
 
+TEST_CASE("SampleVoice reversed plays the sample back-to-front then frees",
+          "[samplevoice][dsp][unit][reverse]")
+{
+    constexpr int frames = 16;
+    auto ramp = makeRamp(frames); // ramp[n] == n
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+    voice.setReversed(true);
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+
+    // Reversed one-shot reads from the last frame down to the first: 15, 14, ..., 0.
+    auto out = render(voice, frames);
+    for (int n = 0; n < frames; ++n)
+        REQUIRE_THAT(out[static_cast<size_t>(n)],
+                     WithinAbs(static_cast<float>(frames - 1 - n), 1e-4));
+
+    // Past the start (position < 0) it frees itself and renders silence (a one-shot,
+    // now exhausted).
+    auto tail = render(voice, 4);
+    REQUIRE_FALSE(voice.isActive());
+    for (float v : tail)
+        REQUIRE_THAT(v, WithinAbs(0.0f, 1e-4));
+}
+
 TEST_CASE("SampleVoice reads position at the pitch ratio", "[samplevoice][dsp][unit]")
 {
     constexpr int frames = 64;

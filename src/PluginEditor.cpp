@@ -812,6 +812,8 @@ private:
               "Choke / mute group (0 = off, 1-8). Cells sharing a group cut each other "
               "off — playing one silences the rest (e.g. a closed hat chokes the open hat).");
 
+        tToggle(s, "reverse", "Reverse", "Play this cell's sample backwards (reverse one-shot).");
+
         for (int l = 0; l < kNumLayers; ++l)
         {
             auto& row = newSection("Layer " + juce::String(l + 1));

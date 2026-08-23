@@ -161,6 +161,9 @@ private:
     // other off on trig.
     std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> chokeGroupParam{};
 
+    // Per-cell reverse playback (plays the sample backwards).
+    std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> reverseParam{};
+
     // Per-track amp envelope (each track/cell is an independent sound).
     using TrackFloats = std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks>;
     TrackFloats attackParam{};
