@@ -157,6 +157,10 @@ public:
     void noteOn(int midiNote, float velocity = 1.0f, int rootNote = 60);
     void noteOff(int midiNote);
 
+    // Release every active voice (respecting the amp release). The processor uses
+    // this for choke / mute groups: firing a cell silences its group.
+    void stopAllNotes();
+
     // Free every voice immediately.
     void reset();
 

@@ -808,6 +808,10 @@ private:
               "Note Map mode: the MIDI note that triggers this cell (0-127; 36 = C1). "
               "Cells can sit on any notes — a .kit import sets each cell's own key.");
 
+        tKnob(s, "chokeGroup", "Choke",
+              "Choke / mute group (0 = off, 1-8). Cells sharing a group cut each other "
+              "off — playing one silences the rest (e.g. a closed hat chokes the open hat).");
+
         for (int l = 0; l < kNumLayers; ++l)
         {
             auto& row = newSection("Layer " + juce::String(l + 1));
