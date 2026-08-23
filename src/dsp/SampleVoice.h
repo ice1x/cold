@@ -55,6 +55,12 @@ public:
     // it does not describe a positive-length window (endFrame > startFrame).
     void setLoopPoints(int startFrame, int endFrame);
 
+    // Play the sample backwards: the note starts at the end of the playable region
+    // and reads toward the start (classic reverse one-shot). Takes effect on the next
+    // note. Loops still cycle, just traversed in the reverse direction.
+    void setReversed(bool shouldReverse);
+    [[nodiscard]] bool reversed() const noexcept { return playReversed; }
+
     [[nodiscard]] LoopMode loopMode() const noexcept { return mode; }
     [[nodiscard]] int loopStart() const noexcept { return loopStartFrame; }
     [[nodiscard]] int loopEnd() const noexcept { return loopEndFrame; }
@@ -164,7 +170,8 @@ private:
     float tuneMod = 0.0f;  // static per-note tune in semitones (e.g. a layer's tune)
     float panLeft = 1.0f;  // left/right channel gains from the pan (unity at centre)
     float panRight = 1.0f;
-    int direction = 1; // +1 forward, -1 reverse (ping-pong)
+    int direction = 1;         // +1 forward, -1 reverse (ping-pong / reverse playback)
+    bool playReversed = false; // start at the end and read toward the start
 
     LoopMode mode = LoopMode::OneShot;
     int loopStartFrame = 0;

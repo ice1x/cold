@@ -161,6 +161,11 @@ void SampleVoice::setLoopMode(LoopMode newMode)
     mode = newMode;
 }
 
+void SampleVoice::setReversed(bool shouldReverse)
+{
+    playReversed = shouldReverse;
+}
+
 void SampleVoice::setLoopPoints(int startFrame, int endFrame)
 {
     const int start = std::clamp(startFrame, 0, sourceNumFrames);
@@ -182,8 +187,10 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
 
     midiNote = newMidiNote;
     gain = std::clamp(velocity, 0.0f, 1.0f);
-    position = 0.0;
-    direction = 1;
+    // Reverse starts at the last frame of the playable region and reads downward; a
+    // one-shot then frees itself when the position falls below zero.
+    position = playReversed ? static_cast<double>(sourceNumFrames - 1) : 0.0;
+    direction = playReversed ? -1 : 1;
 
     // Velocity -> pitch: harder hits ride higher, captured once for this note.
     velPitchMod = velToPitchAmount * gain;
@@ -346,6 +353,11 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
             // Wrap forward; a while-loop covers steps larger than the loop length.
             while (position >= static_cast<double>(loopEndFrame))
                 position -= loopLen;
+            // Reverse playback wraps at the bottom so a looped voice keeps cycling.
+            // Guarded to the reverse direction so the forward lead-in (position below
+            // loopStart before the first wrap) is not disturbed.
+            while (direction < 0 && position < static_cast<double>(loopStartFrame))
+                position += loopLen;
         }
         else // PingPong: reflect off each boundary, flipping direction.
         {
