@@ -390,6 +390,20 @@ void Engine::noteOff(int midiNote)
     }
 }
 
+void Engine::stopAllNotes()
+{
+    for (int i = 0; i < polyphony(); ++i)
+    {
+        auto& voice = voices[static_cast<size_t>(i)];
+        if (voice.isActive())
+        {
+            voice.stopNote();
+            if (!voice.isActive())
+                voiceNote[static_cast<size_t>(i)] = -1;
+        }
+    }
+}
+
 void Engine::reset()
 {
     for (int i = 0; i < polyphony(); ++i)

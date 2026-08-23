@@ -29,6 +29,10 @@ public:
     void noteOn(int trackIndex, int midiNote, float velocity = 1.0f, int rootNote = 60);
     void noteOff(int trackIndex, int midiNote);
 
+    // Release every active voice on a track (choke / mute groups). No-op for a bad
+    // index.
+    void stopAllNotes(int trackIndex);
+
     // Digitakt-style routing: MIDI channel (1..16) -> track (0..7); returns -1 for
     // channels outside the eight tracks.
     [[nodiscard]] static int trackForChannel(int midiChannel);

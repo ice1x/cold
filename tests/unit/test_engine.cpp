@@ -779,6 +779,24 @@ TEST_CASE("Engine reset frees every voice", "[engine][dsp][unit]")
     REQUIRE(engine.activeVoiceCount() == 0);
 }
 
+TEST_CASE("Engine stopAllNotes releases every active voice", "[engine][dsp][unit][choke]")
+{
+    // Sustaining (looped) voices keep sounding until stopped; stopAllNotes releases
+    // them all at once (a zero-length release frees them immediately) — the primitive
+    // the processor uses to implement choke / mute groups.
+    auto s = makeConstant(64);
+    auto engine = makeEngine(s, 4);
+    engine.setLoopMode(SampleVoice::LoopMode::Forward);
+    engine.setLoopPoints(0, 64);
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    engine.noteOn(kRootNote + 4, 1.0f, kRootNote);
+    REQUIRE(engine.activeVoiceCount() == 2);
+
+    engine.stopAllNotes();
+    REQUIRE(engine.activeVoiceCount() == 0);
+}
+
 TEST_CASE("Engine per-track compressor attenuates the loud mix", "[engine][dsp][unit][compressor]")
 {
     constexpr int kRoot = 60;

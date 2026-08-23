@@ -217,6 +217,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             juce::ParameterID{trackParamId(t, "layerMode"), 1}, tp + "Layer Mode",
             juce::StringArray{"Single", "Stack", "Round-Robin", "Velocity"}, 0));
 
+        // Choke / mute group (0 = off, 1..8). Cells sharing a non-zero group cut each
+        // other off: firing one releases every voice in the group (classic hi-hat
+        // choke). Battery-style "MuteGroup".
+        layout.add(std::make_unique<AudioParameterInt>(
+            juce::ParameterID{trackParamId(t, "chokeGroup"), 1}, tp + "Choke Group", 0, 8, 0));
+
         // Per-track amp envelope (each track/cell is an independent sound).
         layout.add(
             std::make_unique<AudioParameterFloat>(juce::ParameterID{trackParamId(t, kAttackId), 1},
@@ -382,6 +388,7 @@ ColdAudioProcessor::ColdAudioProcessor()
     {
         const auto tt = static_cast<size_t>(t);
         layerModeParam[tt] = apvts.getRawParameterValue(trackParamId(t, "layerMode"));
+        chokeGroupParam[tt] = apvts.getRawParameterValue(trackParamId(t, "chokeGroup"));
         attackParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAttackId));
         decayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kDecayId));
         sustainParam[tt] = apvts.getRawParameterValue(trackParamId(t, kSustainId));
@@ -582,6 +589,20 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     // Notes route to a track either by MIDI channel (Digitakt-style: channel N ->
     // track N-1) or, in Note Map mode, by note number like a GM drum map.
     const bool noteMap = midiAddressParam->load() > 0.5f;
+
+    // Fire cell `t`, applying its choke / mute group first: if it belongs to a
+    // non-zero group, release every voice in that group (itself included) so only one
+    // sound in the group rings at a time — classic hi-hat choke.
+    auto fireCell = [this](int t, int note, float vel, int root)
+    {
+        const int group = static_cast<int>(chokeGroupParam[static_cast<size_t>(t)]->load());
+        if (group > 0)
+            for (int tt = 0; tt < dsp::MultiEngine::kNumTracks; ++tt)
+                if (static_cast<int>(chokeGroupParam[static_cast<size_t>(tt)]->load()) == group)
+                    multi.stopAllNotes(tt);
+        multi.noteOn(t, note, vel, root);
+    };
+
     int pos = 0;
     for (const auto meta : midi)
     {
@@ -608,14 +629,17 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
                 if (static_cast<int>(mapNoteParam[static_cast<size_t>(t)]->load()) != note)
                     continue;
                 if (isOn)
-                    multi.noteOn(t, rootNote, msg.getFloatVelocity(), rootNote);
+                    fireCell(t, rootNote, msg.getFloatVelocity(), rootNote);
                 else
                     multi.noteOff(t, rootNote);
             }
         }
         else if (isOn)
-            multi.routeNoteOn(msg.getChannel(), msg.getNoteNumber(), msg.getFloatVelocity(),
-                              rootNote);
+        {
+            const int t = dsp::MultiEngine::trackForChannel(msg.getChannel());
+            if (t >= 0)
+                fireCell(t, msg.getNoteNumber(), msg.getFloatVelocity(), rootNote);
+        }
         else if (isOff)
             multi.routeNoteOff(msg.getChannel(), msg.getNoteNumber());
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
