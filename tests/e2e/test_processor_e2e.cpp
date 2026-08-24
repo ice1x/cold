@@ -757,6 +757,61 @@ TEST_CASE("Cold reverse plays a cell's sample backwards", "[processor][e2e][reve
     proc.releaseResources();
 }
 
+TEST_CASE("Cold lo-fi bit crusher quantizes a cell to a coarse grid",
+          "[processor][e2e][bitcrusher]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    auto wav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToTrack(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    // Largest distance from any sample to the nearest 1-bit grid step (integers, as
+    // 1 bit -> scale 2^0 = 1). A clean signal sits well off the grid; a crushed one
+    // snaps onto it.
+    auto maxGridError = [](const juce::AudioBuffer<float>& b)
+    {
+        float e = 0.0f;
+        for (int n = 0; n < b.getNumSamples(); ++n)
+        {
+            const float x = b.getSample(0, n);
+            e = std::max(e, std::abs(x - std::round(x)));
+        }
+        return e;
+    };
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    auto play = [&]()
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        return maxGridError(buffer);
+    };
+
+    const float cleanError = play(); // off the integer grid
+    setParam("t0_crushOn", 1.0f);
+    setParam("t0_crushBits", 1.0f); // 1 bit: values snap to {-1, 0, 1}
+    const float crushedError = play();
+
+    REQUIRE(cleanError > 0.1f);    // the clean sine sits between grid steps
+    REQUIRE(crushedError < 1e-4f); // crushed output lands exactly on the grid
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
@@ -1026,7 +1081,10 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t3_compMakeup",
                            "t0_satOn",
                            "t0_satDrive",
-                           "t5_satMix"})
+                           "t5_satMix",
+                           "t0_crushOn",
+                           "t0_crushBits",
+                           "t7_crushRate"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 

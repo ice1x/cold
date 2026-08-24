@@ -849,6 +849,34 @@ TEST_CASE("Engine per-track compressor attenuates the loud mix", "[engine][dsp][
     REQUIRE(windowRms(restored, 3000, 500) > 0.9);
 }
 
+TEST_CASE("Engine per-track bit crusher quantizes the summed mix",
+          "[engine][dsp][unit][bitcrusher]")
+{
+    constexpr int kRoot = 60;
+    auto s = makeConstant(20000, 0.3f); // constant 0.3 -> a steady 0.3 mix
+
+    auto engine = makeEngine(s, 4);
+
+    // Dry baseline: the mix sits at ~0.3.
+    engine.noteOn(kRoot, 1.0f, kRoot);
+    auto dry = renderChunked(engine, 2000, 256);
+    REQUIRE_THAT(windowRms(dry, 1000, 500), WithinAbs(0.3, 0.02));
+
+    // 2 bits (scale 2): 0.3 snaps to round(0.6)/2 = 0.5. No rate reduction.
+    engine.reset();
+    engine.setBitCrusher(true, 2.0f, 1);
+    engine.noteOn(kRoot, 1.0f, kRoot);
+    auto crushed = renderChunked(engine, 2000, 256);
+    REQUIRE_THAT(windowRms(crushed, 1000, 500), WithinAbs(0.5, 0.02));
+
+    // Disabling restores the dry level.
+    engine.reset();
+    engine.setBitCrusher(false, 2.0f, 1);
+    engine.noteOn(kRoot, 1.0f, kRoot);
+    auto restored = renderChunked(engine, 2000, 256);
+    REQUIRE_THAT(windowRms(restored, 1000, 500), WithinAbs(0.3, 0.02));
+}
+
 TEST_CASE("Engine per-track saturator shapes the summed mix", "[engine][dsp][unit][saturator]")
 {
     constexpr int kRoot = 60;
