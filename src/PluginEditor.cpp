@@ -308,7 +308,8 @@ public:
             int tab = 0; // Main
             if (si == 0)
                 tab = -1; // the cell grid: always visible
-            else if (title.startsWith("Compressor") || title.startsWith("Saturation"))
+            else if (title.startsWith("Compressor") || title.startsWith("Saturation") ||
+                     title.startsWith("Lo-Fi"))
                 tab = 1; // FX
             else if (title.startsWith("Mod Envelope") || title == "LFO")
                 tab = 2; // Mod
@@ -640,6 +641,17 @@ private:
             tKnob(s, "satMix", "Mix",
                   "Dry/wet blend: 0 = clean, 1 = fully saturated. Lower for parallel "
                   "drive that keeps the transient.");
+        }
+        {
+            auto& s = newSection("Lo-Fi (selected cell)");
+            tToggle(s, "crushOn", "On",
+                    "Enable this cell's lo-fi: bit-depth + sample-rate reduction (vintage grit).");
+            tKnob(s, "crushBits", "Bits",
+                  "Bit depth (1-16). Lower = coarser quantization steps = more crunch. "
+                  "16 is essentially clean.");
+            tKnob(s, "crushRate", "Rate",
+                  "Sample-rate divider (1-64): hold every Nth sample. Higher = darker, "
+                  "grittier, more aliased (down-sampled).");
         }
         {
             auto& s = newSection("LFO");
