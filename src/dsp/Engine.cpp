@@ -17,6 +17,7 @@ void Engine::prepare(double newHostSampleRate)
         hostSampleRate = newHostSampleRate;
 
     lfo.setSampleRate(hostSampleRate);
+    bitCrusher.prepare(hostSampleRate);
     saturator.prepare(hostSampleRate);
     compressor.prepare(hostSampleRate);
 
@@ -213,6 +214,12 @@ void Engine::setSaturator(bool enabled, float drive, float mix)
 {
     saturator.setParameters(drive, mix);
     saturator.setEnabled(enabled);
+}
+
+void Engine::setBitCrusher(bool enabled, float bits, int downsample)
+{
+    bitCrusher.setParameters(bits, downsample);
+    bitCrusher.setEnabled(enabled);
 }
 
 void Engine::configureVoice(int voiceIndex, int sampleIndex)
@@ -445,7 +452,7 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
         }
     }
 
-    if (!compressor.enabled() && !saturator.enabled())
+    if (!compressor.enabled() && !saturator.enabled() && !bitCrusher.enabled())
     {
         // Fast path: voices sum straight into the output, no scratch buffer.
         for (auto& voice : voices)
@@ -454,8 +461,8 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
     }
 
     // FX path: render the whole track into a cleared scratch buffer, run the
-    // per-track saturator then compressor over it (each a no-op if disabled), then
-    // sum the result into the output.
+    // per-track bit crusher, then saturator, then compressor over it (each a no-op if
+    // disabled), then sum the result into the output.
     const auto ch = static_cast<size_t>(numOutChannels);
     if (compBuffer.size() < ch)
         compBuffer.resize(ch);
@@ -472,6 +479,7 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
     for (auto& voice : voices)
         voice.renderNextBlock(compPtrs.data(), numOutChannels, 0, numSamples);
 
+    bitCrusher.processBlock(compPtrs.data(), numOutChannels, numSamples);
     saturator.processBlock(compPtrs.data(), numOutChannels, numSamples);
     compressor.processBlock(compPtrs.data(), numOutChannels, numSamples);
 

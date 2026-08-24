@@ -62,6 +62,9 @@ constexpr auto kCompMakeupId = "compMakeup";
 constexpr auto kSatOnId = "satOn";
 constexpr auto kSatDriveId = "satDrive";
 constexpr auto kSatMixId = "satMix";
+constexpr auto kCrushOnId = "crushOn";
+constexpr auto kCrushBitsId = "crushBits";
+constexpr auto kCrushRateId = "crushRate";
 constexpr auto kMidiAddressId = "midiAddressing";
 constexpr auto kMapNoteId = "mapNote";
 
@@ -323,6 +326,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             juce::ParameterID{trackParamId(t, kSatMixId), 1}, tp + "Sat Mix",
             juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
+        // Per-track lo-fi bit crusher / sample-rate reducer (vintage grit).
+        layout.add(std::make_unique<AudioParameterBool>(
+            juce::ParameterID{trackParamId(t, kCrushOnId), 1}, tp + "Crush On", false));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kCrushBitsId), 1}, tp + "Crush Bits",
+            juce::NormalisableRange<float>(1.0f, 16.0f, 0.1f), 16.0f));
+        layout.add(std::make_unique<AudioParameterInt>(
+            juce::ParameterID{trackParamId(t, kCrushRateId), 1}, tp + "Crush Rate", 1, 64, 1));
+
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto lp = tp + "L" + juce::String(l + 1) + " ";
@@ -421,6 +433,9 @@ ColdAudioProcessor::ColdAudioProcessor()
         satOnParam[tt] = apvts.getRawParameterValue(trackParamId(t, kSatOnId));
         satDriveParam[tt] = apvts.getRawParameterValue(trackParamId(t, kSatDriveId));
         satMixParam[tt] = apvts.getRawParameterValue(trackParamId(t, kSatMixId));
+        crushOnParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCrushOnId));
+        crushBitsParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCrushBitsId));
+        crushRateParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCrushRateId));
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto ll = static_cast<size_t>(l);
@@ -491,6 +506,8 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     e.setSaturator(satOnParam[tt]->load() > 0.5f,
                    std::pow(10.0f, satDriveParam[tt]->load() / 20.0f), // dB -> linear pre-gain
                    satMixParam[tt]->load());
+    e.setBitCrusher(crushOnParam[tt]->load() > 0.5f, crushBitsParam[tt]->load(),
+                    static_cast<int>(crushRateParam[tt]->load()));
     e.setFilter(filterCutoffParam[tt]->load(), filterResonanceParam[tt]->load(),
                 filterTypeParam[tt]->load());
 

@@ -196,6 +196,9 @@ private:
     TrackFloats satOnParam{};
     TrackFloats satDriveParam{};
     TrackFloats satMixParam{};
+    TrackFloats crushOnParam{};
+    TrackFloats crushBitsParam{};
+    TrackFloats crushRateParam{};
 
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
         layerGainParam{};
