@@ -8,6 +8,7 @@
 // mode / points and the assigned sample are shared configuration applied to every
 // voice; each note gets its own read position and pitch.
 
+#include "dsp/BitCrusher.h"
 #include "dsp/Compressor.h"
 #include "dsp/Lfo.h"
 #include "dsp/ModMatrix.h"
@@ -136,6 +137,12 @@ public:
     // `mix` is dry/wet in [0, 1]. Shares the compressor's scratch-buffer render path.
     void setSaturator(bool enabled, float drive, float mix);
 
+    // Per-track lo-fi bit crusher / sample-rate reducer on the summed track output,
+    // applied FIRST in the FX chain (before saturator + compressor) so the crushed
+    // signal is driven and glued. `bits` is the bit depth (1..16); `downsample` the
+    // sample-and-hold factor (>= 1). Shares the compressor's scratch render path.
+    void setBitCrusher(bool enabled, float bits, int downsample);
+
     // Per-voice morph filter shared by every voice (cutoff Hz, resonance/Q, type
     // in [0, 1]). Enables the filter on the whole pool.
     void setFilter(float cutoffHz, float resonance, float type);
@@ -237,6 +244,7 @@ private:
     Lfo lfo;
     ModMatrix modMatrix;
 
+    BitCrusher bitCrusher;                      // per-track lo-fi, applied first in the FX chain
     Saturator saturator;                        // per-track drive, applied pre-compressor
     Compressor compressor;                      // per-track dynamics on the summed mix
     std::vector<std::vector<float>> compBuffer; // scratch: [channel][sample], grown as needed
