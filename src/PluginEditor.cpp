@@ -99,6 +99,25 @@ private:
     std::unique_ptr<juce::Component> control;
 };
 
+// A cell/track pad. Left-click selects the cell (juce::Button's normal click);
+// right-click (or ctrl-click) raises a context menu — its "load sample" entry is
+// the quick way to fill a cell without hunting for the per-layer Load buttons.
+class CellPad : public juce::TextButton
+{
+public:
+    std::function<void()> onRightClick;
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu() && onRightClick)
+        {
+            onRightClick();
+            return;
+        }
+        juce::TextButton::mouseDown(e);
+    }
+};
+
 // Battery-style waveform view of the selected cell's sample (И5c). Draws a
 // min/max peak envelope (from dsp::computeWaveformPeaks, fetched by Content) and
 // the playable start/end window as vertical markers with the outside dimmed.
@@ -695,15 +714,19 @@ private:
 
     // The sample bank: 16 slot buttons showing what's loaded; click = load a file
     // Load a file directly into the selected cell's layer `layer` (its own slot).
-    void chooseForLayer(int layer)
+    void chooseForLayer(int layer) { chooseForCellLayer(currentTrack, layer); }
+
+    // Open a file chooser and load the picked sample into `track`'s `layer`. Used by
+    // the per-layer Load buttons (current cell) and the cell pad's right-click menu.
+    void chooseForCellLayer(int track, int layer)
     {
-        chooser = std::make_unique<juce::FileChooser>("Load a sample into layer " +
+        chooser = std::make_unique<juce::FileChooser>("Load a sample into cell " +
+                                                          juce::String(track + 1) + " layer " +
                                                           juce::String(layer + 1),
                                                       juce::File{}, "*.wav;*.aiff;*.aif;*.mp3");
         const auto flags =
             juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
 
-        const int track = currentTrack;
         chooser->launchAsync(flags,
                              [this, track, layer](const juce::FileChooser& fc)
                              {
@@ -717,6 +740,25 @@ private:
                              });
     }
 
+    // Right-click menu on a cell pad: select the cell, then offer to load a sample
+    // into its primary layer or any specific layer (why the pads had no loader
+    // before: loading lived only on the per-layer buttons below).
+    void showCellMenu(int track)
+    {
+        selectCell(track); // make the right-clicked cell the active one
+        juce::PopupMenu menu;
+        menu.addSectionHeader("Cell " + juce::String(track + 1));
+        menu.addItem(1, "Load sample\xE2\x80\xA6 (layer 1)");
+        for (int l = 1; l < ColdAudioProcessor::kNumLayers; ++l)
+            menu.addItem(l + 1, "Load into layer " + juce::String(l + 1) + "\xE2\x80\xA6");
+        menu.showMenuAsync(juce::PopupMenu::Options{},
+                           [this, track](int result)
+                           {
+                               if (result >= 1 && result <= ColdAudioProcessor::kNumLayers)
+                                   chooseForCellLayer(track, result - 1);
+                           });
+    }
+
 public:
     std::function<void()> onBankChanged; // editor hook: refresh the top-bar name
 
@@ -725,18 +767,21 @@ private:
     // Replaces a track-selector knob; the pads drive the "track" param + setTrack().
     void buildCellGrid()
     {
-        auto& s = newSection(u8("Cells — click a cell to edit its track"));
+        auto& s = newSection(u8("Cells — click to edit, right-click to load a sample"));
         s.wideCells = true;
         for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
         {
-            auto btn = std::make_unique<juce::TextButton>();
+            auto btn = std::make_unique<CellPad>();
             btn->setTooltip("Select cell/track " + juce::String(t + 1) +
-                            " for editing below. It plays on MIDI channel " + juce::String(t + 1) +
+                            " for editing below. Right-click to load a sample. It plays on MIDI "
+                            "channel " +
+                            juce::String(t + 1) +
                             " (Channel mode) or its Note Map note. Its "
                             "default sample is bank slot " +
                             juce::String(t + 1) + ".");
             auto* ptr = btn.get();
             ptr->onClick = [this, t] { selectCell(t); };
+            ptr->onRightClick = [this, t] { showCellMenu(t); };
             addAndMakeVisible(*ptr);
             cellPads.push_back(ptr);
             owned.push_back(std::move(btn));
