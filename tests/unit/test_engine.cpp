@@ -757,6 +757,57 @@ TEST_CASE("Engine velocity mode maps bands over only the playable layers",
     REQUIRE(hi.first < 0.01f);
 }
 
+TEST_CASE("Engine stack applies a per-layer amp envelope to each layer",
+          "[engine][dsp][unit][stack][layerenv]")
+{
+    // The essence of layering: two layers on one note, each with its OWN envelope.
+    // Layer A (hard left) decays to silence fast; layer B (hard right) sustains. So
+    // after the decay the left channel is gone while the right still rings.
+    auto a = makeConstant(20000, 0.5f);
+    auto b = makeConstant(20000, 0.5f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::Stack);
+
+    Engine::Layer la; // fast decay to zero -> silent after a few ms
+    la.sampleIndex = 0;
+    la.pan = -1.0f;
+    la.ampOverride = true;
+    la.ampDecay = 0.002f;
+    la.ampSustain = 0.0f;
+
+    Engine::Layer lb; // full sustain -> keeps ringing
+    lb.sampleIndex = 1;
+    lb.pan = 1.0f;
+    lb.ampOverride = true;
+    lb.ampSustain = 1.0f;
+
+    engine.setLayers({la, lb});
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+
+    std::vector<std::vector<float>> out(2, std::vector<float>(8000, 0.0f));
+    std::vector<float*> ptrs{out[0].data(), out[1].data()};
+    engine.renderNextBlock(ptrs.data(), 2, 0, 8000);
+
+    auto peak = [&](int ch, int from, int to)
+    {
+        float p = 0.0f;
+        for (int n = from; n < to; ++n)
+            p = std::max(p, std::abs(out[static_cast<size_t>(ch)][static_cast<size_t>(n)]));
+        return p;
+    };
+
+    // Early: both layers sound.
+    REQUIRE(peak(0, 0, 8) > 0.3f);
+    REQUIRE(peak(1, 0, 8) > 0.3f);
+    // Late: layer A (left) has decayed to silence; layer B (right) still rings.
+    REQUIRE(peak(0, 6000, 8000) < 0.02f);
+    REQUIRE(peak(1, 6000, 8000) > 0.3f);
+}
+
 TEST_CASE("Engine defaults to Select mode (one voice per note)", "[engine][dsp][unit][stack]")
 {
     auto s = makeConstant(64);
