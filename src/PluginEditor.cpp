@@ -973,6 +973,13 @@ private:
         place(row, "E.Sustain", "This layer's envelope sustain level (0..1).");
         c.envRelease = makeSlider();
         place(row, "E.Release", "This layer's envelope release after note-off, in seconds.");
+
+        c.mute = makeToggle();
+        place(row, "Mute", "Silence this layer in the stack (Stack / Round-Robin / Velocity).");
+        c.solo = makeToggle();
+        place(row, "Solo",
+              "Solo this layer: if any layer in the cell is soloed, only soloed layers "
+              "sound.");
     }
 
     // Rebuild the per-track attachments (layer mode + per-track knobs/toggles) to
@@ -1035,6 +1042,8 @@ private:
         attSlider("ampDecay", c.envDecay);
         attSlider("ampSustain", c.envSustain);
         attSlider("ampRelease", c.envRelease);
+        attButton("mute", c.mute);
+        attButton("solo", c.solo);
 
         refreshLayerButtons();
         updateWaveform(); // the waveform follows the layer being edited
@@ -1064,6 +1073,8 @@ private:
         juce::Slider* envDecay = nullptr;
         juce::Slider* envSustain = nullptr;
         juce::Slider* envRelease = nullptr;
+        juce::ToggleButton* mute = nullptr;
+        juce::ToggleButton* solo = nullptr;
     };
 
     struct Attachments
