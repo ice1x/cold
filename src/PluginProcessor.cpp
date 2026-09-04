@@ -381,6 +381,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             layout.add(std::make_unique<AudioParameterFloat>(
                 juce::ParameterID{layerParamId(t, l, "ampRelease"), 1}, lp + "Env Release",
                 timeRange(5.0f), 0.05f));
+            // Per-layer mute / solo (stack mixing). Mute silences the layer; if any
+            // layer in the cell is soloed, only soloed layers sound.
+            layout.add(std::make_unique<juce::AudioParameterBool>(
+                juce::ParameterID{layerParamId(t, l, "mute"), 1}, lp + "Mute", false));
+            layout.add(std::make_unique<juce::AudioParameterBool>(
+                juce::ParameterID{layerParamId(t, l, "solo"), 1}, lp + "Solo", false));
         }
     }
 
@@ -478,6 +484,8 @@ ColdAudioProcessor::ColdAudioProcessor()
                 apvts.getRawParameterValue(layerParamId(t, l, "ampSustain"));
             layerAmpReleaseParam[tt][ll] =
                 apvts.getRawParameterValue(layerParamId(t, l, "ampRelease"));
+            layerMuteParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "mute"));
+            layerSoloParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "solo"));
         }
     }
     layerScratch.reserve(static_cast<size_t>(kNumLayers));
@@ -588,12 +596,23 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
         layerMode == dsp::Engine::LayerMode::RoundRobin ||
         layerMode == dsp::Engine::LayerMode::Velocity)
     {
+        // Solo takes priority: if any layer in the cell is soloed, only soloed layers
+        // sound. Otherwise every non-muted loaded layer sounds.
+        bool anySolo = false;
+        for (int l = 0; l < kNumLayers; ++l)
+            if (layerSoloParam[tt][static_cast<size_t>(l)]->load() > 0.5f)
+                anySolo = true;
+
         layerScratch.clear();
         for (int l = 0; l < kNumLayers; ++l)
         {
             const auto ll = static_cast<size_t>(l);
             if (!bank.isSlotLoaded(slotForLayer(track, l)))
                 continue; // empty layer -> silent
+            const bool muted = layerMuteParam[tt][ll]->load() > 0.5f;
+            const bool soloed = layerSoloParam[tt][ll]->load() > 0.5f;
+            if (muted || (anySolo && !soloed))
+                continue; // muted, or another layer is soloed -> excluded from the mix
             dsp::Engine::Layer layer;
             layer.sampleIndex = l;
             layer.gain = layerGainParam[tt][ll]->load();
