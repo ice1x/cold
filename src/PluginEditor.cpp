@@ -748,9 +748,9 @@ private:
         selectCell(track); // make the right-clicked cell the active one
         juce::PopupMenu menu;
         menu.addSectionHeader("Cell " + juce::String(track + 1));
-        menu.addItem(1, "Load sample\xE2\x80\xA6 (layer 1)");
+        menu.addItem(1, u8("Load sample… (layer 1)"));
         for (int l = 1; l < ColdAudioProcessor::kNumLayers; ++l)
-            menu.addItem(l + 1, "Load into layer " + juce::String(l + 1) + "\xE2\x80\xA6");
+            menu.addItem(l + 1, "Load into layer " + juce::String(l + 1) + u8("…"));
         menu.showMenuAsync(juce::PopupMenu::Options{},
                            [this, track](int result)
                            {
