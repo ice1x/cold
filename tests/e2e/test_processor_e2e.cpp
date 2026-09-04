@@ -812,6 +812,45 @@ TEST_CASE("Cold lo-fi bit crusher quantizes a cell to a coarse grid",
     proc.releaseResources();
 }
 
+TEST_CASE("Cold auditions a cell on demand (editor pad click)", "[processor][e2e][audition]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    auto wav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToTrack(0, wav)); // cell 0 loaded; cell 1 left empty
+    wav.deleteFile();
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    auto renderSilentBlock = [&]()
+    {
+        buffer.clear();
+        juce::MidiBuffer midi; // no MIDI: only an auditioned voice can sound
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        return buffer.getMagnitude(0, blockSize);
+    };
+
+    SECTION("auditioning a loaded cell makes it sound with no MIDI")
+    {
+        REQUIRE(renderSilentBlock() == 0.0f); // nothing playing yet
+        proc.auditionCell(0);
+        REQUIRE(renderSilentBlock() > 0.0f); // the pad click triggered the sample
+    }
+
+    SECTION("auditioning an empty cell stays silent")
+    {
+        proc.auditionCell(1); // cell 1 has no sample
+        REQUIRE(renderSilentBlock() == 0.0f);
+    }
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;

@@ -76,6 +76,13 @@ public:
     void selectTrack(int track);
     [[nodiscard]] int selectedTrack() const;
 
+    // Audition a cell from the editor (pad click): trigger the cell's sound at the
+    // root note, like a MIDI hit, so clicking a pad plays it. `releaseCell` releases
+    // only sustaining (looping) cells — one-shot drums play through so a quick click
+    // still sounds the whole hit. No-op for a bad index.
+    void auditionCell(int track);
+    void releaseCell(int track);
+
     [[nodiscard]] int numSlots() const;
     [[nodiscard]] juce::String loadedSampleName() const;       // selected track's sample name
     [[nodiscard]] juce::String slotSampleName(int slot) const; // "" for an empty slot
