@@ -840,6 +840,34 @@ int ColdAudioProcessor::selectedTrack() const
     return trackParam != nullptr ? static_cast<int>(trackParam->load()) : 0;
 }
 
+void ColdAudioProcessor::auditionCell(int track)
+{
+    if (track < 0 || track >= dsp::MultiEngine::kNumTracks)
+        return;
+    const juce::ScopedLock sl(engineLock);
+    // Settle the engine parameters first so the pool is sized and configured — a
+    // fresh load marks polyphony dirty, and the note must survive the next block's
+    // param apply (which would otherwise reset the pool out from under it).
+    updateEngineParameters();
+    const int root = rootNoteParam != nullptr ? static_cast<int>(rootNoteParam->load()) : 60;
+    multi.noteOn(track, root, 1.0f, root);
+}
+
+void ColdAudioProcessor::releaseCell(int track)
+{
+    if (track < 0 || track >= dsp::MultiEngine::kNumTracks)
+        return;
+    const juce::ScopedLock sl(engineLock);
+    // One-shots ring out on their own (a quick click still plays the whole hit);
+    // only sustaining (looping) cells are gated by releasing the note.
+    const auto mode = static_cast<dsp::SampleVoice::LoopMode>(
+        static_cast<int>(loopModeParam != nullptr ? loopModeParam->load() : 0.0f));
+    if (mode == dsp::SampleVoice::LoopMode::OneShot)
+        return;
+    const int root = rootNoteParam != nullptr ? static_cast<int>(rootNoteParam->load()) : 60;
+    multi.noteOff(track, root);
+}
+
 int ColdAudioProcessor::numSlots() const
 {
     return bank.numSlots();
