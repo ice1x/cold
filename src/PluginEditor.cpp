@@ -295,8 +295,11 @@ public:
             proc.setSlotStartFrames(slot, start);
             proc.setSlotLengthFrames(slot, length);
         };
-        buildGlobals();
+        // Track panel FIRST so "Selected cell" + the layer rows sit at the top of the
+        // Main tab, right under the waveform (loading/editing layers is the core
+        // workflow); the global sound-shaping sections follow below.
         buildTrackPanel();
+        buildGlobals();
         buildTabs();  // after all sections exist
         assignTabs(); // route each section to a tab
 
@@ -307,7 +310,7 @@ public:
 
     // The editing sections are grouped under tabs (the cell grid + waveform stay
     // pinned above). Keeps the panel short instead of one long scroll.
-    static constexpr const char* kTabNames[] = {"Main", "FX", "Mod", "Layers"};
+    static constexpr const char* kTabNames[] = {"Main", "FX", "Mod"};
 
     void buildTabs()
     {
@@ -343,8 +346,8 @@ public:
                 tab = 1; // FX
             else if (title.startsWith("Mod Envelope") || title == "LFO")
                 tab = 2; // Mod
-            else if (title == "Selected cell" || title.startsWith("Layer "))
-                tab = 3; // Layers
+            // "Selected cell" + the per-layer rows live on Main: loading and editing
+            // a cell's layers is the core workflow, so it must not hide behind a tab.
             sections[si].tab = tab;
         }
     }
@@ -778,7 +781,7 @@ private:
     // Replaces a track-selector knob; the pads drive the "track" param + setTrack().
     void buildCellGrid()
     {
-        auto& s = newSection(u8("Cells — click to edit, right-click to load a sample"));
+        auto& s = newSection(u8("Cells — click to play/edit, right-click to load a sample"));
         s.wideCells = true;
         for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
         {
@@ -840,13 +843,25 @@ private:
     {
         for (int t = 0; t < static_cast<int>(cellPads.size()); ++t)
         {
-            // A cell's label is its primary sample (layer 0).
+            // A cell's label is its primary sample (layer 0), plus how many of its
+            // layers hold a sample so a stacked cell reads at a glance.
             const auto name = proc.slotSampleName(t * ColdAudioProcessor::kNumLayers);
             const bool loaded = name.isNotEmpty();
             const bool selected = (t == currentTrack);
             auto* pad = cellPads[static_cast<size_t>(t)];
 
-            pad->setButtonText("T" + juce::String(t + 1) + (loaded ? "  " + name : u8("  ·")));
+            int layersLoaded = 0;
+            for (int l = 0; l < ColdAudioProcessor::kNumLayers; ++l)
+                if (proc.slotSampleName(t * ColdAudioProcessor::kNumLayers + l).isNotEmpty())
+                    ++layersLoaded;
+            // Only show the count once a cell is stacked (>1 layer), to keep single-
+            // layer cells clean. e.g. "T1  kick.wav  3/4".
+            const auto badge = layersLoaded > 1 ? "  " + juce::String(layersLoaded) + "/" +
+                                                      juce::String(ColdAudioProcessor::kNumLayers)
+                                                : juce::String();
+
+            pad->setButtonText("T" + juce::String(t + 1) + (loaded ? "  " + name : u8("  ·")) +
+                               badge);
 
             // Selected = blue; loaded = teal; empty = dark. Text brightens when there
             // is a sample, so a full kit reads at a glance.
@@ -1005,7 +1020,7 @@ private:
     std::vector<PerTrackToggle> perTrackToggles;
 
     std::vector<juce::TextButton*> cellPads;   // one per track, owned via `owned`
-    std::vector<juce::TextButton*> tabButtons; // Main/FX/Mod/Layers, owned via `owned`
+    std::vector<juce::TextButton*> tabButtons; // Main/FX/Mod, owned via `owned`
     int currentTab = 0;
     WaveformDisplay waveformView; // selected cell's sample + window
     int currentTrack = 0;
