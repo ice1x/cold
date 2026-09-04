@@ -851,6 +851,62 @@ TEST_CASE("Cold auditions a cell on demand (editor pad click)", "[processor][e2e
     proc.releaseResources();
 }
 
+TEST_CASE("Cold per-layer envelope shapes stacked layers independently",
+          "[processor][e2e][stack][layerenv]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int frames = 8000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // Cell 0, layers 0 and 1: same signal, panned L/R, Stack mode. Layer 0 gets a
+    // fast decay-to-silence envelope, layer 1 sustains — so after the decay only the
+    // right channel (layer 1) rings.
+    auto wav = writeTempWav(sampleRate, 1, frames);
+    REQUIRE(proc.loadSampleToLayer(0, 0, wav));
+    REQUIRE(proc.loadSampleToLayer(0, 1, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto tailPeak = [](const juce::AudioBuffer<float>& b, int ch)
+    {
+        float p = 0.0f;
+        for (int n = b.getNumSamples() - 1500; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(ch, n)));
+        return p;
+    };
+
+    setParam("t0_layerMode", 1.0f); // Stack
+    setParam("t0_lyr0_pan", -1.0f); // layer 0 hard left
+    setParam("t0_lyr1_pan", 1.0f);  // layer 1 hard right
+
+    // Layer 0: own envelope, fast decay to zero sustain -> silent tail.
+    setParam("t0_lyr0_ampOn", 1.0f);
+    setParam("t0_lyr0_ampDecay", 0.01f);
+    setParam("t0_lyr0_ampSustain", 0.0f);
+    // Layer 1: own envelope, full sustain -> keeps ringing.
+    setParam("t0_lyr1_ampOn", 1.0f);
+    setParam("t0_lyr1_ampSustain", 1.0f);
+
+    juce::AudioBuffer<float> buffer(2, frames);
+    buffer.clear();
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+    renderBlock(proc, buffer, midi);
+    REQUIRE(bufferIsFinite(buffer));
+
+    REQUIRE(tailPeak(buffer, 0) < 0.02f); // layer 0 decayed to silence (left)
+    REQUIRE(tailPeak(buffer, 1) > 0.2f);  // layer 1 still sustaining (right)
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
@@ -1123,7 +1179,10 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t5_satMix",
                            "t0_crushOn",
                            "t0_crushBits",
-                           "t7_crushRate"})
+                           "t7_crushRate",
+                           "t0_lyr0_ampOn",
+                           "t0_lyr1_ampDecay",
+                           "t7_lyr3_ampRelease"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 
