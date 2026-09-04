@@ -105,7 +105,9 @@ private:
 class CellPad : public juce::TextButton
 {
 public:
-    std::function<void()> onRightClick;
+    std::function<void()> onRightClick;  // context menu (load a sample)
+    std::function<void()> onAudition;    // left mouse-down: play the cell
+    std::function<void()> onAuditionEnd; // mouse-up: release (gates looping cells)
 
     void mouseDown(const juce::MouseEvent& e) override
     {
@@ -114,7 +116,16 @@ public:
             onRightClick();
             return;
         }
+        if (onAudition)
+            onAudition(); // audible feedback on press, before the click selects
         juce::TextButton::mouseDown(e);
+    }
+
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (onAuditionEnd)
+            onAuditionEnd();
+        juce::TextButton::mouseUp(e);
     }
 };
 
@@ -782,6 +793,8 @@ private:
             auto* ptr = btn.get();
             ptr->onClick = [this, t] { selectCell(t); };
             ptr->onRightClick = [this, t] { showCellMenu(t); };
+            ptr->onAudition = [this, t] { proc.auditionCell(t); };
+            ptr->onAuditionEnd = [this, t] { proc.releaseCell(t); };
             addAndMakeVisible(*ptr);
             cellPads.push_back(ptr);
             owned.push_back(std::move(btn));
