@@ -219,6 +219,16 @@ private:
         layerCutoffParam{};
     std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>
         layerTypeParam{};
+    // Optional per-layer amp envelope (core of layering).
+    using LayerFloats =
+        std::array<std::array<std::atomic<float>*, kNumLayers>, dsp::MultiEngine::kNumTracks>;
+    LayerFloats layerAmpOnParam{};
+    LayerFloats layerAmpDelayParam{};
+    LayerFloats layerAmpAttackParam{};
+    LayerFloats layerAmpHoldParam{};
+    LayerFloats layerAmpDecayParam{};
+    LayerFloats layerAmpSustainParam{};
+    LayerFloats layerAmpReleaseParam{};
     std::vector<dsp::Engine::Layer> layerScratch; // reused in applyParamsToTrack (avoids re-alloc)
 
     double hostBpm = 120.0; // last known host tempo (for LFO sync)
