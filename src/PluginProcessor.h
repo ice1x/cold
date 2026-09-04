@@ -229,6 +229,8 @@ private:
     LayerFloats layerAmpDecayParam{};
     LayerFloats layerAmpSustainParam{};
     LayerFloats layerAmpReleaseParam{};
+    LayerFloats layerMuteParam{};
+    LayerFloats layerSoloParam{};
     std::vector<dsp::Engine::Layer> layerScratch; // reused in applyParamsToTrack (avoids re-alloc)
 
     double hostBpm = 120.0; // last known host tempo (for LFO sync)

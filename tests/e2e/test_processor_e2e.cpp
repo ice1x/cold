@@ -907,6 +907,75 @@ TEST_CASE("Cold per-layer envelope shapes stacked layers independently",
     proc.releaseResources();
 }
 
+TEST_CASE("Cold per-layer mute and solo gate the stack mix", "[processor][e2e][stack][layermix]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    // Cell 0, layers 0 and 1: same signal, panned L/R, Stack mode.
+    auto wav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToLayer(0, 0, wav));
+    REQUIRE(proc.loadSampleToLayer(0, 1, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto chanPeak = [](const juce::AudioBuffer<float>& b, int ch)
+    {
+        float p = 0.0f;
+        for (int n = 0; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(ch, n)));
+        return p;
+    };
+
+    setParam("t0_layerMode", 1.0f); // Stack
+    setParam("t0_lyr0_pan", -1.0f); // layer 0 -> left
+    setParam("t0_lyr1_pan", 1.0f);  // layer 1 -> right
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    auto play = [&]()
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        return std::pair{chanPeak(buffer, 0), chanPeak(buffer, 1)};
+    };
+
+    SECTION("both layers sound by default")
+    {
+        auto p = play();
+        REQUIRE(p.first > 0.05f);
+        REQUIRE(p.second > 0.05f);
+    }
+
+    SECTION("muting layer 0 silences the left, layer 1 still sounds")
+    {
+        setParam("t0_lyr0_mute", 1.0f);
+        auto p = play();
+        REQUIRE(p.first < 0.01f);  // layer 0 muted
+        REQUIRE(p.second > 0.05f); // layer 1 still sounds
+    }
+
+    SECTION("soloing layer 1 silences every non-soloed layer")
+    {
+        setParam("t0_lyr1_solo", 1.0f);
+        auto p = play();
+        REQUIRE(p.first < 0.01f);  // layer 0 not soloed -> silent
+        REQUIRE(p.second > 0.05f); // layer 1 soloed
+    }
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
@@ -1182,7 +1251,9 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t7_crushRate",
                            "t0_lyr0_ampOn",
                            "t0_lyr1_ampDecay",
-                           "t7_lyr3_ampRelease"})
+                           "t7_lyr3_ampRelease",
+                           "t0_lyr0_mute",
+                           "t0_lyr1_solo"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 
