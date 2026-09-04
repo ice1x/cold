@@ -285,7 +285,7 @@ public:
         // Dragging a marker sets the selected cell's playable window (frames).
         waveformView.onWindowChanged = [this](float startFrac, float endFrac)
         {
-            const int slot = slotForLayer(0); // the cell's primary sample (layer 0)
+            const int slot = slotForLayer(currentLayer); // the layer being edited
             const int total = proc.slotTotalFrames(slot);
             if (total <= 0)
                 return;
@@ -457,16 +457,24 @@ public:
         return currentTrack * ColdAudioProcessor::kNumLayers + layer;
     }
 
-    // Update each layer's Load button to show its loaded sample (or "Load…").
+    // Refresh the layer selector (label + loaded dot + highlight for each of the 4
+    // layers) and the single editor's Load button (the current layer's sample).
     void refreshLayerButtons()
     {
-        for (int l = 0; l < kNumLayers; ++l)
+        for (int l = 0; l < static_cast<int>(layerSelectors.size()); ++l)
         {
-            if (layerCtl[static_cast<size_t>(l)].load == nullptr)
-                continue;
-            const auto name = proc.slotSampleName(slotForLayer(l));
-            layerCtl[static_cast<size_t>(l)].load->setButtonText(name.isEmpty() ? u8("Load…")
-                                                                                : name);
+            const bool hasSample = proc.slotSampleName(slotForLayer(l)).isNotEmpty();
+            const bool sel = (l == currentLayer);
+            auto* b = layerSelectors[static_cast<size_t>(l)];
+            b->setButtonText("L" + juce::String(l + 1) + (hasSample ? u8(" ●") : juce::String()));
+            b->setColour(juce::TextButton::buttonColourId, sel         ? juce::Colour(0xff2b6cb0)
+                                                           : hasSample ? juce::Colour(0xff2d5f57)
+                                                                       : juce::Colour(0xff21252b));
+        }
+        if (layerCtl.load != nullptr)
+        {
+            const auto name = proc.slotSampleName(slotForLayer(currentLayer));
+            layerCtl.load->setButtonText(name.isEmpty() ? u8("Load…") : name);
         }
     }
 
@@ -823,7 +831,7 @@ private:
     // Fetches peaks at the view's current pixel width so bins map ~1:1 to columns.
     void updateWaveform()
     {
-        const int slot = slotForLayer(0); // the cell's primary sample
+        const int slot = slotForLayer(currentLayer); // the layer being edited
         const int total = proc.slotTotalFrames(slot);
         if (total <= 0)
         {
@@ -899,40 +907,76 @@ private:
 
         tToggle(s, "reverse", "Reverse", "Play this cell's sample backwards (reverse one-shot).");
 
-        for (int l = 0; l < kNumLayers; ++l)
+        // Layer selector: pick which of the cell's 4 layers the editor below edits.
+        // (You can't show 4 layers' full envelopes at once, so layers are selected
+        // like cells — one at a time.)
         {
-            auto& row = newSection("Layer " + juce::String(l + 1));
-            auto& c = layerCtl[static_cast<size_t>(l)];
-
-            // Per-layer Load button: loads a sample into THIS layer of the selected
-            // cell. Empty layers are silent; in Stack all loaded layers sound at once.
-            auto btn = std::make_unique<juce::TextButton>();
-            btn->setTooltip("Load a sample into this layer of the selected cell. In "
-                            "Stack mode every loaded layer sounds together on one note.");
-            c.load = btn.get();
-            c.load->onClick = [this, l] { chooseForLayer(l); };
-            pendingControl = std::move(btn);
-            place(row, "Sample");
-
-            c.gain = makeSlider();
-            place(row, "Gain", "Layer level (multiplies note velocity).");
-            c.tune = makeSlider();
-            place(row, "Tune", "Layer pitch offset in semitones (+/-24).");
-            c.pan = makeSlider();
-            place(row, "Pan", "Layer stereo position: -1 hard left .. +1 hard right.");
-            c.flt = makeToggle();
-            place(row, "Filter",
-                  "Give this layer its OWN filter instead of the shared track filter "
-                  "(e.g. low-pass only the boom layer).");
-            c.cutoff = makeSlider();
-            place(row, "Cutoff", "This layer's filter cutoff, in Hz (when Filter is on).");
-            c.ftype = makeSlider();
-            place(row, "F.Type",
-                  "This layer's filter morph type: 0 = LP, 0.33 = BP, 0.66 = HP, 1 = notch.");
+            auto& sel = newSection(u8("Layers — click to edit a layer (loaded shown ●)"));
+            sel.wideCells = true;
+            for (int l = 0; l < kNumLayers; ++l)
+            {
+                auto btn = std::make_unique<juce::TextButton>();
+                btn->setTooltip("Edit layer " + juce::String(l + 1) +
+                                " of the selected cell below. Right-click a cell to load a "
+                                "sample into a specific layer.");
+                auto* ptr = btn.get();
+                ptr->onClick = [this, l] { selectLayer(l); };
+                addAndMakeVisible(*ptr);
+                layerSelectors.push_back(ptr);
+                owned.push_back(std::move(btn));
+                sel.cells.push_back(ptr);
+            }
         }
+
+        // The single layer editor. Its controls re-attach to the selected layer.
+        auto& row = newSection("Layer");
+        auto& c = layerCtl;
+
+        auto btn = std::make_unique<juce::TextButton>();
+        btn->setTooltip("Load a sample into the selected layer of the selected cell.");
+        c.load = btn.get();
+        c.load->onClick = [this] { chooseForLayer(currentLayer); };
+        pendingControl = std::move(btn);
+        place(row, "Sample");
+
+        c.gain = makeSlider();
+        place(row, "Gain", "Layer level (multiplies note velocity).");
+        c.tune = makeSlider();
+        place(row, "Tune", "Layer pitch offset in semitones (+/-24).");
+        c.pan = makeSlider();
+        place(row, "Pan", "Layer stereo position: -1 hard left .. +1 hard right.");
+        c.flt = makeToggle();
+        place(row, "Filter",
+              "Give this layer its OWN filter instead of the shared track filter "
+              "(e.g. low-pass only the boom layer).");
+        c.cutoff = makeSlider();
+        place(row, "Cutoff", "This layer's filter cutoff, in Hz (when Filter is on).");
+        c.ftype = makeSlider();
+        place(row, "F.Type",
+              "This layer's filter morph type: 0 = LP, 0.33 = BP, 0.66 = HP, 1 = notch.");
+
+        // Per-layer amp envelope — the core of layering: give this layer its own
+        // contour (a snappy click layer + a long body layer on one note).
+        c.envOn = makeToggle();
+        place(row, "Env",
+              "Give this layer its OWN amp envelope instead of the cell's shared one — "
+              "the essence of layering (e.g. a fast click layer + a long tail layer).");
+        c.envDelay = makeSlider();
+        place(row, "E.Delay", "This layer's envelope: silence before the attack (seconds).");
+        c.envAttack = makeSlider();
+        place(row, "E.Attack", "This layer's envelope attack (fade-in), in seconds.");
+        c.envHold = makeSlider();
+        place(row, "E.Hold", "This layer's envelope hold at full level, in seconds.");
+        c.envDecay = makeSlider();
+        place(row, "E.Decay", "This layer's envelope decay to the sustain level, in seconds.");
+        c.envSustain = makeSlider();
+        place(row, "E.Sustain", "This layer's envelope sustain level (0..1).");
+        c.envRelease = makeSlider();
+        place(row, "E.Release", "This layer's envelope release after note-off, in seconds.");
     }
 
-    // Rebuild every per-track attachment to point at track `t`.
+    // Rebuild the per-track attachments (layer mode + per-track knobs/toggles) to
+    // point at track `t`, then re-point the single layer editor at the current layer.
     void setTrack(int t)
     {
         const int track = juce::jlimit(0, dsp::MultiEngine::kNumTracks - 1, t);
@@ -952,39 +996,74 @@ private:
             trackAtt.button.push_back(std::make_unique<APVTS::ButtonAttachment>(
                 proc.apvts, trackId(track, tg.base), *tg.ctl));
 
-        for (int l = 0; l < kNumLayers; ++l)
-        {
-            auto& c = layerCtl[static_cast<size_t>(l)];
-            trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
-                proc.apvts, layerId(track, l, "gain"), *c.gain));
-            trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
-                proc.apvts, layerId(track, l, "tune"), *c.tune));
-            trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
-                proc.apvts, layerId(track, l, "pan"), *c.pan));
-            trackAtt.button.push_back(std::make_unique<APVTS::ButtonAttachment>(
-                proc.apvts, layerId(track, l, "filterOn"), *c.flt));
-            trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
-                proc.apvts, layerId(track, l, "cutoff"), *c.cutoff));
-            trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
-                proc.apvts, layerId(track, l, "ftype"), *c.ftype));
-        }
+        selectLayer(currentLayer); // re-point the layer editor at the new cell's layer
+    }
 
-        refreshLayerButtons(); // the Load buttons show the new cell's layer samples
+    // Point the single layer editor at (currentTrack, layer): rebuild its attachments
+    // and refresh the selector highlight + the Load button label.
+    void selectLayer(int layer)
+    {
+        currentLayer = juce::jlimit(0, kNumLayers - 1, layer);
+        const int track = currentTrack;
+        const int l = currentLayer;
+        auto& c = layerCtl;
+
+        layerAtt.slider.clear();
+        layerAtt.combo.clear();
+        layerAtt.button.clear();
+
+        auto attSlider = [&](const char* base, juce::Slider* s)
+        {
+            layerAtt.slider.push_back(
+                std::make_unique<APVTS::SliderAttachment>(proc.apvts, layerId(track, l, base), *s));
+        };
+        auto attButton = [&](const char* base, juce::Button* b)
+        {
+            layerAtt.button.push_back(
+                std::make_unique<APVTS::ButtonAttachment>(proc.apvts, layerId(track, l, base), *b));
+        };
+        attSlider("gain", c.gain);
+        attSlider("tune", c.tune);
+        attSlider("pan", c.pan);
+        attButton("filterOn", c.flt);
+        attSlider("cutoff", c.cutoff);
+        attSlider("ftype", c.ftype);
+        attButton("ampOn", c.envOn);
+        attSlider("ampDelay", c.envDelay);
+        attSlider("ampAttack", c.envAttack);
+        attSlider("ampHold", c.envHold);
+        attSlider("ampDecay", c.envDecay);
+        attSlider("ampSustain", c.envSustain);
+        attSlider("ampRelease", c.envRelease);
+
+        refreshLayerButtons();
+        updateWaveform(); // the waveform follows the layer being edited
     }
 
     // ---- state ---------------------------------------------------------------
 
     static constexpr int kNumLayers = ColdAudioProcessor::kNumLayers;
 
+    // The single per-layer editor: its controls re-attach to the selected layer
+    // (currentLayer) of the selected cell, so one layer's full set — including its
+    // own amp envelope — is on screen at a time (a Layer 1|2|3|4 selector switches).
     struct LayerCtl
     {
-        juce::TextButton* load = nullptr; // per-layer sample Load button
+        juce::TextButton* load = nullptr; // the selected layer's sample Load button
         juce::Slider* gain = nullptr;
         juce::Slider* tune = nullptr;
         juce::Slider* pan = nullptr;
         juce::ToggleButton* flt = nullptr;
         juce::Slider* cutoff = nullptr;
         juce::Slider* ftype = nullptr;
+        // Per-layer amp envelope (Env On + DAHDSR).
+        juce::ToggleButton* envOn = nullptr;
+        juce::Slider* envDelay = nullptr;
+        juce::Slider* envAttack = nullptr;
+        juce::Slider* envHold = nullptr;
+        juce::Slider* envDecay = nullptr;
+        juce::Slider* envSustain = nullptr;
+        juce::Slider* envRelease = nullptr;
     };
 
     struct Attachments
@@ -1001,7 +1080,9 @@ private:
     std::unique_ptr<juce::Component> pendingControl; // set by makeX, consumed by place
 
     juce::ComboBox* layerModeCombo = nullptr;
-    std::array<LayerCtl, static_cast<size_t>(kNumLayers)> layerCtl{};
+    LayerCtl layerCtl{};                           // one editor, re-attached per layer
+    std::vector<juce::TextButton*> layerSelectors; // Layer 1|2|3|4, owned via `owned`
+    int currentLayer = 0;
 
     // Per-track sound knobs whose attachment is rebuilt for the selected track.
     struct PerTrackKnob
@@ -1028,6 +1109,7 @@ private:
 
     Attachments globalAtt;
     Attachments trackAtt;
+    Attachments layerAtt; // the single layer editor's attachments (rebuilt per layer)
 };
 
 // ============================================================================
