@@ -87,6 +87,18 @@ public:
         float cutoffHz = 20000.0f;
         float resonance = 0.707f;
         float type = 0.0f;
+        // Optional per-layer amp envelope — the essence of layering: a snappy click
+        // layer + a long body layer sound on one note, each with its own DAHDSR.
+        // When `ampOverride` is false the layer keeps the track's shared envelope.
+        // Curves and velocity stay shared (set on the Engine). Trailing so earlier
+        // initializers stay valid.
+        bool ampOverride = false;
+        float ampDelay = 0.0f;
+        float ampAttack = 0.0f;
+        float ampHold = 0.0f;
+        float ampDecay = 0.0f;
+        float ampSustain = 1.0f;
+        float ampRelease = 0.0f;
     };
 
     void setLayerMode(LayerMode mode);
