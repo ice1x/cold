@@ -358,6 +358,29 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             layout.add(std::make_unique<AudioParameterFloat>(
                 juce::ParameterID{layerParamId(t, l, "ftype"), 1}, lp + "Filter Type", 0.0f, 1.0f,
                 0.0f));
+            // Optional per-layer amp envelope (the core of layering). Off = the layer
+            // keeps the cell's shared envelope; on = its own DAHDSR. Defaults mirror
+            // the cell envelope so turning it on is a neutral starting point.
+            layout.add(std::make_unique<juce::AudioParameterBool>(
+                juce::ParameterID{layerParamId(t, l, "ampOn"), 1}, lp + "Env On", false));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "ampDelay"), 1}, lp + "Env Delay",
+                timeRange(5.0f), 0.0f));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "ampAttack"), 1}, lp + "Env Attack",
+                timeRange(5.0f), 0.001f));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "ampHold"), 1}, lp + "Env Hold",
+                timeRange(5.0f), 0.0f));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "ampDecay"), 1}, lp + "Env Decay",
+                timeRange(5.0f), 0.0f));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "ampSustain"), 1}, lp + "Env Sustain", 0.0f,
+                1.0f, 1.0f));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "ampRelease"), 1}, lp + "Env Release",
+                timeRange(5.0f), 0.05f));
         }
     }
 
@@ -445,6 +468,16 @@ ColdAudioProcessor::ColdAudioProcessor()
             layerFilterOnParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "filterOn"));
             layerCutoffParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "cutoff"));
             layerTypeParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "ftype"));
+            layerAmpOnParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "ampOn"));
+            layerAmpDelayParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "ampDelay"));
+            layerAmpAttackParam[tt][ll] =
+                apvts.getRawParameterValue(layerParamId(t, l, "ampAttack"));
+            layerAmpHoldParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "ampHold"));
+            layerAmpDecayParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "ampDecay"));
+            layerAmpSustainParam[tt][ll] =
+                apvts.getRawParameterValue(layerParamId(t, l, "ampSustain"));
+            layerAmpReleaseParam[tt][ll] =
+                apvts.getRawParameterValue(layerParamId(t, l, "ampRelease"));
         }
     }
     layerScratch.reserve(static_cast<size_t>(kNumLayers));
@@ -561,11 +594,25 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
             const auto ll = static_cast<size_t>(l);
             if (!bank.isSlotLoaded(slotForLayer(track, l)))
                 continue; // empty layer -> silent
-            const bool filterOn = layerFilterOnParam[tt][ll]->load() > 0.5f;
-            layerScratch.push_back(
-                {l, layerGainParam[tt][ll]->load(), layerTuneParam[tt][ll]->load(), true,
-                 layerPanParam[tt][ll]->load(), filterOn, layerCutoffParam[tt][ll]->load(), 0.707f,
-                 layerTypeParam[tt][ll]->load()});
+            dsp::Engine::Layer layer;
+            layer.sampleIndex = l;
+            layer.gain = layerGainParam[tt][ll]->load();
+            layer.tuneSemitones = layerTuneParam[tt][ll]->load();
+            layer.enabled = true;
+            layer.pan = layerPanParam[tt][ll]->load();
+            layer.filterOverride = layerFilterOnParam[tt][ll]->load() > 0.5f;
+            layer.cutoffHz = layerCutoffParam[tt][ll]->load();
+            layer.resonance = 0.707f;
+            layer.type = layerTypeParam[tt][ll]->load();
+            // Per-layer amp envelope (core of layering): its own DAHDSR when Env On.
+            layer.ampOverride = layerAmpOnParam[tt][ll]->load() > 0.5f;
+            layer.ampDelay = layerAmpDelayParam[tt][ll]->load();
+            layer.ampAttack = layerAmpAttackParam[tt][ll]->load();
+            layer.ampHold = layerAmpHoldParam[tt][ll]->load();
+            layer.ampDecay = layerAmpDecayParam[tt][ll]->load();
+            layer.ampSustain = layerAmpSustainParam[tt][ll]->load();
+            layer.ampRelease = layerAmpReleaseParam[tt][ll]->load();
+            layerScratch.push_back(layer);
         }
         e.setLayers(layerScratch);
     }
