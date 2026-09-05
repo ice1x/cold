@@ -2,6 +2,7 @@
 
 #include "PluginEditor.h"
 
+#include "dsp/Logger.h"
 #include "dsp/SampleVoice.h"
 #include "io/BatteryKit.h"
 
@@ -939,6 +940,7 @@ int ColdAudioProcessor::selectedTrack() const
 
 void ColdAudioProcessor::auditionCell(int track)
 {
+    dsp::Logger::instance().log("auditionCell(track=" + std::to_string(track) + ")");
     if (track < 0 || track >= dsp::MultiEngine::kNumTracks)
         return;
     const juce::ScopedLock sl(engineLock);
