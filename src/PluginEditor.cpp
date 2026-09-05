@@ -22,6 +22,11 @@ juce::String u8(const char* s)
     return juce::String(juce::CharPointer_UTF8(s));
 }
 
+// One distinct colour per layer (1..4), used for the base waveform of the selected
+// layer and the "Show" comparison overlays of the others.
+const std::array<juce::Colour, 4> kLayerColours{juce::Colour(0xff58b0f0), juce::Colour(0xff5fd08a),
+                                                juce::Colour(0xffef8f4f), juce::Colour(0xffc77dff)};
+
 // Battery-style knob: a dark background track arc, a bright value arc, a solid
 // knob body and a clear pointer — far more legible than JUCE's default dot. Only
 // the rotary drawing is overridden; combos/toggles keep the LookAndFeel_V4 look.
@@ -188,6 +193,31 @@ public:
         repaint();
     }
 
+    // Other layers' waveforms + envelopes drawn on top for comparison, each in its
+    // own colour (toggled by the per-layer "Show" checkboxes).
+    struct Overlay
+    {
+        dsp::WaveformPeaks peaks;
+        std::vector<float> env;
+        juce::Colour colour;
+    };
+    void setOverlays(std::vector<Overlay> newOverlays)
+    {
+        overlays = std::move(newOverlays);
+        repaint();
+    }
+
+    // Colour of the base (selected layer) waveform, so it matches that layer's
+    // colour in the overlay set.
+    void setBaseColour(juce::Colour c)
+    {
+        if (baseColour != c)
+        {
+            baseColour = c;
+            repaint();
+        }
+    }
+
     void mouseDown(const juce::MouseEvent& e) override
     {
         if (!hasSample)
@@ -240,7 +270,7 @@ public:
 
         // One vertical line per bin, mapped across the width (bins may differ
         // from pixel columns; nearest-bin sampling keeps it cheap and crisp).
-        g.setColour(juce::Colour(0xff58b0f0));
+        g.setColour(baseColour);
         const int px = static_cast<int>(area.getWidth());
         for (int x = 0; x < px; ++x)
         {
@@ -315,6 +345,45 @@ public:
             g.strokePath(top, juce::PathStrokeType(1.5f));
             g.strokePath(bot, juce::PathStrokeType(1.5f));
         }
+
+        // Comparison overlays: other layers' waveforms (translucent) + envelopes
+        // (solid), each in its own colour, drawn on top of the base.
+        for (const auto& ov : overlays)
+        {
+            const int wn = ov.peaks.numBins();
+            if (wn > 0)
+            {
+                g.setColour(ov.colour.withAlpha(0.45f));
+                for (int x = 0; x < px; ++x)
+                {
+                    const int src = reversed ? (px - 1 - x) : x;
+                    const int bin = (wn <= 1) ? 0 : juce::jlimit(0, wn - 1, src * wn / px);
+                    const float lo = ov.peaks.minValues[static_cast<size_t>(bin)];
+                    const float hi = ov.peaks.maxValues[static_cast<size_t>(bin)];
+                    const float fx = area.getX() + static_cast<float>(x);
+                    g.drawLine(fx, midY - hi * halfH, fx, midY - lo * halfH, 1.0f);
+                }
+            }
+            const int en = static_cast<int>(ov.env.size());
+            if (en > 0)
+            {
+                juce::Path e;
+                for (int x = 0; x < px; ++x)
+                {
+                    const int src = reversed ? (px - 1 - x) : x;
+                    const int idx = (en <= 1) ? 0 : juce::jlimit(0, en - 1, src * en / px);
+                    const float ev = ov.env[static_cast<size_t>(idx)];
+                    const float fx = area.getX() + static_cast<float>(x);
+                    const float y = midY - ev * halfH;
+                    if (x == 0)
+                        e.startNewSubPath(fx, y);
+                    else
+                        e.lineTo(fx, y);
+                }
+                g.setColour(ov.colour);
+                g.strokePath(e, juce::PathStrokeType(1.5f));
+            }
+        }
     }
 
 private:
@@ -330,7 +399,9 @@ private:
     }
 
     dsp::WaveformPeaks peaks;
-    std::vector<float> envelope; // amp-envelope contour overlay (0..1), empty = hidden
+    std::vector<float> envelope;   // amp-envelope contour overlay (0..1), empty = hidden
+    std::vector<Overlay> overlays; // other layers' waveforms + envelopes, colour-coded
+    juce::Colour baseColour{0xff58b0f0};
     float windowStart = 0.0f;
     float windowEnd = 1.0f;
     bool hasSample = false;
@@ -497,9 +568,15 @@ public:
         if (!isShowing())
             return;
         if (currentTab == logsTabIndex())
+        {
             refreshLogs();
+        }
         else
-            refreshEnvOverlay(); // live-update the envelope mask as tune / env knobs move
+        {
+            // Live-update the envelope mask + comparison overlays as knobs move.
+            refreshEnvOverlay();
+            refreshOverlays();
+        }
     }
 
     struct Section
@@ -996,7 +1073,10 @@ private:
     void selectCell(int t)
     {
         dsp::Logger::instance().log("selectCell(" + std::to_string(t) + ")");
-        currentTrack = juce::jlimit(0, dsp::MultiEngine::kNumTracks - 1, t);
+        const int newTrack = juce::jlimit(0, dsp::MultiEngine::kNumTracks - 1, t);
+        if (newTrack != currentTrack)
+            layerShow.fill(false); // overlays are per-cell; clear when the cell changes
+        currentTrack = newTrack;
         if (auto* p = proc.apvts.getParameter("track"))
             p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(currentTrack)));
         setTrack(currentTrack);
@@ -1028,23 +1108,22 @@ private:
         const float endFrac =
             static_cast<float>(proc.slotWindowStart(slot) + proc.slotWindowLength(slot)) /
             static_cast<float>(total);
+        waveformView.setBaseColour(kLayerColours[static_cast<size_t>(currentLayer)]);
         waveformView.setContent(proc.slotWaveform(slot, bins), startFrac, endFrac);
         refreshEnvOverlay();
+        refreshOverlays();
     }
 
-    // Overlay the selected layer's amp envelope on the waveform, its time axis scaled
-    // by the layer's tune (higher tune plays faster, so the fixed-time envelope covers
-    // a different span of the sample). Recomputed live from the current params.
-    void refreshEnvOverlay()
+    // The amp-envelope contour for layer `l` of the current cell, its time axis scaled
+    // by that layer's tune (higher tune plays faster, so the fixed-time envelope covers
+    // a different span of the sample). Empty if the layer is unloaded.
+    [[nodiscard]] std::vector<float> layerEnvCurve(int l, int cols) const
     {
-        const int slot = slotForLayer(currentLayer);
+        const int slot = slotForLayer(l);
         const int windowFrames = proc.slotWindowLength(slot);
         const double sr = proc.slotSampleRate(slot);
-        if (windowFrames <= 0 || sr <= 0.0)
-        {
-            waveformView.setEnvelope({});
-            return;
-        }
+        if (windowFrames <= 0 || sr <= 0.0 || cols <= 0)
+            return {};
 
         auto val = [this](const juce::String& id) -> float
         {
@@ -1052,7 +1131,6 @@ private:
             return p != nullptr ? p->load() : 0.0f;
         };
         const int t = currentTrack;
-        const int l = currentLayer;
 
         // Layer's own envelope when Env On, else the cell's shared amp envelope.
         // Curves/velocity are shared (per cell) either way.
@@ -1081,8 +1159,33 @@ private:
 
         const double ratio = std::pow(2.0, static_cast<double>(val(layerId(t, l, "tune"))) / 12.0);
         const double totalSeconds = static_cast<double>(windowFrames) / (sr * ratio);
+        return dsp::sampleEnvelopeShape(shape, totalSeconds, cols);
+    }
+
+    // The selected layer's envelope mask on the waveform.
+    void refreshEnvOverlay()
+    {
         const int cols = juce::jmax(1, waveformView.getWidth());
-        waveformView.setEnvelope(dsp::sampleEnvelopeShape(shape, totalSeconds, cols));
+        waveformView.setEnvelope(layerEnvCurve(currentLayer, cols));
+    }
+
+    // Comparison overlays: every OTHER layer with "Show" on is drawn (waveform +
+    // envelope) in its own colour on top of the selected layer.
+    void refreshOverlays()
+    {
+        const int bins = juce::jmax(1, waveformView.getWidth());
+        std::vector<WaveformDisplay::Overlay> ov;
+        for (int l = 0; l < kNumLayers; ++l)
+        {
+            if (l == currentLayer || !layerShow[static_cast<size_t>(l)])
+                continue;
+            const int slot = slotForLayer(l);
+            if (proc.slotTotalFrames(slot) <= 0)
+                continue; // unloaded layer -> nothing to overlay
+            ov.push_back({proc.slotWaveform(slot, bins), layerEnvCurve(l, bins),
+                          kLayerColours[static_cast<size_t>(l)]});
+        }
+        waveformView.setOverlays(std::move(ov));
     }
 
     void refreshCellPads()
@@ -1187,6 +1290,19 @@ private:
         place(row, "Reverse",
               "Play THIS layer backwards (per layer — a stack can mix forward and "
               "reversed layers).");
+        {
+            auto tg = std::make_unique<juce::ToggleButton>();
+            c.show = tg.get();
+            c.show->onClick = [this]
+            {
+                layerShow[static_cast<size_t>(currentLayer)] = layerCtl.show->getToggleState();
+                refreshOverlays();
+            };
+            pendingControl = std::move(tg);
+            place(row, "Show",
+                  "Overlay THIS layer's waveform + envelope on the display (colour-coded "
+                  "per layer) so you can line up and compare the cell's layers.");
+        }
 
         c.gain = makeSlider();
         place(row, "Gain", "Layer level (multiplies note velocity).");
@@ -1272,6 +1388,11 @@ private:
         const int l = currentLayer;
         auto& c = layerCtl;
 
+        // The Show toggle is editor-local (per current cell), not an APVTS param.
+        if (c.show != nullptr)
+            c.show->setToggleState(layerShow[static_cast<size_t>(currentLayer)],
+                                   juce::dontSendNotification);
+
         layerAtt.slider.clear();
         layerAtt.combo.clear();
         layerAtt.button.clear();
@@ -1340,6 +1461,7 @@ private:
         juce::ToggleButton* mute = nullptr;
         juce::ToggleButton* solo = nullptr;
         juce::ToggleButton* reverse = nullptr;
+        juce::ToggleButton* show = nullptr; // overlay this layer's wave + env for compare
         juce::ToggleButton* hpOn = nullptr;
         juce::Slider* hpCut = nullptr;
         juce::ToggleButton* lpOn = nullptr;
@@ -1363,6 +1485,7 @@ private:
     LayerCtl layerCtl{};                           // one editor, re-attached per layer
     std::vector<juce::TextButton*> layerSelectors; // Layer 1|2|3|4, owned via `owned`
     int currentLayer = 0;
+    std::array<bool, static_cast<size_t>(kNumLayers)> layerShow{}; // overlay flags (current cell)
 
     // Per-track sound knobs whose attachment is rebuilt for the selected track.
     struct PerTrackKnob
