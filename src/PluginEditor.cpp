@@ -1,6 +1,9 @@
 #include "PluginEditor.h"
 
+#include "dsp/Logger.h"
+
 #include <array>
+#include <cstdint>
 #include <iterator>
 #include <vector>
 
@@ -296,11 +299,13 @@ juce::String layerId(int track, int layer, const juce::String& base)
 
 // ============================================================================
 
-class ColdAudioProcessorEditor::Content : public juce::Component
+class ColdAudioProcessorEditor::Content : public juce::Component, private juce::Timer
 {
 public:
     explicit Content(ColdAudioProcessor& p) : proc(p)
     {
+        dsp::Logger::instance().log("editor opened");
+        buildLogView();
         buildCellGrid();
         addAndMakeVisible(waveformView); // under the cell pads (positioned in resized)
         // Dragging a marker sets the selected cell's playable window (frames).
@@ -325,13 +330,22 @@ public:
         assignTabs(); // route each section to a tab
 
         selectCell(proc.selectedTrack()); // initial attachments + pad highlight
+        startTimerHz(5);                  // poll the log ring for the Logs tab
+    }
+
+    ~Content() override
+    {
+        stopTimer(); // before members are destroyed, so no late callback touches them
+        dsp::Logger::instance().log("editor closed");
     }
 
     // ---- tabs ----------------------------------------------------------------
 
     // The editing sections are grouped under tabs (the cell grid + waveform stay
-    // pinned above). Keeps the panel short instead of one long scroll.
-    static constexpr const char* kTabNames[] = {"Main", "FX", "Mod"};
+    // pinned above). Keeps the panel short instead of one long scroll. "Logs" is a
+    // special tab: a live view of the debug log ring (no sections).
+    static constexpr const char* kTabNames[] = {"Main", "FX", "Mod", "Logs"};
+    [[nodiscard]] int logsTabIndex() const { return static_cast<int>(std::size(kTabNames)) - 1; }
 
     void buildTabs()
     {
@@ -379,6 +393,56 @@ public:
             tabButtons[static_cast<size_t>(i)]->setColour(
                 juce::TextButton::buttonColourId,
                 i == currentTab ? juce::Colour(0xff2b6cb0) : juce::Colour(0xff21252b));
+        // Refresh the log view immediately when switching onto the Logs tab.
+        if (currentTab == logsTabIndex())
+            refreshLogs(true);
+    }
+
+    // ---- logs tab ------------------------------------------------------------
+
+    void buildLogView()
+    {
+        logView.setMultiLine(true);
+        logView.setReadOnly(true);
+        logView.setScrollbarsShown(true);
+        logView.setCaretVisible(false);
+        logView.setFont(
+            juce::Font(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
+        logView.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff15181d));
+        logView.setColour(juce::TextEditor::textColourId, juce::Colour(0xffc7d0dc));
+        logView.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xff2a2f37));
+        addChildComponent(logView); // shown only on the Logs tab
+
+        logClearButton.setButtonText("Clear");
+        logClearButton.onClick = [this]
+        {
+            dsp::Logger::instance().clear();
+            refreshLogs(true);
+        };
+        addChildComponent(logClearButton);
+    }
+
+    // Rebuild the log text when new lines arrived (or forced). Keeps the view pinned
+    // to the newest line.
+    void refreshLogs(bool force = false)
+    {
+        const auto seq = dsp::Logger::instance().sequence();
+        if (!force && seq == lastLogSeq)
+            return;
+        lastLogSeq = seq;
+
+        juce::StringArray lines;
+        for (const auto& l : dsp::Logger::instance().snapshot())
+            lines.add(juce::String(l));
+        logView.setText(lines.joinIntoString("\n"), false);
+        logView.moveCaretToEnd();
+        logView.setCaretVisible(false);
+    }
+
+    void timerCallback() override
+    {
+        if (currentTab == logsTabIndex() && isShowing())
+            refreshLogs();
     }
 
     struct Section
@@ -444,19 +508,43 @@ public:
             tabButtons[static_cast<size_t>(i)]->setBounds(pad + i * (tabW + gap), y, tabW, tabH);
         y += tabH + gap;
 
-        // Only the active tab's sections are visible / laid out.
-        for (size_t si = 1; si < sections.size(); ++si)
+        const bool onLogs = (currentTab == logsTabIndex());
+
+        // The Logs tab: a live console filling the area below the tab bar (no sections).
+        logView.setVisible(onLogs);
+        logClearButton.setVisible(onLogs);
+        if (onLogs)
         {
-            auto& s = sections[si];
-            const bool vis = (s.tab == currentTab);
-            s.header->setVisible(vis);
-            for (auto* c : s.cells)
-                c->setVisible(vis);
-            if (vis)
-                y = layoutSection(s, width, y);
+            for (size_t si = 1; si < sections.size(); ++si) // hide every section
+            {
+                sections[si].header->setVisible(false);
+                for (auto* c : sections[si].cells)
+                    c->setVisible(false);
+            }
+            constexpr int btnH = 24;
+            logClearButton.setBounds(width - pad - 80, y, 80, btnH);
+            y += btnH + gap;
+            constexpr int logH = 440; // scrolls within the outer viewport
+            logView.setBounds(pad, y, width - 2 * pad, logH);
+            y += logH + pad;
+            refreshLogs(true);
+        }
+        else
+        {
+            // Only the active tab's sections are visible / laid out.
+            for (size_t si = 1; si < sections.size(); ++si)
+            {
+                auto& s = sections[si];
+                const bool vis = (s.tab == currentTab);
+                s.header->setVisible(vis);
+                for (auto* c : s.cells)
+                    c->setVisible(vis);
+                if (vis)
+                    y = layoutSection(s, width, y);
+            }
+            y += pad;
         }
 
-        y += pad;
         if (y != getHeight())
             setSize(width, y); // grow so the Viewport can scroll to everything
 
@@ -777,7 +865,11 @@ private:
                 const auto file = fc.getResult();
                 if (file == juce::File{})
                     return;
-                proc.loadSampleToLayer(track, layer, file);
+                const bool ok = proc.loadSampleToLayer(track, layer, file);
+                dsp::Logger::instance().log(std::string(ok ? "loaded '" : "FAILED to load '") +
+                                            file.getFileName().toStdString() + "' -> cell " +
+                                            std::to_string(track) + " layer " +
+                                            std::to_string(layer));
                 // Loading a 2nd+ layer while the cell is in Single (only
                 // layer 1 sounds) almost always means the user wants the
                 // layers to play together — switch to Stack so they do.
@@ -846,6 +938,7 @@ private:
     // attachments, refresh the pad labels/highlight and the top-bar sample name.
     void selectCell(int t)
     {
+        dsp::Logger::instance().log("selectCell(" + std::to_string(t) + ")");
         currentTrack = juce::jlimit(0, dsp::MultiEngine::kNumTracks - 1, t);
         if (auto* p = proc.apvts.getParameter("track"))
             p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(currentTrack)));
@@ -1154,9 +1247,13 @@ private:
     std::vector<PerTrackToggle> perTrackToggles;
 
     std::vector<juce::TextButton*> cellPads;   // one per track, owned via `owned`
-    std::vector<juce::TextButton*> tabButtons; // Main/FX/Mod, owned via `owned`
+    std::vector<juce::TextButton*> tabButtons; // Main/FX/Mod/Logs, owned via `owned`
     int currentTab = 0;
     WaveformDisplay waveformView; // selected cell's sample + window
+
+    juce::TextEditor logView; // the Logs tab's live console
+    juce::TextButton logClearButton;
+    std::uint64_t lastLogSeq = 0;
     int currentTrack = 0;
     std::unique_ptr<juce::FileChooser> chooser; // per-slot load dialog
 
