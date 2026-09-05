@@ -348,6 +348,7 @@ void Engine::triggerLayer(const Layer& layer, int midiNote, float velocity, int 
         voice.setAmpEnvelope(layer.ampAttack, layer.ampDecay, layer.ampSustain, layer.ampRelease);
         voice.setAmpEnvelopeDAH(layer.ampDelay, layer.ampHold);
     }
+    voice.setReversed(layer.reversed); // per-layer reverse (overrides the shared flag)
     voice.startNote(midiNote, std::clamp(velocity * layer.gain, 0.0f, 1.0f), rootNote);
     currentIndex = layer.sampleIndex; // last sounding layer, for queries
 }

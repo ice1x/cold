@@ -168,9 +168,6 @@ private:
     // other off on trig.
     std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> chokeGroupParam{};
 
-    // Per-cell reverse playback (plays the sample backwards).
-    std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> reverseParam{};
-
     // Per-track amp envelope (each track/cell is an independent sound).
     using TrackFloats = std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks>;
     TrackFloats attackParam{};
@@ -231,6 +228,7 @@ private:
     LayerFloats layerAmpReleaseParam{};
     LayerFloats layerMuteParam{};
     LayerFloats layerSoloParam{};
+    LayerFloats layerReverseParam{};
     std::vector<dsp::Engine::Layer> layerScratch; // reused in applyParamsToTrack (avoids re-alloc)
 
     double hostBpm = 120.0; // last known host tempo (for LFO sync)
