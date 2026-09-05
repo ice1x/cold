@@ -102,6 +102,13 @@ public:
         // Per-layer reverse playback (this layer plays backwards). Trailing so
         // earlier initializers stay valid.
         bool reversed = false;
+        // Per-layer band filters (independent of the morph filter above): low-cut
+        // (high-pass, removes lows) and high-cut (low-pass, removes highs) — so a
+        // layer can be band-limited for layering. Trailing, off by default.
+        bool lowCutOn = false;
+        float lowCutHz = 20.0f;
+        bool highCutOn = false;
+        float highCutHz = 20000.0f;
     };
 
     void setLayerMode(LayerMode mode);

@@ -91,6 +91,14 @@ public:
     void setFilterEnabled(bool enabled);
     [[nodiscard]] bool filterEnabled() const noexcept { return useFilter; }
 
+    // Dedicated band filters, independent of the morph filter above: a low-cut
+    // (high-pass at `cutoffHz`, removes lows) and a high-cut (low-pass, removes
+    // highs). Both off by default. Used to band-limit a layer — e.g. high-pass the
+    // top layer so only the sub layer carries the bottom. Applied after the morph
+    // filter (low-cut then high-cut).
+    void setLowCut(bool enabled, float cutoffHz);
+    void setHighCut(bool enabled, float cutoffHz);
+
     // Block-rate filter modulation as a RELATIVE delta around this voice's own base
     // filter: cutoff in octaves, type as a linear offset. Unlike setFilter it does
     // not touch the base, so stacked layers keep independent base filters under a
@@ -198,6 +206,12 @@ private:
     // One filter per output channel (independent state); index 0/1 for L/R.
     std::array<MorphFilter, 2> filters;
     bool useFilter = false;
+    // Dedicated band filters (low-cut = high-pass, high-cut = low-pass), read from
+    // their pure HP / LP SVF outputs so they are independent of the morph filter.
+    std::array<MorphFilter, 2> lowCutFilters;
+    std::array<MorphFilter, 2> highCutFilters;
+    bool useLowCut = false;
+    bool useHighCut = false;
 
     // Base filter targets captured from setFilter, modulated per sample by modEnv.
     float baseCutoff = 1000.0f;
