@@ -1036,6 +1036,12 @@ int ColdAudioProcessor::slotWindowLength(int slot) const
     return bank.slot(slot).effectiveLength();
 }
 
+double ColdAudioProcessor::slotSampleRate(int slot) const
+{
+    const auto& s = bank.slot(slot);
+    return s.isLoaded() ? s.data.sampleRate : 0.0;
+}
+
 void ColdAudioProcessor::setSlotStartFrames(int slot, int startFrames)
 {
     const juce::ScopedLock sl(engineLock);

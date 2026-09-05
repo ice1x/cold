@@ -1,9 +1,35 @@
 #include "dsp/Waveform.h"
 
+#include "dsp/Envelope.h"
+
 #include <algorithm>
 
 namespace cold::dsp
 {
+
+std::vector<float> sampleEnvelopeShape(const EnvelopeShape& shape, double totalSeconds,
+                                       int numColumns)
+{
+    std::vector<float> out;
+    if (totalSeconds <= 0.0 || numColumns <= 0)
+        return out;
+
+    // Run the real envelope so the drawing matches what is heard. Sampling rate is
+    // one step per column across the whole span, so column i is at time
+    // i * totalSeconds / numColumns.
+    Envelope env;
+    env.setSampleRate(static_cast<double>(numColumns) / totalSeconds);
+    env.setParameters(shape.delay, shape.attack, shape.hold, shape.decay, shape.sustain,
+                      shape.release);
+    env.setCurves(shape.attackCurve, shape.decayCurve, shape.releaseCurve);
+    env.setVelocitySensitivity(0.0f); // full-scale contour, independent of velocity
+    env.noteOn(1.0f);                 // held (no note-off): a one-shot plays to the end
+
+    out.resize(static_cast<size_t>(numColumns));
+    for (int i = 0; i < numColumns; ++i)
+        out[static_cast<size_t>(i)] = std::clamp(env.getNextSample(), 0.0f, 1.0f);
+    return out;
+}
 
 WaveformPeaks computeWaveformPeaks(const float* const* channels, int numChannels, int startFrame,
                                    int numFrames, int numBins)
