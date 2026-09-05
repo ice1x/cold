@@ -976,6 +976,76 @@ TEST_CASE("Cold per-layer mute and solo gate the stack mix", "[processor][e2e][s
     proc.releaseResources();
 }
 
+TEST_CASE("Cold solo / mute take effect even in Single mode", "[processor][e2e][layermix]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    // Cell 0 in the DEFAULT Single mode, with two layers loaded, panned L/R. Single
+    // normally plays only layer 1, but an active solo/mute must still isolate a layer.
+    auto wav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToLayer(0, 0, wav));
+    REQUIRE(proc.loadSampleToLayer(0, 1, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto chanPeak = [](const juce::AudioBuffer<float>& b, int ch)
+    {
+        float p = 0.0f;
+        for (int n = 0; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(ch, n)));
+        return p;
+    };
+
+    setParam("t0_lyr0_pan", -1.0f); // layer 0 -> left
+    setParam("t0_lyr1_pan", 1.0f);  // layer 1 -> right
+    // Layer Mode left at Single (index 0) on purpose.
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    auto play = [&]()
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        return std::pair{chanPeak(buffer, 0), chanPeak(buffer, 1)};
+    };
+
+    SECTION("plain Single plays one centered layer (per-layer pan not applied)")
+    {
+        auto p = play();
+        REQUIRE(p.first > 0.05f);  // Single plays layer 0 centered, so both
+        REQUIRE(p.second > 0.05f); // channels carry it (pan is a stack feature)
+    }
+
+    SECTION("soloing layer 1 isolates it even though the cell is Single")
+    {
+        setParam("t0_lyr1_solo", 1.0f);
+        auto p = play();
+        REQUIRE(p.first < 0.01f);  // layer 0 not soloed -> silent
+        REQUIRE(p.second > 0.05f); // layer 1 (right) now sounds
+    }
+
+    SECTION("muting layer 0 in Single lets layer 1 through")
+    {
+        setParam("t0_lyr0_mute", 1.0f);
+        auto p = play();
+        REQUIRE(p.first < 0.01f);  // layer 0 muted
+        REQUIRE(p.second > 0.05f); // layer 1 sounds instead
+    }
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
