@@ -746,9 +746,9 @@ TEST_CASE("Cold reverse plays a cell's sample backwards", "[processor][e2e][reve
         return headPeak(buffer);
     };
 
-    const float forwardHead = play(); // fade-in: quiet at the start
-    setParam("t0_reverse", 1.0f);
-    const float reverseHead = play(); // reversed: loud at the start
+    const float forwardHead = play();  // fade-in: quiet at the start
+    setParam("t0_lyr0_reverse", 1.0f); // per-layer reverse; Single plays layer 1's flag
+    const float reverseHead = play();  // reversed: loud at the start
 
     REQUIRE(forwardHead < 0.2f);
     REQUIRE(reverseHead > 0.5f);
@@ -1221,7 +1221,7 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t7_mapNote",
                            "t0_chokeGroup",
                            "t7_chokeGroup",
-                           "t0_reverse",
+                           "t0_lyr0_reverse",
                            "t0_lyr0_filterOn",
                            "t0_lyr0_cutoff",
                            "t2_lyr1_ftype",
