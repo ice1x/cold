@@ -180,6 +180,14 @@ public:
         }
     }
 
+    // The amp-envelope contour to overlay (0..1 across the window; already scaled for
+    // tune by the editor). Empty hides it.
+    void setEnvelope(std::vector<float> curve)
+    {
+        envelope = std::move(curve);
+        repaint();
+    }
+
     void mouseDown(const juce::MouseEvent& e) override
     {
         if (!hasSample)
@@ -263,6 +271,50 @@ public:
         g.setColour(juce::Colour(0xffe0a53a));
         g.drawVerticalLine(static_cast<int>(left), area.getY(), area.getBottom());
         g.drawVerticalLine(static_cast<int>(right), area.getY(), area.getBottom());
+
+        // Amp-envelope contour: two mirrored lines at mid +/- env*halfH, with the
+        // attenuated region (outside the contour) dimmed — a live "mask" of the amp
+        // shape. The env columns share the reverse mirroring so it lines up.
+        if (!envelope.empty())
+        {
+            const int en = static_cast<int>(envelope.size());
+            juce::Path top, bot, fillTop, fillBot;
+            for (int x = 0; x < px; ++x)
+            {
+                const int src = reversed ? (px - 1 - x) : x;
+                const int idx = (en <= 1) ? 0 : juce::jlimit(0, en - 1, src * en / px);
+                const float e = envelope[static_cast<size_t>(idx)];
+                const float fx = area.getX() + static_cast<float>(x);
+                const float yTop = midY - e * halfH;
+                const float yBot = midY + e * halfH;
+                if (x == 0)
+                {
+                    top.startNewSubPath(fx, yTop);
+                    bot.startNewSubPath(fx, yBot);
+                }
+                else
+                {
+                    top.lineTo(fx, yTop);
+                    bot.lineTo(fx, yBot);
+                }
+            }
+            // Dim above the top contour and below the bottom contour (the muted part).
+            g.setColour(juce::Colour(0x66000000));
+            juce::Path shade = top;
+            shade.lineTo(area.getRight(), area.getY());
+            shade.lineTo(area.getX(), area.getY());
+            shade.closeSubPath();
+            g.fillPath(shade);
+            juce::Path shadeB = bot;
+            shadeB.lineTo(area.getRight(), area.getBottom());
+            shadeB.lineTo(area.getX(), area.getBottom());
+            shadeB.closeSubPath();
+            g.fillPath(shadeB);
+            // The contour itself.
+            g.setColour(juce::Colour(0xffffc861));
+            g.strokePath(top, juce::PathStrokeType(1.5f));
+            g.strokePath(bot, juce::PathStrokeType(1.5f));
+        }
     }
 
 private:
@@ -278,6 +330,7 @@ private:
     }
 
     dsp::WaveformPeaks peaks;
+    std::vector<float> envelope; // amp-envelope contour overlay (0..1), empty = hidden
     float windowStart = 0.0f;
     float windowEnd = 1.0f;
     bool hasSample = false;
@@ -441,8 +494,12 @@ public:
 
     void timerCallback() override
     {
-        if (currentTab == logsTabIndex() && isShowing())
+        if (!isShowing())
+            return;
+        if (currentTab == logsTabIndex())
             refreshLogs();
+        else
+            refreshEnvOverlay(); // live-update the envelope mask as tune / env knobs move
     }
 
     struct Section
@@ -972,6 +1029,60 @@ private:
             static_cast<float>(proc.slotWindowStart(slot) + proc.slotWindowLength(slot)) /
             static_cast<float>(total);
         waveformView.setContent(proc.slotWaveform(slot, bins), startFrac, endFrac);
+        refreshEnvOverlay();
+    }
+
+    // Overlay the selected layer's amp envelope on the waveform, its time axis scaled
+    // by the layer's tune (higher tune plays faster, so the fixed-time envelope covers
+    // a different span of the sample). Recomputed live from the current params.
+    void refreshEnvOverlay()
+    {
+        const int slot = slotForLayer(currentLayer);
+        const int windowFrames = proc.slotWindowLength(slot);
+        const double sr = proc.slotSampleRate(slot);
+        if (windowFrames <= 0 || sr <= 0.0)
+        {
+            waveformView.setEnvelope({});
+            return;
+        }
+
+        auto val = [this](const juce::String& id) -> float
+        {
+            auto* p = proc.apvts.getRawParameterValue(id);
+            return p != nullptr ? p->load() : 0.0f;
+        };
+        const int t = currentTrack;
+        const int l = currentLayer;
+
+        // Layer's own envelope when Env On, else the cell's shared amp envelope.
+        // Curves/velocity are shared (per cell) either way.
+        dsp::EnvelopeShape shape;
+        if (val(layerId(t, l, "ampOn")) > 0.5f)
+        {
+            shape.delay = val(layerId(t, l, "ampDelay"));
+            shape.attack = val(layerId(t, l, "ampAttack"));
+            shape.hold = val(layerId(t, l, "ampHold"));
+            shape.decay = val(layerId(t, l, "ampDecay"));
+            shape.sustain = val(layerId(t, l, "ampSustain"));
+            shape.release = val(layerId(t, l, "ampRelease"));
+        }
+        else
+        {
+            shape.delay = val(trackId(t, "ampDelay"));
+            shape.attack = val(trackId(t, "ampAttack"));
+            shape.hold = val(trackId(t, "ampHold"));
+            shape.decay = val(trackId(t, "ampDecay"));
+            shape.sustain = val(trackId(t, "ampSustain"));
+            shape.release = val(trackId(t, "ampRelease"));
+        }
+        shape.attackCurve = val(trackId(t, "ampAttackCurve"));
+        shape.decayCurve = val(trackId(t, "ampDecayCurve"));
+        shape.releaseCurve = val(trackId(t, "ampReleaseCurve"));
+
+        const double ratio = std::pow(2.0, static_cast<double>(val(layerId(t, l, "tune"))) / 12.0);
+        const double totalSeconds = static_cast<double>(windowFrames) / (sr * ratio);
+        const int cols = juce::jmax(1, waveformView.getWidth());
+        waveformView.setEnvelope(dsp::sampleEnvelopeShape(shape, totalSeconds, cols));
     }
 
     void refreshCellPads()
