@@ -597,9 +597,25 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     const auto layerMode =
         static_cast<dsp::Engine::LayerMode>(static_cast<int>(layerModeParam[tt]->load()));
     e.setLayerMode(layerMode);
-    if (layerMode == dsp::Engine::LayerMode::Stack ||
-        layerMode == dsp::Engine::LayerMode::RoundRobin ||
-        layerMode == dsp::Engine::LayerMode::Velocity)
+
+    const bool layeringMode = layerMode == dsp::Engine::LayerMode::Stack ||
+                              layerMode == dsp::Engine::LayerMode::RoundRobin ||
+                              layerMode == dsp::Engine::LayerMode::Velocity;
+
+    // Solo / mute are stack-mixing controls. In Single the engine plays one layer via
+    // a separate path that ignores them, so an active solo/mute would silently do
+    // nothing. Promote Single to a filtered stack whenever a loaded layer is muted or
+    // soloed, so solo/mute always take effect.
+    bool anyMix = false;
+    for (int l = 0; l < kNumLayers; ++l)
+    {
+        const auto ll = static_cast<size_t>(l);
+        if (bank.isSlotLoaded(slotForLayer(track, l)) &&
+            (layerMuteParam[tt][ll]->load() > 0.5f || layerSoloParam[tt][ll]->load() > 0.5f))
+            anyMix = true;
+    }
+
+    if (layeringMode || anyMix)
     {
         // Solo takes priority: if any layer in the cell is soloed, only soloed layers
         // sound. Otherwise every non-muted loaded layer sounds.
@@ -638,6 +654,15 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
             layer.ampRelease = layerAmpReleaseParam[tt][ll]->load();
             layer.reversed = layerReverseParam[tt][ll]->load() > 0.5f;
             layerScratch.push_back(layer);
+        }
+        if (!layeringMode)
+        {
+            // Single stays "one layer per note": solo/mute only choose WHICH layer,
+            // so keep just the first that passed the filter (played via the stack
+            // path as a one-element stack). Empty -> silent.
+            if (layerScratch.size() > 1)
+                layerScratch.resize(1);
+            e.setLayerMode(dsp::Engine::LayerMode::Stack);
         }
         e.setLayers(layerScratch);
     }
