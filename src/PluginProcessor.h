@@ -99,6 +99,9 @@ public:
     [[nodiscard]] int slotTotalFrames(int slot) const;
     [[nodiscard]] int slotWindowStart(int slot) const;
     [[nodiscard]] int slotWindowLength(int slot) const;
+    // Native sample rate of the loaded slot (0 if unloaded). Lets the editor map the
+    // amp envelope's time onto the waveform, scaled by the layer's tune.
+    [[nodiscard]] double slotSampleRate(int slot) const;
 
     // Set a slot's playable window (И5e): first frame / length in frames (0 length
     // = to the end). Clamped to the sample; rebuilds the tracks' sample views under

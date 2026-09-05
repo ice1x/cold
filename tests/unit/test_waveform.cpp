@@ -10,6 +10,8 @@
 
 using Catch::Matchers::WithinAbs;
 using cold::dsp::computeWaveformPeaks;
+using cold::dsp::EnvelopeShape;
+using cold::dsp::sampleEnvelopeShape;
 
 TEST_CASE("computeWaveformPeaks bins a ramp into ascending min/max", "[waveform]")
 {
@@ -107,4 +109,38 @@ TEST_CASE("computeWaveformPeaks returns empty on degenerate input", "[waveform]"
     REQUIRE(computeWaveformPeaks(ch, 1, 0, 10, 0).empty());      // no bins
     REQUIRE(computeWaveformPeaks(ch, 1, 0, 0, 8).empty());       // no frames
     REQUIRE(computeWaveformPeaks(nullptr, 0, 0, 10, 8).empty()); // no channels
+}
+
+TEST_CASE("sampleEnvelopeShape traces a held DAHDSR contour", "[waveform][envelope]")
+{
+    EnvelopeShape s;
+    s.attack = 0.1f;  // rise over the first 0.1s
+    s.decay = 0.0f;   // no decay
+    s.sustain = 1.0f; // hold at full
+    s.release = 0.0f;
+
+    SECTION("attack fills the whole span: rises 0 -> 1, monotonic")
+    {
+        auto c = sampleEnvelopeShape(s, 0.1, 64);
+        REQUIRE(c.size() == 64);
+        REQUIRE(c.front() < 0.25f);
+        REQUIRE(c.back() > 0.9f);
+        for (size_t i = 1; i < c.size(); ++i)
+            REQUIRE(c[i] >= c[i - 1] - 1e-4f); // non-decreasing through the attack
+    }
+
+    SECTION("longer span: attack finishes early, then holds at sustain")
+    {
+        auto c = sampleEnvelopeShape(s, 0.2, 64); // attack (0.1s) = first half
+        REQUIRE(c.size() == 64);
+        REQUIRE(c[16] < 0.9f);    // ~0.05s in: still climbing the attack
+        REQUIRE(c[40] > 0.9f);    // ~0.125s: attack done, holding at sustain
+        REQUIRE(c.back() > 0.9f); // second half holds at sustain 1.0
+    }
+
+    SECTION("degenerate input is empty")
+    {
+        REQUIRE(sampleEnvelopeShape(s, 0.0, 64).empty());
+        REQUIRE(sampleEnvelopeShape(s, 0.1, 0).empty());
+    }
 }

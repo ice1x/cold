@@ -36,4 +36,27 @@ struct WaveformPeaks
 [[nodiscard]] WaveformPeaks computeWaveformPeaks(const float* const* channels, int numChannels,
                                                  int startFrame, int numFrames, int numBins);
 
+// One DAHDSR amp-envelope shape, for drawing it over the waveform.
+struct EnvelopeShape
+{
+    float delay = 0.0f;
+    float attack = 0.0f;
+    float hold = 0.0f;
+    float decay = 0.0f;
+    float sustain = 1.0f;
+    float release = 0.0f;
+    float attackCurve = 0.0f;
+    float decayCurve = 0.0f;
+    float releaseCurve = 0.0f;
+};
+
+// Sample the envelope's amplitude [0, 1] at `numColumns` points evenly spanning
+// `totalSeconds` of output time, with the note held down (no release — a one-shot
+// plays until it runs out). Used to overlay the amp contour on the waveform: the
+// caller derives `totalSeconds` from the played window length and the layer's tune,
+// so raising the tune (faster playback) reshapes the drawn envelope. Empty on
+// degenerate input (totalSeconds <= 0 or numColumns <= 0).
+[[nodiscard]] std::vector<float> sampleEnvelopeShape(const EnvelopeShape& shape,
+                                                     double totalSeconds, int numColumns);
+
 } // namespace cold::dsp
