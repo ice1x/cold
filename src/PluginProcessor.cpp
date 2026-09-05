@@ -391,6 +391,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             // forward + reversed layers). Single mode uses layer 1's flag.
             layout.add(std::make_unique<juce::AudioParameterBool>(
                 juce::ParameterID{layerParamId(t, l, "reverse"), 1}, lp + "Reverse", false));
+            // Per-layer band filters (independent of the morph filter): a low-cut
+            // (high-pass) and a high-cut (low-pass) to band-limit the layer.
+            juce::NormalisableRange<float> hpRange(20.0f, 2000.0f, 1.0f);
+            hpRange.setSkewForCentre(200.0f);
+            juce::NormalisableRange<float> lpRange(200.0f, 20000.0f, 1.0f);
+            lpRange.setSkewForCentre(2000.0f);
+            layout.add(std::make_unique<juce::AudioParameterBool>(
+                juce::ParameterID{layerParamId(t, l, "hpOn"), 1}, lp + "Low Cut On", false));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "hpCut"), 1}, lp + "Low Cut", hpRange, 20.0f));
+            layout.add(std::make_unique<juce::AudioParameterBool>(
+                juce::ParameterID{layerParamId(t, l, "lpOn"), 1}, lp + "High Cut On", false));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{layerParamId(t, l, "lpCut"), 1}, lp + "High Cut", lpRange,
+                20000.0f));
         }
     }
 
@@ -490,6 +505,10 @@ ColdAudioProcessor::ColdAudioProcessor()
             layerMuteParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "mute"));
             layerSoloParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "solo"));
             layerReverseParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "reverse"));
+            layerHpOnParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "hpOn"));
+            layerHpCutParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "hpCut"));
+            layerLpOnParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "lpOn"));
+            layerLpCutParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "lpCut"));
         }
     }
     layerScratch.reserve(static_cast<size_t>(kNumLayers));
@@ -654,6 +673,10 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
             layer.ampSustain = layerAmpSustainParam[tt][ll]->load();
             layer.ampRelease = layerAmpReleaseParam[tt][ll]->load();
             layer.reversed = layerReverseParam[tt][ll]->load() > 0.5f;
+            layer.lowCutOn = layerHpOnParam[tt][ll]->load() > 0.5f;
+            layer.lowCutHz = layerHpCutParam[tt][ll]->load();
+            layer.highCutOn = layerLpOnParam[tt][ll]->load() > 0.5f;
+            layer.highCutHz = layerLpCutParam[tt][ll]->load();
             layerScratch.push_back(layer);
         }
         if (!layeringMode)

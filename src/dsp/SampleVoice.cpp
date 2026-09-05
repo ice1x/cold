@@ -20,6 +20,10 @@ void SampleVoice::prepare(double newHostSampleRate)
     pitchEnv.setSampleRate(hostSampleRate);
     for (auto& f : filters)
         f.prepare(hostSampleRate);
+    for (auto& f : lowCutFilters)
+        f.prepare(hostSampleRate);
+    for (auto& f : highCutFilters)
+        f.prepare(hostSampleRate);
 }
 
 void SampleVoice::setAmpEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
@@ -125,6 +129,22 @@ void SampleVoice::setFilterEnabled(bool enabled)
     useFilter = enabled;
 }
 
+void SampleVoice::setLowCut(bool enabled, float cutoffHz)
+{
+    useLowCut = enabled;
+    if (enabled)
+        for (auto& f : lowCutFilters)
+            f.setCutoff(cutoffHz);
+}
+
+void SampleVoice::setHighCut(bool enabled, float cutoffHz)
+{
+    useHighCut = enabled;
+    if (enabled)
+        for (auto& f : highCutFilters)
+            f.setCutoff(cutoffHz);
+}
+
 void SampleVoice::setFilterLfoMod(float cutoffOctaves, float typeOffset)
 {
     lfoCutoffOct = cutoffOctaves;
@@ -206,6 +226,10 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
         pitchEnv.noteOn(1.0f); // full-scale; the amount scales it
     // Clear filter state so a new note doesn't inherit the previous one's ring.
     for (auto& f : filters)
+        f.reset();
+    for (auto& f : lowCutFilters)
+        f.reset();
+    for (auto& f : highCutFilters)
         f.reset();
     active = true;
 }
@@ -317,6 +341,15 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
             float value = voiceGain * readInterpolated(srcCh, position);
             if (useFilter && ch < static_cast<int>(filters.size()))
                 value = filters[static_cast<size_t>(ch)].process(value);
+            // Dedicated band filters: low-cut (pure high-pass) then high-cut (pure
+            // low-pass), read from the SVF's own HP/LP taps.
+            if (ch < 2)
+            {
+                if (useLowCut)
+                    value = lowCutFilters[static_cast<size_t>(ch)].processAll(value).hp;
+                if (useHighCut)
+                    value = highCutFilters[static_cast<size_t>(ch)].processAll(value).lp;
+            }
 
             // Stereo placement: L/R gains from the pan; other channels unaffected.
             const float panGain = ch == 0 ? panLeft : (ch == 1 ? panRight : 1.0f);

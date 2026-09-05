@@ -845,6 +845,52 @@ TEST_CASE("Engine stack applies per-layer reverse independently",
     REQUIRE(out[1][0] > static_cast<float>(frames) * 0.5f); // right (reversed) starts near the end
 }
 
+TEST_CASE("Engine stack applies a per-layer low-cut to one layer",
+          "[engine][dsp][unit][stack][filter]")
+{
+    // A 100 Hz sine in both layers, panned L/R. Layer A (left) keeps its lows; layer
+    // B (right) has a 2 kHz low-cut, so after settling the right channel is quiet.
+    constexpr double sr = 48000.0;
+    constexpr int frames = 9600;
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] =
+            static_cast<float>(std::sin(2.0 * 3.14159265358979 * 100.0 * n / sr));
+    s.rebuild();
+
+    Engine engine;
+    engine.prepare(sr);
+    engine.setSampleList({{s.data(), s.numChannels(), s.numFrames(), sr},
+                          {s.data(), s.numChannels(), s.numFrames(), sr}});
+    engine.setLayerMode(Engine::LayerMode::Stack);
+
+    Engine::Layer la; // full range, left
+    la.sampleIndex = 0;
+    la.pan = -1.0f;
+    Engine::Layer lb; // low-cut at 2 kHz, right
+    lb.sampleIndex = 1;
+    lb.pan = 1.0f;
+    lb.lowCutOn = true;
+    lb.lowCutHz = 2000.0f;
+    engine.setLayers({la, lb});
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+
+    std::vector<std::vector<float>> out(2, std::vector<float>(static_cast<size_t>(frames), 0.0f));
+    std::vector<float*> ptrs{out[0].data(), out[1].data()};
+    engine.renderNextBlock(ptrs.data(), 2, 0, frames);
+
+    auto tail = [&](int ch)
+    {
+        float p = 0.0f;
+        for (int n = frames - 2000; n < frames; ++n)
+            p = std::max(p, std::abs(out[static_cast<size_t>(ch)][static_cast<size_t>(n)]));
+        return p;
+    };
+    REQUIRE(tail(0) > 0.5f); // left keeps the 100 Hz tone
+    REQUIRE(tail(1) < 0.1f); // right's lows are cut
+}
+
 TEST_CASE("Engine defaults to Select mode (one voice per note)", "[engine][dsp][unit][stack]")
 {
     auto s = makeConstant(64);
