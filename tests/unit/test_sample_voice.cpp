@@ -145,6 +145,43 @@ TEST_CASE("SampleVoice at root pitch reproduces the sample sample-for-sample",
         REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(static_cast<float>(n), 1e-4));
 }
 
+TEST_CASE("SampleVoice low-cut removes a low tone", "[samplevoice][dsp][unit][filter]")
+{
+    // A 100 Hz sine; a low-cut (high-pass) at 2 kHz should strongly attenuate it,
+    // while the same voice with no low-cut passes it.
+    constexpr double sr = 48000.0;
+    constexpr int frames = 9600;
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] =
+            static_cast<float>(std::sin(2.0 * 3.14159265358979 * 100.0 * n / sr));
+    s.rebuild();
+
+    auto tailPeak = [](const std::vector<float>& out)
+    {
+        float p = 0.0f;
+        for (int n = static_cast<int>(out.size()) - 2000; n < static_cast<int>(out.size()); ++n)
+            p = std::max(p, std::abs(out[static_cast<size_t>(n)]));
+        return p;
+    };
+
+    SampleVoice open;
+    open.prepare(sr);
+    open.setSample(s.data(), s.numChannels(), s.numFrames(), sr);
+    open.startNote(kRootNote, 1.0f, kRootNote);
+    auto openOut = render(open, frames);
+    REQUIRE(tailPeak(openOut) > 0.5f); // the 100 Hz tone passes
+
+    SampleVoice cut;
+    cut.prepare(sr);
+    cut.setSample(s.data(), s.numChannels(), s.numFrames(), sr);
+    cut.setLowCut(true, 2000.0f); // high-pass well above 100 Hz
+    cut.startNote(kRootNote, 1.0f, kRootNote);
+    auto cutOut = render(cut, frames);
+    REQUIRE(tailPeak(cutOut) < 0.1f); // the low tone is removed
+}
+
 TEST_CASE("SampleVoice reversed plays the sample back-to-front then frees",
           "[samplevoice][dsp][unit][reverse]")
 {

@@ -248,6 +248,10 @@ void Engine::configureVoice(int voiceIndex, int sampleIndex)
     voice.setFilterEnabled(filterEnabled);
     if (filterEnabled)
         voice.setFilter(filterCutoff, filterResonance, filterType);
+    // No per-layer band filter by default; triggerLayer re-enables it per layer, and
+    // the Single/Select path leaves it off (so a reused voice never keeps a stale band).
+    voice.setLowCut(false, 20.0f);
+    voice.setHighCut(false, 20000.0f);
 }
 
 int Engine::selectSampleIndex() const
@@ -349,6 +353,8 @@ void Engine::triggerLayer(const Layer& layer, int midiNote, float velocity, int 
         voice.setAmpEnvelopeDAH(layer.ampDelay, layer.ampHold);
     }
     voice.setReversed(layer.reversed); // per-layer reverse (overrides the shared flag)
+    voice.setLowCut(layer.lowCutOn, layer.lowCutHz);
+    voice.setHighCut(layer.highCutOn, layer.highCutHz);
     voice.startNote(midiNote, std::clamp(velocity * layer.gain, 0.0f, 1.0f), rootNote);
     currentIndex = layer.sampleIndex; // last sounding layer, for queries
 }
