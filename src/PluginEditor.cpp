@@ -770,17 +770,25 @@ private:
         const auto flags =
             juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
 
-        chooser->launchAsync(flags,
-                             [this, track, layer](const juce::FileChooser& fc)
-                             {
-                                 const auto file = fc.getResult();
-                                 if (file == juce::File{})
-                                     return;
-                                 proc.loadSampleToLayer(track, layer, file);
-                                 refreshBank();
-                                 if (onBankChanged)
-                                     onBankChanged();
-                             });
+        chooser->launchAsync(
+            flags,
+            [this, track, layer](const juce::FileChooser& fc)
+            {
+                const auto file = fc.getResult();
+                if (file == juce::File{})
+                    return;
+                proc.loadSampleToLayer(track, layer, file);
+                // Loading a 2nd+ layer while the cell is in Single (only
+                // layer 1 sounds) almost always means the user wants the
+                // layers to play together — switch to Stack so they do.
+                if (layer > 0)
+                    if (auto* m = proc.apvts.getParameter(trackId(track, "layerMode")))
+                        if (m->getValue() <= 0.001f)                          // Single (index 0)
+                            m->setValueNotifyingHost(m->convertTo0to1(1.0f)); // Stack
+                refreshBank();
+                if (onBankChanged)
+                    onBankChanged();
+            });
     }
 
     // Right-click menu on a cell pad: select the cell, then offer to load a sample
