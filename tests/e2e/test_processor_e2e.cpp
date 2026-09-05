@@ -69,6 +69,28 @@ juce::File writeFadeInWav(double sampleRate, int numFrames)
     return file;
 }
 
+// Write a mono sine WAV at `freqHz` (for filter tests).
+juce::File writeSineWav(double sampleRate, int numFrames, double freqHz)
+{
+    auto file = juce::File::createTempFile(".wav");
+    juce::AudioBuffer<float> buffer(1, numFrames);
+    for (int n = 0; n < numFrames; ++n)
+        buffer.setSample(
+            0, n, static_cast<float>(std::sin(2.0 * 3.14159265358979 * freqHz * n / sampleRate)));
+    juce::WavAudioFormat wav;
+    if (auto os = std::unique_ptr<juce::FileOutputStream>(file.createOutputStream()))
+    {
+        std::unique_ptr<juce::AudioFormatWriter> writer(
+            wav.createWriterFor(os.get(), sampleRate, 1, 16, {}, 0));
+        if (writer != nullptr)
+        {
+            os.release();
+            writer->writeFromAudioSampleBuffer(buffer, 0, numFrames);
+        }
+    }
+    return file;
+}
+
 } // namespace
 
 TEST_CASE("Cold processor exposes the expected plugin contract", "[processor][e2e]")
@@ -1046,6 +1068,52 @@ TEST_CASE("Cold solo / mute take effect even in Single mode", "[processor][e2e][
     proc.releaseResources();
 }
 
+TEST_CASE("Cold per-layer low-cut band-limits a stacked layer", "[processor][e2e][stack][filter]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 9600;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // A 100 Hz sine into cell 0's layers 0 and 1, panned L/R, Stack mode. Low-cut
+    // layer 1 at 2 kHz -> the right channel's lows are removed.
+    auto wav = writeSineWav(sampleRate, frames, 100.0);
+    REQUIRE(proc.loadSampleToLayer(0, 0, wav));
+    REQUIRE(proc.loadSampleToLayer(0, 1, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto tail = [](const juce::AudioBuffer<float>& b, int ch)
+    {
+        float p = 0.0f;
+        for (int n = b.getNumSamples() - 2000; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(ch, n)));
+        return p;
+    };
+
+    setParam("t0_layerMode", 1.0f); // Stack
+    setParam("t0_lyr0_pan", -1.0f);
+    setParam("t0_lyr1_pan", 1.0f);
+    setParam("t0_lyr1_hpOn", 1.0f); // low-cut layer 1
+    setParam("t0_lyr1_hpCut", 2000.0f);
+
+    juce::AudioBuffer<float> buffer(2, frames);
+    buffer.clear();
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+    renderBlock(proc, buffer, midi);
+    REQUIRE(bufferIsFinite(buffer));
+
+    REQUIRE(tail(buffer, 0) > 0.4f); // layer 0 (left) keeps the 100 Hz tone
+    REQUIRE(tail(buffer, 1) < 0.1f); // layer 1 (right) lows removed
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
@@ -1323,7 +1391,10 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_lyr1_ampDecay",
                            "t7_lyr3_ampRelease",
                            "t0_lyr0_mute",
-                           "t0_lyr1_solo"})
+                           "t0_lyr1_solo",
+                           "t0_lyr0_hpOn",
+                           "t0_lyr1_hpCut",
+                           "t7_lyr3_lpCut"})
         REQUIRE(proc.apvts.getParameter(id) != nullptr);
 }
 

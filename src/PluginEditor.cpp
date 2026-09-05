@@ -1093,6 +1093,21 @@ private:
         place(row, "F.Type",
               "This layer's filter morph type: 0 = LP, 0.33 = BP, 0.66 = HP, 1 = notch.");
 
+        // Dedicated band filters (independent of the morph filter above): a low-cut
+        // (high-pass) to remove the lows, and a high-cut (low-pass) to remove the
+        // highs — band-limit a layer (e.g. HP the top layer so only the sub has bottom).
+        c.hpOn = makeToggle();
+        place(row, "Low Cut",
+              "High-pass this layer: removes the lows below the frequency at right. Use "
+              "it to keep the bottom on the sub layer only.");
+        c.hpCut = makeSlider();
+        place(row, "LC Freq", "Low-cut (high-pass) frequency in Hz (20-2000).");
+        c.lpOn = makeToggle();
+        place(row, "High Cut",
+              "Low-pass this layer: removes the highs above the frequency at right.");
+        c.lpCut = makeSlider();
+        place(row, "HC Freq", "High-cut (low-pass) frequency in Hz (200-20000).");
+
         // Per-layer amp envelope — the core of layering: give this layer its own
         // contour (a snappy click layer + a long body layer on one note).
         c.envOn = makeToggle();
@@ -1176,6 +1191,10 @@ private:
         attButton("mute", c.mute);
         attButton("solo", c.solo);
         attButton("reverse", c.reverse);
+        attButton("hpOn", c.hpOn);
+        attSlider("hpCut", c.hpCut);
+        attButton("lpOn", c.lpOn);
+        attSlider("lpCut", c.lpCut);
         // Refresh the waveform when this layer's reverse is toggled (it mirrors).
         c.reverse->onClick = [this] { updateWaveform(); };
 
@@ -1210,6 +1229,10 @@ private:
         juce::ToggleButton* mute = nullptr;
         juce::ToggleButton* solo = nullptr;
         juce::ToggleButton* reverse = nullptr;
+        juce::ToggleButton* hpOn = nullptr;
+        juce::Slider* hpCut = nullptr;
+        juce::ToggleButton* lpOn = nullptr;
+        juce::Slider* lpCut = nullptr;
     };
 
     struct Attachments
