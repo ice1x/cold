@@ -99,6 +99,9 @@ public:
         float ampDecay = 0.0f;
         float ampSustain = 1.0f;
         float ampRelease = 0.0f;
+        // Per-layer reverse playback (this layer plays backwards). Trailing so
+        // earlier initializers stay valid.
+        bool reversed = false;
     };
 
     void setLayerMode(LayerMode mode);

@@ -227,9 +227,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         layout.add(std::make_unique<AudioParameterInt>(
             juce::ParameterID{trackParamId(t, "chokeGroup"), 1}, tp + "Choke Group", 0, 8, 0));
 
-        // Reverse playback: the cell plays its sample backwards (reverse one-shot).
-        layout.add(std::make_unique<AudioParameterBool>(
-            juce::ParameterID{trackParamId(t, "reverse"), 1}, tp + "Reverse", false));
+        // Reverse playback is PER-LAYER (declared in the per-layer loop below), so a
+        // stack can mix forward and reversed layers.
 
         // Per-track amp envelope (each track/cell is an independent sound).
         layout.add(
@@ -387,6 +386,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
                 juce::ParameterID{layerParamId(t, l, "mute"), 1}, lp + "Mute", false));
             layout.add(std::make_unique<juce::AudioParameterBool>(
                 juce::ParameterID{layerParamId(t, l, "solo"), 1}, lp + "Solo", false));
+            // Per-layer reverse: this layer plays backwards (a stack can mix
+            // forward + reversed layers). Single mode uses layer 1's flag.
+            layout.add(std::make_unique<juce::AudioParameterBool>(
+                juce::ParameterID{layerParamId(t, l, "reverse"), 1}, lp + "Reverse", false));
         }
     }
 
@@ -435,7 +438,6 @@ ColdAudioProcessor::ColdAudioProcessor()
         const auto tt = static_cast<size_t>(t);
         layerModeParam[tt] = apvts.getRawParameterValue(trackParamId(t, "layerMode"));
         chokeGroupParam[tt] = apvts.getRawParameterValue(trackParamId(t, "chokeGroup"));
-        reverseParam[tt] = apvts.getRawParameterValue(trackParamId(t, "reverse"));
         attackParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAttackId));
         decayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kDecayId));
         sustainParam[tt] = apvts.getRawParameterValue(trackParamId(t, kSustainId));
@@ -486,6 +488,7 @@ ColdAudioProcessor::ColdAudioProcessor()
                 apvts.getRawParameterValue(layerParamId(t, l, "ampRelease"));
             layerMuteParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "mute"));
             layerSoloParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "solo"));
+            layerReverseParam[tt][ll] = apvts.getRawParameterValue(layerParamId(t, l, "reverse"));
         }
     }
     layerScratch.reserve(static_cast<size_t>(kNumLayers));
@@ -517,7 +520,9 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     const auto mode =
         static_cast<dsp::SampleVoice::LoopMode>(static_cast<int>(loopModeParam->load()));
     e.setLoopMode(mode);
-    e.setReverse(reverseParam[static_cast<size_t>(track)]->load() > 0.5f);
+    // Single mode plays layer 1 via the shared path, so it uses layer 1's reverse
+    // flag; the layering modes set reverse per layer in the layer list below.
+    e.setReverse(layerReverseParam[static_cast<size_t>(track)][0]->load() > 0.5f);
 
     // Loop points are relative to the track's base slot (slot == track index).
     const int frames = slotNumFrames[static_cast<size_t>(track)];
@@ -631,6 +636,7 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
             layer.ampDecay = layerAmpDecayParam[tt][ll]->load();
             layer.ampSustain = layerAmpSustainParam[tt][ll]->load();
             layer.ampRelease = layerAmpReleaseParam[tt][ll]->load();
+            layer.reversed = layerReverseParam[tt][ll]->load() > 0.5f;
             layerScratch.push_back(layer);
         }
         e.setLayers(layerScratch);
