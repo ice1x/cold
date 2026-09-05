@@ -808,6 +808,43 @@ TEST_CASE("Engine stack applies a per-layer amp envelope to each layer",
     REQUIRE(peak(1, 6000, 8000) > 0.3f);
 }
 
+TEST_CASE("Engine stack applies per-layer reverse independently",
+          "[engine][dsp][unit][stack][reverse]")
+{
+    // A ramp 0..N-1 in both layers, panned L/R. Layer A plays forward (starts at 0),
+    // layer B reversed (starts at N-1). So the FIRST output sample is ~0 on the left
+    // and ~large on the right — per-layer reverse.
+    constexpr int frames = 64;
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] = static_cast<float>(n);
+    s.rebuild();
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({{s.data(), s.numChannels(), s.numFrames(), 44100.0},
+                          {s.data(), s.numChannels(), s.numFrames(), 44100.0}});
+    engine.setLayerMode(Engine::LayerMode::Stack);
+
+    Engine::Layer la; // forward, hard left
+    la.sampleIndex = 0;
+    la.pan = -1.0f;
+    Engine::Layer lb; // reversed, hard right
+    lb.sampleIndex = 1;
+    lb.pan = 1.0f;
+    lb.reversed = true;
+    engine.setLayers({la, lb});
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    std::vector<std::vector<float>> out(2, std::vector<float>(1, 0.0f));
+    std::vector<float*> ptrs{out[0].data(), out[1].data()};
+    engine.renderNextBlock(ptrs.data(), 2, 0, 1);
+
+    REQUIRE(std::abs(out[0][0]) < 1.0f);                    // left (forward) starts at ramp[0] = 0
+    REQUIRE(out[1][0] > static_cast<float>(frames) * 0.5f); // right (reversed) starts near the end
+}
+
 TEST_CASE("Engine defaults to Select mode (one voice per note)", "[engine][dsp][unit][stack]")
 {
     auto s = makeConstant(64);

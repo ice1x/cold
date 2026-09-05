@@ -166,6 +166,17 @@ public:
         repaint();
     }
 
+    // Mirror the display horizontally when the layer plays in reverse, so the flipped
+    // envelope is a visible cue that the sample is reversed.
+    void setReversed(bool shouldReverse)
+    {
+        if (reversed != shouldReverse)
+        {
+            reversed = shouldReverse;
+            repaint();
+        }
+    }
+
     void mouseDown(const juce::MouseEvent& e) override
     {
         if (!hasSample)
@@ -222,7 +233,9 @@ public:
         const int px = static_cast<int>(area.getWidth());
         for (int x = 0; x < px; ++x)
         {
-            const int bin = (n <= 1) ? 0 : juce::jlimit(0, n - 1, x * n / px);
+            // When reversed, read bins right-to-left so the envelope is mirrored.
+            const int src = reversed ? (px - 1 - x) : x;
+            const int bin = (n <= 1) ? 0 : juce::jlimit(0, n - 1, src * n / px);
             const float lo = peaks.minValues[static_cast<size_t>(bin)];
             const float hi = peaks.maxValues[static_cast<size_t>(bin)];
             const float y1 = midY - hi * halfH;
@@ -231,17 +244,22 @@ public:
             g.drawLine(fx, y1, fx, y2, 1.0f);
         }
 
-        // Dim the region outside the playable window and mark its edges.
-        const float xs = area.getX() + windowStart * area.getWidth();
-        const float xe = area.getX() + windowEnd * area.getWidth();
+        // Dim the region outside the playable window and mark its edges. The window
+        // fractions are in forward frames; mirror their x when reversed.
+        auto toX = [&](float frac)
+        { return area.getX() + (reversed ? (1.0f - frac) : frac) * area.getWidth(); };
+        const float xa = toX(windowStart);
+        const float xb = toX(windowEnd);
+        const float left = std::min(xa, xb);
+        const float right = std::max(xa, xb);
         g.setColour(juce::Colour(0x88000000));
-        if (xs > area.getX())
-            g.fillRect(area.withRight(xs));
-        if (xe < area.getRight())
-            g.fillRect(area.withLeft(xe));
+        if (left > area.getX())
+            g.fillRect(area.withRight(left));
+        if (right < area.getRight())
+            g.fillRect(area.withLeft(right));
         g.setColour(juce::Colour(0xffe0a53a));
-        g.drawVerticalLine(static_cast<int>(xs), area.getY(), area.getBottom());
-        g.drawVerticalLine(static_cast<int>(xe), area.getY(), area.getBottom());
+        g.drawVerticalLine(static_cast<int>(left), area.getY(), area.getBottom());
+        g.drawVerticalLine(static_cast<int>(right), area.getY(), area.getBottom());
     }
 
 private:
@@ -251,13 +269,16 @@ private:
         const auto area = getLocalBounds().toFloat().reduced(3.0f);
         if (area.getWidth() <= 0.0f)
             return 0.0f;
-        return juce::jlimit(0.0f, 1.0f, (static_cast<float>(x) - area.getX()) / area.getWidth());
+        const float raw =
+            juce::jlimit(0.0f, 1.0f, (static_cast<float>(x) - area.getX()) / area.getWidth());
+        return reversed ? 1.0f - raw : raw; // logical (forward-frame) fraction
     }
 
     dsp::WaveformPeaks peaks;
     float windowStart = 0.0f;
     float windowEnd = 1.0f;
     bool hasSample = false;
+    bool reversed = false;
     int dragMarker = 0; // 0 none, 1 start, 2 end
 };
 
@@ -831,6 +852,11 @@ private:
     // Fetches peaks at the view's current pixel width so bins map ~1:1 to columns.
     void updateWaveform()
     {
+        // Mirror the view when this layer plays in reverse.
+        if (auto* rev =
+                proc.apvts.getRawParameterValue(layerId(currentTrack, currentLayer, "reverse")))
+            waveformView.setReversed(rev->load() > 0.5f);
+
         const int slot = slotForLayer(currentLayer); // the layer being edited
         const int total = proc.slotTotalFrames(slot);
         if (total <= 0)
@@ -905,8 +931,6 @@ private:
               "Choke / mute group (0 = off, 1-8). Cells sharing a group cut each other "
               "off — playing one silences the rest (e.g. a closed hat chokes the open hat).");
 
-        tToggle(s, "reverse", "Reverse", "Play this cell's sample backwards (reverse one-shot).");
-
         // Layer selector: pick which of the cell's 4 layers the editor below edits.
         // (You can't show 4 layers' full envelopes at once, so layers are selected
         // like cells — one at a time.)
@@ -938,6 +962,19 @@ private:
         c.load->onClick = [this] { chooseForLayer(currentLayer); };
         pendingControl = std::move(btn);
         place(row, "Sample");
+
+        // The most-reached per-layer switches, kept at the top so they are visible the
+        // moment a layer is selected (not buried under the knobs).
+        c.mute = makeToggle();
+        place(row, "Mute", "Silence this layer in the stack (Stack / Round-Robin / Velocity).");
+        c.solo = makeToggle();
+        place(row, "Solo",
+              "Solo this layer: if any layer in the cell is soloed, only soloed layers "
+              "sound.");
+        c.reverse = makeToggle();
+        place(row, "Reverse",
+              "Play THIS layer backwards (per layer — a stack can mix forward and "
+              "reversed layers).");
 
         c.gain = makeSlider();
         place(row, "Gain", "Layer level (multiplies note velocity).");
@@ -973,13 +1010,6 @@ private:
         place(row, "E.Sustain", "This layer's envelope sustain level (0..1).");
         c.envRelease = makeSlider();
         place(row, "E.Release", "This layer's envelope release after note-off, in seconds.");
-
-        c.mute = makeToggle();
-        place(row, "Mute", "Silence this layer in the stack (Stack / Round-Robin / Velocity).");
-        c.solo = makeToggle();
-        place(row, "Solo",
-              "Solo this layer: if any layer in the cell is soloed, only soloed layers "
-              "sound.");
     }
 
     // Rebuild the per-track attachments (layer mode + per-track knobs/toggles) to
@@ -1044,6 +1074,9 @@ private:
         attSlider("ampRelease", c.envRelease);
         attButton("mute", c.mute);
         attButton("solo", c.solo);
+        attButton("reverse", c.reverse);
+        // Refresh the waveform when this layer's reverse is toggled (it mirrors).
+        c.reverse->onClick = [this] { updateWaveform(); };
 
         refreshLayerButtons();
         updateWaveform(); // the waveform follows the layer being edited
@@ -1075,6 +1108,7 @@ private:
         juce::Slider* envRelease = nullptr;
         juce::ToggleButton* mute = nullptr;
         juce::ToggleButton* solo = nullptr;
+        juce::ToggleButton* reverse = nullptr;
     };
 
     struct Attachments
