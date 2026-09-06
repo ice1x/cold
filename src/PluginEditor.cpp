@@ -501,7 +501,7 @@ public:
             if (si == 0)
                 tab = -1; // the cell grid: always visible
             else if (title.startsWith("Compressor") || title.startsWith("Saturation") ||
-                     title.startsWith("Lo-Fi"))
+                     title.startsWith("Lo-Fi") || title.startsWith("Delay"))
                 tab = 1; // FX
             else if (title.startsWith("Mod Envelope") || title == "LFO")
                 tab = 2; // Mod
@@ -1000,6 +1000,15 @@ private:
             gKnob(s, "loopStart", "Start", "Loop region start, as a fraction of the sample.");
             gKnob(s, "loopEnd", "End", "Loop region end, as a fraction of the sample.");
         }
+        {
+            auto& s = newSection("Delay (send)");
+            gKnob(s, "delayTime", "Time", "Echo time in milliseconds.");
+            gKnob(s, "delayFeedback", "Feedback",
+                  "How much of each echo feeds the next (0..0.95): more = longer trail.");
+            gKnob(s, "delayTone", "Tone",
+                  "Feedback damping: 0 = bright repeats, 1 = darker each echo.");
+            gKnob(s, "delayReturn", "Return", "Level of the delay mixed back into the master.");
+        }
     }
 
     // The sample bank: 16 slot buttons showing what's loaded; click = load a file
@@ -1273,6 +1282,9 @@ private:
 
         tKnob(s, "level", "Level", "This cell's output level into the mix, in dB.");
         tKnob(s, "pan", "Pan", "This cell's stereo position in the mix: -1 left .. +1 right.");
+        tKnob(s, "delaySend", "Delay",
+              "How much of this cell is sent to the shared delay (0 = dry). Set the delay "
+              "itself in the FX tab.");
 
         // Layer selector: pick which of the cell's 4 layers the editor below edits.
         // (You can't show 4 layers' full envelopes at once, so layers are selected

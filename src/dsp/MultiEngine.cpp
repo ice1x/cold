@@ -1,5 +1,7 @@
 #include "dsp/MultiEngine.h"
 
+#include <algorithm>
+
 namespace cold::dsp
 {
 
@@ -60,11 +62,64 @@ void MultiEngine::reset()
         t.reset();
 }
 
+void MultiEngine::setSendGain(int trackIndex, float gain)
+{
+    if (validTrack(trackIndex))
+        sendGain[static_cast<size_t>(trackIndex)] = gain;
+}
+
 void MultiEngine::renderNextBlock(float* const* out, int numOutChannels, int startSample,
                                   int numSamples)
 {
     for (auto& t : tracks)
         t.renderNextBlock(out, numOutChannels, startSample, numSamples);
+}
+
+void MultiEngine::renderNextBlock(float* const* out, float* const* sendOut, int numOutChannels,
+                                  int startSample, int numSamples)
+{
+    if (sendOut == nullptr)
+    {
+        renderNextBlock(out, numOutChannels, startSample, numSamples);
+        return;
+    }
+
+    // Render each track into an isolated scratch, then add it to the main out and,
+    // scaled by that track's send, to the send bus.
+    const auto ch = static_cast<size_t>(numOutChannels);
+    if (trackScratch.size() < ch)
+        trackScratch.resize(ch);
+    scratchPtrs.clear();
+    for (int c = 0; c < numOutChannels; ++c)
+    {
+        auto& row = trackScratch[static_cast<size_t>(c)];
+        if (static_cast<int>(row.size()) < numSamples)
+            row.resize(static_cast<size_t>(numSamples));
+        scratchPtrs.push_back(row.data());
+    }
+
+    for (int ti = 0; ti < kNumTracks; ++ti)
+    {
+        for (int c = 0; c < numOutChannels; ++c)
+            std::fill_n(scratchPtrs[static_cast<size_t>(c)], numSamples, 0.0f);
+
+        tracks[static_cast<size_t>(ti)].renderNextBlock(scratchPtrs.data(), numOutChannels, 0,
+                                                        numSamples);
+
+        const float send = sendGain[static_cast<size_t>(ti)];
+        for (int c = 0; c < numOutChannels; ++c)
+        {
+            const float* src = scratchPtrs[static_cast<size_t>(c)];
+            float* dst = out[c];
+            float* snd = sendOut[c];
+            for (int n = 0; n < numSamples; ++n)
+            {
+                const float v = src[n];
+                dst[startSample + n] += v;
+                snd[startSample + n] += v * send;
+            }
+        }
+    }
 }
 
 int MultiEngine::activeVoiceCount() const

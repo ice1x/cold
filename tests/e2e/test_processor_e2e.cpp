@@ -1170,6 +1170,67 @@ TEST_CASE("Cold per-cell level and pan trim the mix", "[processor][e2e][output]"
     proc.releaseResources();
 }
 
+TEST_CASE("Cold per-cell delay send produces an echo", "[processor][e2e][delay]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int frames = 4096;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // A short (256-frame) sample in cell 0, so the dry hit ends early and any later
+    // energy is the delayed echo.
+    auto wav = writeTempWav(sampleRate, 1, 256);
+    REQUIRE(proc.loadSampleToTrack(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto windowPeak = [](const juce::AudioBuffer<float>& b, int from, int to)
+    {
+        float p = 0.0f;
+        for (int n = from; n < to; ++n)
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    setParam("delayTime", 20.0f);    // ~882 samples
+    setParam("delayFeedback", 0.0f); // single echo
+    setParam("delayReturn", 1.0f);
+
+    juce::AudioBuffer<float> buffer(2, frames);
+    auto play = [&]()
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+    };
+
+    SECTION("no send -> silence after the dry hit")
+    {
+        setParam("t0_delaySend", 0.0f);
+        play();
+        REQUIRE(windowPeak(buffer, 0, 256) > 0.1f);      // the dry hit
+        REQUIRE(windowPeak(buffer, 1200, 2000) < 0.01f); // nothing later
+    }
+
+    SECTION("send on -> an echo appears one delay time later")
+    {
+        setParam("t0_delaySend", 1.0f);
+        play();
+        REQUIRE(windowPeak(buffer, 0, 256) > 0.1f);     // dry hit
+        REQUIRE(windowPeak(buffer, 900, 1300) > 0.05f); // echo ~882 samples in
+    }
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
@@ -1417,6 +1478,9 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t7_chokeGroup",
                            "t0_level",
                            "t7_pan",
+                           "t0_delaySend",
+                           "delayTime",
+                           "delayReturn",
                            "t0_lyr0_reverse",
                            "t0_lyr0_filterOn",
                            "t0_lyr0_cutoff",
