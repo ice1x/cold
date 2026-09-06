@@ -1271,6 +1271,9 @@ private:
               "Choke / mute group (0 = off, 1-8). Cells sharing a group cut each other "
               "off — playing one silences the rest (e.g. a closed hat chokes the open hat).");
 
+        tKnob(s, "level", "Level", "This cell's output level into the mix, in dB.");
+        tKnob(s, "pan", "Pan", "This cell's stereo position in the mix: -1 left .. +1 right.");
+
         // Layer selector: pick which of the cell's 4 layers the editor below edits.
         // (You can't show 4 layers' full envelopes at once, so layers are selected
         // like cells — one at a time.)

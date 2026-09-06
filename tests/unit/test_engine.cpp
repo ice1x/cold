@@ -891,6 +891,34 @@ TEST_CASE("Engine stack applies a per-layer low-cut to one layer",
     REQUIRE(tail(1) < 0.1f); // right's lows are cut
 }
 
+TEST_CASE("Engine per-track output level scales the mix", "[engine][dsp][unit][output]")
+{
+    auto s = makeConstant(64, 0.5f); // one voice at 0.5
+    auto engine = makeEngine(s, 4);
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE_THAT(render(engine, 4).front(), WithinAbs(0.5f, 1e-4)); // unity by default
+
+    engine.reset();
+    engine.setOutput(0.25f, 0.0f); // quarter level
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE_THAT(render(engine, 4).front(), WithinAbs(0.125f, 1e-4)); // 0.5 * 0.25
+}
+
+TEST_CASE("Engine per-track output pan places the track", "[engine][dsp][unit][output][pan]")
+{
+    auto s = makeConstant(64, 0.5f);
+    auto engine = makeEngine(s, 4);
+    engine.setOutput(1.0f, -1.0f); // hard left
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+
+    std::vector<std::vector<float>> out(2, std::vector<float>(4, 0.0f));
+    std::vector<float*> ptrs{out[0].data(), out[1].data()};
+    engine.renderNextBlock(ptrs.data(), 2, 0, 4);
+    REQUIRE_THAT(out[0][0], WithinAbs(0.5f, 1e-4)); // left carries the track
+    REQUIRE_THAT(out[1][0], WithinAbs(0.0f, 1e-4)); // right silent
+}
+
 TEST_CASE("Engine defaults to Select mode (one voice per note)", "[engine][dsp][unit][stack]")
 {
     auto s = makeConstant(64);

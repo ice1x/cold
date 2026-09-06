@@ -171,6 +171,10 @@ private:
     // other off on trig.
     std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> chokeGroupParam{};
 
+    // Per-cell output level (dB) + pan (balance) into the mix.
+    std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> levelParam{};
+    std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> panParam{};
+
     // Per-track amp envelope (each track/cell is an independent sound).
     using TrackFloats = std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks>;
     TrackFloats attackParam{};
