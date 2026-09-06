@@ -165,6 +165,11 @@ public:
     // sample-and-hold factor (>= 1). Shares the compressor's scratch render path.
     void setBitCrusher(bool enabled, float bits, int downsample);
 
+    // Per-track output trim into the mix: `gain` is a linear level for the whole
+    // track (its summed voices, post FX) and `pan` a balance in [-1, 1] (0 = centre,
+    // unity both sides). Lets each cell sit at its own level/position in the kit.
+    void setOutput(float gain, float pan);
+
     // Per-voice morph filter shared by every voice (cutoff Hz, resonance/Q, type
     // in [0, 1]). Enables the filter on the whole pool.
     void setFilter(float cutoffHz, float resonance, float type);
@@ -257,6 +262,9 @@ private:
     float pitchEnvDecay = 0.0f;
 
     float velToPitch = 0.0f; // velocity -> pitch, semitones at full velocity
+
+    float outGain = 1.0f; // per-track output level into the mix
+    float outPan = 0.0f;  // per-track output balance [-1, 1]
 
     bool filterEnabled = false;
     float filterCutoff = 20000.0f;

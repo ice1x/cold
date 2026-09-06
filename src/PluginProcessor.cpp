@@ -231,6 +231,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         // Reverse playback is PER-LAYER (declared in the per-layer loop below), so a
         // stack can mix forward and reversed layers.
 
+        // Per-cell output trim into the mix: level (dB) + pan (balance), so each cell
+        // sits at its own level/position in the kit.
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, "level"), 1}, tp + "Level",
+            juce::NormalisableRange<float>(-60.0f, 6.0f, 0.1f), 0.0f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, "pan"), 1}, tp + "Pan", -1.0f, 1.0f, 0.0f));
+
         // Per-track amp envelope (each track/cell is an independent sound).
         layout.add(
             std::make_unique<AudioParameterFloat>(juce::ParameterID{trackParamId(t, kAttackId), 1},
@@ -454,6 +462,8 @@ ColdAudioProcessor::ColdAudioProcessor()
         const auto tt = static_cast<size_t>(t);
         layerModeParam[tt] = apvts.getRawParameterValue(trackParamId(t, "layerMode"));
         chokeGroupParam[tt] = apvts.getRawParameterValue(trackParamId(t, "chokeGroup"));
+        levelParam[tt] = apvts.getRawParameterValue(trackParamId(t, "level"));
+        panParam[tt] = apvts.getRawParameterValue(trackParamId(t, "pan"));
         attackParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAttackId));
         decayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kDecayId));
         sustainParam[tt] = apvts.getRawParameterValue(trackParamId(t, kSustainId));
@@ -574,6 +584,8 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
                    satMixParam[tt]->load());
     e.setBitCrusher(crushOnParam[tt]->load() > 0.5f, crushBitsParam[tt]->load(),
                     static_cast<int>(crushRateParam[tt]->load()));
+    e.setOutput(juce::Decibels::decibelsToGain(levelParam[tt]->load(), -60.0f),
+                panParam[tt]->load());
     e.setFilter(filterCutoffParam[tt]->load(), filterResonanceParam[tt]->load(),
                 filterTypeParam[tt]->load());
 

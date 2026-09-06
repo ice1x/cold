@@ -1114,6 +1114,62 @@ TEST_CASE("Cold per-layer low-cut band-limits a stacked layer", "[processor][e2e
     REQUIRE(tail(buffer, 1) < 0.1f); // layer 1 (right) lows removed
 }
 
+TEST_CASE("Cold per-cell level and pan trim the mix", "[processor][e2e][output]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int blockSize = 512;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    auto wav = writeTempWav(sampleRate, 1, blockSize);
+    REQUIRE(proc.loadSampleToTrack(0, wav)); // cell 0, channel 1
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto peak = [](const juce::AudioBuffer<float>& b, int ch)
+    {
+        float p = 0.0f;
+        for (int n = 0; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(ch, n)));
+        return p;
+    };
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    auto play = [&]()
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        return std::pair{peak(buffer, 0), peak(buffer, 1)};
+    };
+
+    const float unity = play().first;
+    REQUIRE(unity > 0.1f);
+
+    SECTION("lowering the cell level makes it quieter")
+    {
+        setParam("t0_level", -12.0f); // ~0.25x
+        REQUIRE(play().first < unity * 0.4f);
+    }
+
+    SECTION("panning the cell hard left silences the right")
+    {
+        setParam("t0_pan", -1.0f);
+        auto p = play();
+        REQUIRE(p.first > 0.1f);   // left keeps the cell
+        REQUIRE(p.second < 0.01f); // right silenced
+    }
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
@@ -1359,6 +1415,8 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t7_mapNote",
                            "t0_chokeGroup",
                            "t7_chokeGroup",
+                           "t0_level",
+                           "t7_pan",
                            "t0_lyr0_reverse",
                            "t0_lyr0_filterOn",
                            "t0_lyr0_cutoff",
