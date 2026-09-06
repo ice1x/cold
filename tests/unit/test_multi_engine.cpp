@@ -60,20 +60,21 @@ TEST_CASE("MultiEngine send bus taps each track by its send gain", "[multiengine
     auto s1 = makeConstant(64, 0.6f);
     assign(e, 0, s0);
     assign(e, 1, s1);
-    e.setSendGain(0, 0.5f); // track 0 half into the send
-    e.setSendGain(1, 0.0f); // track 1 dry only
+    e.setSendGain(0, 0, 0.5f);  // track 0 half into send 0 (delay)
+    e.setSendGain(1, 0, 0.0f);  // track 1 dry from send 0
+    e.setSendGain(1, 1, 0.25f); // track 1 quarter into send 1 (reverb)
     e.noteOn(0, kRootNote, 1.0f, kRootNote);
     e.noteOn(1, kRootNote, 1.0f, kRootNote);
 
-    std::vector<float> out(4, 0.0f), send(4, 0.0f);
+    std::vector<float> out(4, 0.0f), send0(4, 0.0f), send1(4, 0.0f);
     float* outP = out.data();
-    float* sendP = send.data();
-    e.renderNextBlock(&outP, &sendP, 1, 0, 4);
+    float* send0P = send0.data();
+    float* send1P = send1.data();
+    e.renderNextBlock(&outP, &send0P, &send1P, 1, 0, 4);
 
-    // Main out = both tracks summed dry.
-    REQUIRE_THAT(out[0], WithinAbs(1.0f, 1e-4)); // 0.4 + 0.6
-    // Send = track0*0.5 + track1*0.0.
-    REQUIRE_THAT(send[0], WithinAbs(0.2f, 1e-4)); // 0.4 * 0.5
+    REQUIRE_THAT(out[0], WithinAbs(1.0f, 1e-4));    // main = 0.4 + 0.6 dry
+    REQUIRE_THAT(send0[0], WithinAbs(0.2f, 1e-4));  // send0 = 0.4*0.5 + 0.6*0
+    REQUIRE_THAT(send1[0], WithinAbs(0.15f, 1e-4)); // send1 = 0.6*0.25
 }
 
 TEST_CASE("MultiEngine exposes kNumTracks tracks", "[multiengine][dsp][unit]")
