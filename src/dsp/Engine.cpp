@@ -222,6 +222,12 @@ void Engine::setBitCrusher(bool enabled, float bits, int downsample)
     bitCrusher.setEnabled(enabled);
 }
 
+void Engine::setOutput(float gain, float pan)
+{
+    outGain = gain;
+    outPan = std::clamp(pan, -1.0f, 1.0f);
+}
+
 void Engine::configureVoice(int voiceIndex, int sampleIndex)
 {
     auto& voice = voices[static_cast<size_t>(voiceIndex)];
@@ -466,7 +472,8 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
         }
     }
 
-    if (!compressor.enabled() && !saturator.enabled() && !bitCrusher.enabled())
+    const bool outputTrim = outGain != 1.0f || outPan != 0.0f;
+    if (!compressor.enabled() && !saturator.enabled() && !bitCrusher.enabled() && !outputTrim)
     {
         // Fast path: voices sum straight into the output, no scratch buffer.
         for (auto& voice : voices)
@@ -497,9 +504,16 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
     saturator.processBlock(compPtrs.data(), numOutChannels, numSamples);
     compressor.processBlock(compPtrs.data(), numOutChannels, numSamples);
 
+    // Sum into the output, applying the per-track output level + balance (same law as
+    // the per-voice pan: centre keeps both sides at unity).
+    const float panL = outPan > 0.0f ? 1.0f - outPan : 1.0f;
+    const float panR = outPan < 0.0f ? 1.0f + outPan : 1.0f;
     for (int c = 0; c < numOutChannels; ++c)
+    {
+        const float g = outGain * (c == 0 ? panL : (c == 1 ? panR : 1.0f));
         for (int n = 0; n < numSamples; ++n)
-            out[c][startSample + n] += compPtrs[static_cast<size_t>(c)][n];
+            out[c][startSample + n] += compPtrs[static_cast<size_t>(c)][n] * g;
+    }
 }
 
 int Engine::activeVoiceCount() const
