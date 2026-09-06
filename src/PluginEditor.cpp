@@ -501,7 +501,8 @@ public:
             if (si == 0)
                 tab = -1; // the cell grid: always visible
             else if (title.startsWith("Compressor") || title.startsWith("Saturation") ||
-                     title.startsWith("Lo-Fi") || title.startsWith("Delay"))
+                     title.startsWith("Lo-Fi") || title.startsWith("Delay") ||
+                     title.startsWith("Reverb"))
                 tab = 1; // FX
             else if (title.startsWith("Mod Envelope") || title == "LFO")
                 tab = 2; // Mod
@@ -1009,6 +1010,12 @@ private:
                   "Feedback damping: 0 = bright repeats, 1 = darker each echo.");
             gKnob(s, "delayReturn", "Return", "Level of the delay mixed back into the master.");
         }
+        {
+            auto& s = newSection("Reverb (send)");
+            gKnob(s, "reverbRoom", "Room", "Reverb size / tail length (0..1).");
+            gKnob(s, "reverbDamp", "Damp", "High-frequency decay: higher = darker tail.");
+            gKnob(s, "reverbReturn", "Return", "Level of the reverb mixed back into the master.");
+        }
     }
 
     // The sample bank: 16 slot buttons showing what's loaded; click = load a file
@@ -1284,6 +1291,9 @@ private:
         tKnob(s, "pan", "Pan", "This cell's stereo position in the mix: -1 left .. +1 right.");
         tKnob(s, "delaySend", "Delay",
               "How much of this cell is sent to the shared delay (0 = dry). Set the delay "
+              "itself in the FX tab.");
+        tKnob(s, "reverbSend", "Reverb",
+              "How much of this cell is sent to the shared reverb (0 = dry). Set the reverb "
               "itself in the FX tab.");
 
         // Layer selector: pick which of the cell's 4 layers the editor below edits.
