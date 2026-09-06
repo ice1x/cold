@@ -68,6 +68,10 @@ constexpr auto kCrushBitsId = "crushBits";
 constexpr auto kCrushRateId = "crushRate";
 constexpr auto kMidiAddressId = "midiAddressing";
 constexpr auto kMapNoteId = "mapNote";
+constexpr auto kDelayTimeId = "delayTime";
+constexpr auto kDelayFeedbackId = "delayFeedback";
+constexpr auto kDelayToneId = "delayTone";
+constexpr auto kDelayReturnId = "delayReturn";
 
 // Each cell (track) owns kNumLayers dedicated sample slots for layering: cell t's
 // layer l is slot (t * kNumLayers + l). The bank is these ranges laid end to end,
@@ -179,6 +183,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         juce::ParameterID{kLfoToSampleId, 1}, "LFO -> Sample Select",
         juce::NormalisableRange<float>(-8.0f, 8.0f, 0.01f), 0.0f));
 
+    // Shared delay send/return: time (ms), feedback, tone (feedback damping) and the
+    // return level mixed back into the master. Each cell's send amount is per-track.
+    juce::NormalisableRange<float> delayTimeRange(1.0f, 2000.0f, 1.0f);
+    delayTimeRange.setSkewForCentre(300.0f);
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kDelayTimeId, 1},
+                                                     "Delay Time", delayTimeRange, 300.0f));
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kDelayFeedbackId, 1},
+                                                     "Delay Feedback", 0.0f, 0.95f, 0.35f));
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kDelayToneId, 1},
+                                                     "Delay Tone", 0.0f, 1.0f, 0.3f));
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kDelayReturnId, 1},
+                                                     "Delay Return", 0.0f, 1.0f, 1.0f));
+
     // Amp envelope extras (delay/hold, per-segment curves, velocity) are PER-TRACK
     // too — created in the per-track loop below.
 
@@ -238,6 +255,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             juce::NormalisableRange<float>(-60.0f, 6.0f, 0.1f), 0.0f));
         layout.add(std::make_unique<AudioParameterFloat>(
             juce::ParameterID{trackParamId(t, "pan"), 1}, tp + "Pan", -1.0f, 1.0f, 0.0f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, "delaySend"), 1}, tp + "Delay Send", 0.0f, 1.0f,
+            0.0f));
 
         // Per-track amp envelope (each track/cell is an independent sound).
         layout.add(
@@ -456,6 +476,10 @@ ColdAudioProcessor::ColdAudioProcessor()
     modToCutoffParam = apvts.getRawParameterValue(kModToCutoffId);
     modToTypeParam = apvts.getRawParameterValue(kModToTypeId);
     midiAddressParam = apvts.getRawParameterValue(kMidiAddressId);
+    delayTimeParam = apvts.getRawParameterValue(kDelayTimeId);
+    delayFeedbackParam = apvts.getRawParameterValue(kDelayFeedbackId);
+    delayToneParam = apvts.getRawParameterValue(kDelayToneId);
+    delayReturnParam = apvts.getRawParameterValue(kDelayReturnId);
 
     for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
     {
@@ -464,6 +488,7 @@ ColdAudioProcessor::ColdAudioProcessor()
         chokeGroupParam[tt] = apvts.getRawParameterValue(trackParamId(t, "chokeGroup"));
         levelParam[tt] = apvts.getRawParameterValue(trackParamId(t, "level"));
         panParam[tt] = apvts.getRawParameterValue(trackParamId(t, "pan"));
+        delaySendParam[tt] = apvts.getRawParameterValue(trackParamId(t, "delaySend"));
         attackParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAttackId));
         decayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kDecayId));
         sustainParam[tt] = apvts.getRawParameterValue(trackParamId(t, kSustainId));
@@ -528,7 +553,8 @@ void ColdAudioProcessor::prepareToPlay(double sampleRate, int)
 {
     const juce::ScopedLock sl(engineLock);
     multi.prepare(sampleRate);
-    lastPolyphony = -1; // force a re-apply of polyphony on the next block
+    delay.prepare(sampleRate, 2.0); // up to 2 s echo
+    lastPolyphony = -1;             // force a re-apply of polyphony on the next block
     updateEngineParameters();
 }
 
@@ -586,6 +612,7 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
                     static_cast<int>(crushRateParam[tt]->load()));
     e.setOutput(juce::Decibels::decibelsToGain(levelParam[tt]->load(), -60.0f),
                 panParam[tt]->load());
+    multi.setSendGain(track, delaySendParam[tt]->load());
     e.setFilter(filterCutoffParam[tt]->load(), filterResonanceParam[tt]->load(),
                 filterTypeParam[tt]->load());
 
@@ -740,6 +767,22 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         channels[ch] = buffer.getWritePointer(ch);
     const int engineChannels = juce::jmin(numChannels, 2);
 
+    // Send bus for the delay: cleared per block, filled (scaled by each cell's send)
+    // alongside the main render, then processed by the delay and mixed back below.
+    const auto ec = static_cast<size_t>(engineChannels);
+    if (sendBuffer.size() < ec)
+        sendBuffer.resize(ec);
+    sendPtrs.clear();
+    for (int ch = 0; ch < engineChannels; ++ch)
+    {
+        auto& row = sendBuffer[static_cast<size_t>(ch)];
+        if (static_cast<int>(row.size()) < numSamples)
+            row.resize(static_cast<size_t>(numSamples));
+        std::fill_n(row.data(), numSamples, 0.0f);
+        sendPtrs.push_back(row.data());
+    }
+    float* const* sendOut = sendPtrs.data();
+
     const int rootNote = static_cast<int>(rootNoteParam->load());
 
     // Render in segments split on MIDI event boundaries for sample-accurate trigs.
@@ -766,7 +809,7 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         const int eventTime = juce::jlimit(0, numSamples, meta.samplePosition);
         if (eventTime > pos)
         {
-            multi.renderNextBlock(channels, engineChannels, pos, eventTime - pos);
+            multi.renderNextBlock(channels, sendOut, engineChannels, pos, eventTime - pos);
             pos = eventTime;
         }
 
@@ -804,7 +847,21 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     }
 
     if (pos < numSamples)
-        multi.renderNextBlock(channels, engineChannels, pos, numSamples - pos);
+        multi.renderNextBlock(channels, sendOut, engineChannels, pos, numSamples - pos);
+
+    // Delay send/return: process the accumulated send bus (in place -> wet) and mix it
+    // back into the main output at the return level.
+    delay.setParameters(delayTimeParam->load() * 0.001f, delayFeedbackParam->load(),
+                        delayToneParam->load());
+    delay.processBlock(sendOut, engineChannels, numSamples);
+    const float ret = delayReturnParam->load();
+    for (int ch = 0; ch < engineChannels; ++ch)
+    {
+        const float* wet = sendPtrs[static_cast<size_t>(ch)];
+        float* dst = channels[ch];
+        for (int n = 0; n < numSamples; ++n)
+            dst[n] += wet[n] * ret;
+    }
 
     const float gainLinear = juce::Decibels::decibelsToGain(gainParam->load(), -60.0f);
     buffer.applyGain(gainLinear);
