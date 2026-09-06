@@ -1231,6 +1231,56 @@ TEST_CASE("Cold per-cell delay send produces an echo", "[processor][e2e][delay]"
     proc.releaseResources();
 }
 
+TEST_CASE("Cold per-cell reverb send produces a tail", "[processor][e2e][reverb]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int frames = 8192;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    auto wav = writeTempWav(sampleRate, 1, 256); // short hit
+    REQUIRE(proc.loadSampleToTrack(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto windowRms = [](const juce::AudioBuffer<float>& b, int from, int to)
+    {
+        double s = 0.0;
+        for (int n = from; n < to; ++n)
+            s += static_cast<double>(b.getSample(0, n)) * b.getSample(0, n);
+        return std::sqrt(s / (to - from));
+    };
+
+    setParam("reverbRoom", 0.8f);
+    setParam("reverbReturn", 1.0f);
+
+    juce::AudioBuffer<float> buffer(2, frames);
+    auto play = [&]()
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+    };
+
+    setParam("t0_reverbSend", 0.0f);
+    play();
+    REQUIRE(windowRms(buffer, 3000, 7000) < 1e-4); // dry: silent long after the hit
+
+    setParam("t0_reverbSend", 1.0f);
+    play();
+    REQUIRE(windowRms(buffer, 3000, 7000) > 1e-3); // wet: a reverb tail lingers
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
@@ -1481,6 +1531,9 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_delaySend",
                            "delayTime",
                            "delayReturn",
+                           "t0_reverbSend",
+                           "reverbRoom",
+                           "reverbReturn",
                            "t0_lyr0_reverse",
                            "t0_lyr0_filterOn",
                            "t0_lyr0_cutoff",

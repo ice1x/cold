@@ -72,6 +72,9 @@ constexpr auto kDelayTimeId = "delayTime";
 constexpr auto kDelayFeedbackId = "delayFeedback";
 constexpr auto kDelayToneId = "delayTone";
 constexpr auto kDelayReturnId = "delayReturn";
+constexpr auto kReverbRoomId = "reverbRoom";
+constexpr auto kReverbDampId = "reverbDamp";
+constexpr auto kReverbReturnId = "reverbReturn";
 
 // Each cell (track) owns kNumLayers dedicated sample slots for layering: cell t's
 // layer l is slot (t * kNumLayers + l). The bank is these ranges laid end to end,
@@ -196,6 +199,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kDelayReturnId, 1},
                                                      "Delay Return", 0.0f, 1.0f, 1.0f));
 
+    // Shared reverb send/return: room size, damping and the return level.
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kReverbRoomId, 1},
+                                                     "Reverb Room", 0.0f, 1.0f, 0.6f));
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kReverbDampId, 1},
+                                                     "Reverb Damp", 0.0f, 1.0f, 0.4f));
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kReverbReturnId, 1},
+                                                     "Reverb Return", 0.0f, 1.0f, 1.0f));
+
     // Amp envelope extras (delay/hold, per-segment curves, velocity) are PER-TRACK
     // too — created in the per-track loop below.
 
@@ -257,6 +268,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             juce::ParameterID{trackParamId(t, "pan"), 1}, tp + "Pan", -1.0f, 1.0f, 0.0f));
         layout.add(std::make_unique<AudioParameterFloat>(
             juce::ParameterID{trackParamId(t, "delaySend"), 1}, tp + "Delay Send", 0.0f, 1.0f,
+            0.0f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, "reverbSend"), 1}, tp + "Reverb Send", 0.0f, 1.0f,
             0.0f));
 
         // Per-track amp envelope (each track/cell is an independent sound).
@@ -480,6 +494,9 @@ ColdAudioProcessor::ColdAudioProcessor()
     delayFeedbackParam = apvts.getRawParameterValue(kDelayFeedbackId);
     delayToneParam = apvts.getRawParameterValue(kDelayToneId);
     delayReturnParam = apvts.getRawParameterValue(kDelayReturnId);
+    reverbRoomParam = apvts.getRawParameterValue(kReverbRoomId);
+    reverbDampParam = apvts.getRawParameterValue(kReverbDampId);
+    reverbReturnParam = apvts.getRawParameterValue(kReverbReturnId);
 
     for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
     {
@@ -489,6 +506,7 @@ ColdAudioProcessor::ColdAudioProcessor()
         levelParam[tt] = apvts.getRawParameterValue(trackParamId(t, "level"));
         panParam[tt] = apvts.getRawParameterValue(trackParamId(t, "pan"));
         delaySendParam[tt] = apvts.getRawParameterValue(trackParamId(t, "delaySend"));
+        reverbSendParam[tt] = apvts.getRawParameterValue(trackParamId(t, "reverbSend"));
         attackParam[tt] = apvts.getRawParameterValue(trackParamId(t, kAttackId));
         decayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kDecayId));
         sustainParam[tt] = apvts.getRawParameterValue(trackParamId(t, kSustainId));
@@ -554,7 +572,8 @@ void ColdAudioProcessor::prepareToPlay(double sampleRate, int)
     const juce::ScopedLock sl(engineLock);
     multi.prepare(sampleRate);
     delay.prepare(sampleRate, 2.0); // up to 2 s echo
-    lastPolyphony = -1;             // force a re-apply of polyphony on the next block
+    reverb.prepare(sampleRate);
+    lastPolyphony = -1; // force a re-apply of polyphony on the next block
     updateEngineParameters();
 }
 
@@ -612,7 +631,8 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
                     static_cast<int>(crushRateParam[tt]->load()));
     e.setOutput(juce::Decibels::decibelsToGain(levelParam[tt]->load(), -60.0f),
                 panParam[tt]->load());
-    multi.setSendGain(track, delaySendParam[tt]->load());
+    multi.setSendGain(track, 0, delaySendParam[tt]->load());
+    multi.setSendGain(track, 1, reverbSendParam[tt]->load());
     e.setFilter(filterCutoffParam[tt]->load(), filterResonanceParam[tt]->load(),
                 filterTypeParam[tt]->load());
 
@@ -767,21 +787,28 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         channels[ch] = buffer.getWritePointer(ch);
     const int engineChannels = juce::jmin(numChannels, 2);
 
-    // Send bus for the delay: cleared per block, filled (scaled by each cell's send)
-    // alongside the main render, then processed by the delay and mixed back below.
+    // Send buses for the delay + reverb: cleared per block, filled (scaled by each
+    // cell's sends) alongside the main render, then processed by each FX and mixed
+    // back below.
     const auto ec = static_cast<size_t>(engineChannels);
-    if (sendBuffer.size() < ec)
-        sendBuffer.resize(ec);
-    sendPtrs.clear();
-    for (int ch = 0; ch < engineChannels; ++ch)
+    auto prepareBus = [&](std::vector<std::vector<float>>& buf, std::vector<float*>& ptrs)
     {
-        auto& row = sendBuffer[static_cast<size_t>(ch)];
-        if (static_cast<int>(row.size()) < numSamples)
-            row.resize(static_cast<size_t>(numSamples));
-        std::fill_n(row.data(), numSamples, 0.0f);
-        sendPtrs.push_back(row.data());
-    }
-    float* const* sendOut = sendPtrs.data();
+        if (buf.size() < ec)
+            buf.resize(ec);
+        ptrs.clear();
+        for (int ch = 0; ch < engineChannels; ++ch)
+        {
+            auto& row = buf[static_cast<size_t>(ch)];
+            if (static_cast<int>(row.size()) < numSamples)
+                row.resize(static_cast<size_t>(numSamples));
+            std::fill_n(row.data(), numSamples, 0.0f);
+            ptrs.push_back(row.data());
+        }
+    };
+    prepareBus(delayBuffer, delayPtrs);
+    prepareBus(reverbBuffer, reverbPtrs);
+    float* const* delayOut = delayPtrs.data();
+    float* const* reverbOut = reverbPtrs.data();
 
     const int rootNote = static_cast<int>(rootNoteParam->load());
 
@@ -809,7 +836,8 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         const int eventTime = juce::jlimit(0, numSamples, meta.samplePosition);
         if (eventTime > pos)
         {
-            multi.renderNextBlock(channels, sendOut, engineChannels, pos, eventTime - pos);
+            multi.renderNextBlock(channels, delayOut, reverbOut, engineChannels, pos,
+                                  eventTime - pos);
             pos = eventTime;
         }
 
@@ -847,20 +875,25 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     }
 
     if (pos < numSamples)
-        multi.renderNextBlock(channels, sendOut, engineChannels, pos, numSamples - pos);
+        multi.renderNextBlock(channels, delayOut, reverbOut, engineChannels, pos, numSamples - pos);
 
-    // Delay send/return: process the accumulated send bus (in place -> wet) and mix it
-    // back into the main output at the return level.
+    // Delay + reverb send/return: process each accumulated bus (in place -> wet) and
+    // mix it back into the main output at its return level.
     delay.setParameters(delayTimeParam->load() * 0.001f, delayFeedbackParam->load(),
                         delayToneParam->load());
-    delay.processBlock(sendOut, engineChannels, numSamples);
-    const float ret = delayReturnParam->load();
+    delay.processBlock(delayOut, engineChannels, numSamples);
+    reverb.setParameters(reverbRoomParam->load(), reverbDampParam->load());
+    reverb.processBlock(reverbOut, engineChannels, numSamples);
+
+    const float delayRet = delayReturnParam->load();
+    const float reverbRet = reverbReturnParam->load();
     for (int ch = 0; ch < engineChannels; ++ch)
     {
-        const float* wet = sendPtrs[static_cast<size_t>(ch)];
+        const float* dw = delayPtrs[static_cast<size_t>(ch)];
+        const float* rw = reverbPtrs[static_cast<size_t>(ch)];
         float* dst = channels[ch];
         for (int n = 0; n < numSamples; ++n)
-            dst[n] += wet[n] * ret;
+            dst[n] += dw[n] * delayRet + rw[n] * reverbRet;
     }
 
     const float gainLinear = juce::Decibels::decibelsToGain(gainParam->load(), -60.0f);

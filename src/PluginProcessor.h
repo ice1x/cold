@@ -2,6 +2,7 @@
 
 #include "dsp/Delay.h"
 #include "dsp/MultiEngine.h"
+#include "dsp/Reverb.h"
 #include "dsp/Waveform.h"
 #include "io/SampleBank.h"
 
@@ -126,12 +127,15 @@ private:
     void applySharedParamsToTrack(int track, bool polyChanged);
 
     dsp::MultiEngine multi;
-    dsp::Delay delay; // shared send/return delay fed by the per-cell sends
+    dsp::Delay delay;   // shared send/return delay fed by the per-cell delay sends
+    dsp::Reverb reverb; // shared send/return reverb fed by the per-cell reverb sends
     io::SampleBank bank;
 
-    // Send bus (per block) feeding the delay, and its channel-pointer view.
-    std::vector<std::vector<float>> sendBuffer;
-    std::vector<float*> sendPtrs;
+    // Send buses (per block) feeding the delay + reverb, and their pointer views.
+    std::vector<std::vector<float>> delayBuffer;
+    std::vector<float*> delayPtrs;
+    std::vector<std::vector<float>> reverbBuffer;
+    std::vector<float*> reverbPtrs;
 
     // Per-bank-slot channel-pointer views (into each slot's buffer, offset by the
     // slot start window). Shared by every track's sample list, so they must outlive
@@ -171,6 +175,9 @@ private:
     std::atomic<float>* delayFeedbackParam = nullptr;
     std::atomic<float>* delayToneParam = nullptr;
     std::atomic<float>* delayReturnParam = nullptr;
+    std::atomic<float>* reverbRoomParam = nullptr;
+    std::atomic<float>* reverbDampParam = nullptr;
+    std::atomic<float>* reverbReturnParam = nullptr;
 
     // Multilayer one-shot stacks: per-track layer mode + up to kNumLayers layers
     // (kNumLayers declared public above), each a bank slot (-1 = off) with
@@ -185,8 +192,9 @@ private:
     std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> levelParam{};
     std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> panParam{};
 
-    // Per-cell send amount into the shared delay bus.
+    // Per-cell send amounts into the shared delay + reverb buses.
     std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> delaySendParam{};
+    std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> reverbSendParam{};
 
     // Per-track amp envelope (each track/cell is an independent sound).
     using TrackFloats = std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks>;
