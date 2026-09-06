@@ -42,17 +42,20 @@ public:
 
     void reset();
 
-    // Per-track send amount into the shared FX (delay) bus, 0..1. 0 = dry only.
-    void setSendGain(int trackIndex, float gain);
+    // Number of shared FX send buses (0 = delay, 1 = reverb).
+    static constexpr int kNumSends = 2;
+
+    // Per-track amount into FX send `sendIndex` (0..1). 0 = dry only.
+    void setSendGain(int trackIndex, int sendIndex, float gain);
 
     // Sum every track's contribution into the output buffer.
     void renderNextBlock(float* const* out, int numOutChannels, int startSample, int numSamples);
 
-    // As above, but also sum each track's contribution — scaled by its send gain —
-    // into `sendOut` (same channel count / indexing as `out`). `sendOut` may be null
-    // to skip the send bus. Used for the delay send/return.
-    void renderNextBlock(float* const* out, float* const* sendOut, int numOutChannels,
-                         int startSample, int numSamples);
+    // As above, but also sum each track's contribution — scaled by its send gains —
+    // into the two send buses (same channel count / indexing as `out`). Either send
+    // may be null to skip it. Used for the delay + reverb sends.
+    void renderNextBlock(float* const* out, float* const* send0, float* const* send1,
+                         int numOutChannels, int startSample, int numSamples);
 
     [[nodiscard]] int activeVoiceCount() const;
 
@@ -63,7 +66,8 @@ private:
     }
 
     std::array<Engine, kNumTracks> tracks;
-    std::array<float, kNumTracks> sendGain{}; // per-track delay-send amount (0..1)
+    // sendGain[send][track]: per-track amount into each FX send bus (0..1).
+    std::array<std::array<float, kNumTracks>, kNumSends> sendGain{};
 
     // Reused scratch for the send-bus render path (one track's isolated output).
     std::vector<std::vector<float>> trackScratch;

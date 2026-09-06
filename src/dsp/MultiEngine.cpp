@@ -62,10 +62,10 @@ void MultiEngine::reset()
         t.reset();
 }
 
-void MultiEngine::setSendGain(int trackIndex, float gain)
+void MultiEngine::setSendGain(int trackIndex, int sendIndex, float gain)
 {
-    if (validTrack(trackIndex))
-        sendGain[static_cast<size_t>(trackIndex)] = gain;
+    if (validTrack(trackIndex) && sendIndex >= 0 && sendIndex < kNumSends)
+        sendGain[static_cast<size_t>(sendIndex)][static_cast<size_t>(trackIndex)] = gain;
 }
 
 void MultiEngine::renderNextBlock(float* const* out, int numOutChannels, int startSample,
@@ -75,17 +75,17 @@ void MultiEngine::renderNextBlock(float* const* out, int numOutChannels, int sta
         t.renderNextBlock(out, numOutChannels, startSample, numSamples);
 }
 
-void MultiEngine::renderNextBlock(float* const* out, float* const* sendOut, int numOutChannels,
-                                  int startSample, int numSamples)
+void MultiEngine::renderNextBlock(float* const* out, float* const* send0, float* const* send1,
+                                  int numOutChannels, int startSample, int numSamples)
 {
-    if (sendOut == nullptr)
+    if (send0 == nullptr && send1 == nullptr)
     {
         renderNextBlock(out, numOutChannels, startSample, numSamples);
         return;
     }
 
     // Render each track into an isolated scratch, then add it to the main out and,
-    // scaled by that track's send, to the send bus.
+    // scaled by that track's send gains, to each send bus.
     const auto ch = static_cast<size_t>(numOutChannels);
     if (trackScratch.size() < ch)
         trackScratch.resize(ch);
@@ -106,17 +106,20 @@ void MultiEngine::renderNextBlock(float* const* out, float* const* sendOut, int 
         tracks[static_cast<size_t>(ti)].renderNextBlock(scratchPtrs.data(), numOutChannels, 0,
                                                         numSamples);
 
-        const float send = sendGain[static_cast<size_t>(ti)];
+        const float g0 = sendGain[0][static_cast<size_t>(ti)];
+        const float g1 = sendGain[1][static_cast<size_t>(ti)];
         for (int c = 0; c < numOutChannels; ++c)
         {
             const float* src = scratchPtrs[static_cast<size_t>(c)];
             float* dst = out[c];
-            float* snd = sendOut[c];
             for (int n = 0; n < numSamples; ++n)
             {
                 const float v = src[n];
                 dst[startSample + n] += v;
-                snd[startSample + n] += v * send;
+                if (send0 != nullptr)
+                    send0[c][startSample + n] += v * g0;
+                if (send1 != nullptr)
+                    send1[c][startSample + n] += v * g1;
             }
         }
     }

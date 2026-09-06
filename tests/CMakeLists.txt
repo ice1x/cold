@@ -29,6 +29,7 @@ add_executable(ColdTests
     unit/test_saturator.cpp
     unit/test_bitcrusher.cpp
     unit/test_delay.cpp
+    unit/test_reverb.cpp
     unit/test_logger.cpp)
 target_link_libraries(ColdTests PRIVATE
     cold_dsp
