@@ -52,6 +52,30 @@ std::vector<float> render(MultiEngine& e, int numSamples)
 }
 } // namespace
 
+TEST_CASE("MultiEngine send bus taps each track by its send gain", "[multiengine][dsp][unit][send]")
+{
+    MultiEngine e;
+    e.prepare(44100.0);
+    auto s0 = makeConstant(64, 0.4f); // kept alive: setSample stores pointers into these
+    auto s1 = makeConstant(64, 0.6f);
+    assign(e, 0, s0);
+    assign(e, 1, s1);
+    e.setSendGain(0, 0.5f); // track 0 half into the send
+    e.setSendGain(1, 0.0f); // track 1 dry only
+    e.noteOn(0, kRootNote, 1.0f, kRootNote);
+    e.noteOn(1, kRootNote, 1.0f, kRootNote);
+
+    std::vector<float> out(4, 0.0f), send(4, 0.0f);
+    float* outP = out.data();
+    float* sendP = send.data();
+    e.renderNextBlock(&outP, &sendP, 1, 0, 4);
+
+    // Main out = both tracks summed dry.
+    REQUIRE_THAT(out[0], WithinAbs(1.0f, 1e-4)); // 0.4 + 0.6
+    // Send = track0*0.5 + track1*0.0.
+    REQUIRE_THAT(send[0], WithinAbs(0.2f, 1e-4)); // 0.4 * 0.5
+}
+
 TEST_CASE("MultiEngine exposes kNumTracks tracks", "[multiengine][dsp][unit]")
 {
     MultiEngine e;

@@ -10,6 +10,7 @@
 #include "dsp/Engine.h"
 
 #include <array>
+#include <vector>
 
 namespace cold::dsp
 {
@@ -41,8 +42,17 @@ public:
 
     void reset();
 
+    // Per-track send amount into the shared FX (delay) bus, 0..1. 0 = dry only.
+    void setSendGain(int trackIndex, float gain);
+
     // Sum every track's contribution into the output buffer.
     void renderNextBlock(float* const* out, int numOutChannels, int startSample, int numSamples);
+
+    // As above, but also sum each track's contribution — scaled by its send gain —
+    // into `sendOut` (same channel count / indexing as `out`). `sendOut` may be null
+    // to skip the send bus. Used for the delay send/return.
+    void renderNextBlock(float* const* out, float* const* sendOut, int numOutChannels,
+                         int startSample, int numSamples);
 
     [[nodiscard]] int activeVoiceCount() const;
 
@@ -53,6 +63,11 @@ private:
     }
 
     std::array<Engine, kNumTracks> tracks;
+    std::array<float, kNumTracks> sendGain{}; // per-track delay-send amount (0..1)
+
+    // Reused scratch for the send-bus render path (one track's isolated output).
+    std::vector<std::vector<float>> trackScratch;
+    std::vector<float*> scratchPtrs;
 };
 
 } // namespace cold::dsp
