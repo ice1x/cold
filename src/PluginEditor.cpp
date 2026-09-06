@@ -635,6 +635,19 @@ public:
         waveformView.setBounds(pad, y, width - 2 * pad, waveH);
         y += waveH + gap;
 
+        // Pinned envelope strip: the selected layer's Tune + amp envelope, right under
+        // the waveform so they sit next to the mask they shape. Always visible.
+        if (!envStrip.empty())
+        {
+            const int n = static_cast<int>(envStrip.size());
+            constexpr int stripH = 60;
+            const int cellW = (width - 2 * pad - gap * (n - 1)) / n;
+            for (int i = 0; i < n; ++i)
+                envStrip[static_cast<size_t>(i)]->setBounds(pad + i * (cellW + gap), y, cellW,
+                                                            stripH);
+            y += stripH + gap;
+        }
+
         // Tab bar: switches which editing sections are shown below.
         const int tabW = (width - 2 * pad - gap * (static_cast<int>(tabButtons.size()) - 1)) /
                          juce::jmax(1, static_cast<int>(tabButtons.size()));
@@ -761,6 +774,18 @@ private:
         addAndMakeVisible(*ptr);
         owned.push_back(std::move(lc));
         sec.cells.push_back(ptr);
+    }
+
+    // Wrap the last-made control and PIN it in the strip directly under the waveform
+    // (always visible, above the tab bar) — for Tune + the amp envelope, which shape
+    // the mask drawn on the waveform.
+    void placePinned(const juce::String& name, const juce::String& tooltip = {})
+    {
+        auto lc = std::make_unique<LabeledControl>(name, std::move(pendingControl), tooltip);
+        auto* ptr = lc.get();
+        addAndMakeVisible(*ptr);
+        owned.push_back(std::move(lc));
+        envStrip.push_back(ptr);
     }
 
     Section& newSection(const juce::String& title)
@@ -1306,8 +1331,6 @@ private:
 
         c.gain = makeSlider();
         place(row, "Gain", "Layer level (multiplies note velocity).");
-        c.tune = makeSlider();
-        place(row, "Tune", "Layer pitch offset in semitones (+/-24).");
         c.pan = makeSlider();
         place(row, "Pan", "Layer stereo position: -1 hard left .. +1 hard right.");
         c.flt = makeToggle();
@@ -1335,24 +1358,28 @@ private:
         c.lpCut = makeSlider();
         place(row, "HC Freq", "High-cut (low-pass) frequency in Hz (200-20000).");
 
-        // Per-layer amp envelope — the core of layering: give this layer its own
-        // contour (a snappy click layer + a long body layer on one note).
+        // Tune + the per-layer amp envelope are PINNED directly under the waveform
+        // (they shape the mask drawn there), so they build into the pinned strip
+        // rather than this section. Still per-layer: attached in selectLayer.
+        c.tune = makeSlider();
+        placePinned("Tune", "Layer pitch offset in semitones (+/-24). Changes playback speed, so "
+                            "it reshapes the envelope mask on the waveform.");
         c.envOn = makeToggle();
-        place(row, "Env",
-              "Give this layer its OWN amp envelope instead of the cell's shared one — "
-              "the essence of layering (e.g. a fast click layer + a long tail layer).");
+        placePinned("Env",
+                    "Give this layer its OWN amp envelope instead of the cell's shared one — "
+                    "the essence of layering (e.g. a fast click layer + a long tail layer).");
         c.envDelay = makeSlider();
-        place(row, "E.Delay", "This layer's envelope: silence before the attack (seconds).");
+        placePinned("E.Delay", "This layer's envelope: silence before the attack (seconds).");
         c.envAttack = makeSlider();
-        place(row, "E.Attack", "This layer's envelope attack (fade-in), in seconds.");
+        placePinned("E.Attack", "This layer's envelope attack (fade-in), in seconds.");
         c.envHold = makeSlider();
-        place(row, "E.Hold", "This layer's envelope hold at full level, in seconds.");
+        placePinned("E.Hold", "This layer's envelope hold at full level, in seconds.");
         c.envDecay = makeSlider();
-        place(row, "E.Decay", "This layer's envelope decay to the sustain level, in seconds.");
+        placePinned("E.Decay", "This layer's envelope decay to the sustain level, in seconds.");
         c.envSustain = makeSlider();
-        place(row, "E.Sustain", "This layer's envelope sustain level (0..1).");
+        placePinned("E.Sustain", "This layer's envelope sustain level (0..1).");
         c.envRelease = makeSlider();
-        place(row, "E.Release", "This layer's envelope release after note-off, in seconds.");
+        placePinned("E.Release", "This layer's envelope release after note-off, in seconds.");
     }
 
     // Rebuild the per-track attachments (layer mode + per-track knobs/toggles) to
@@ -1486,6 +1513,7 @@ private:
     std::vector<juce::TextButton*> layerSelectors; // Layer 1|2|3|4, owned via `owned`
     int currentLayer = 0;
     std::array<bool, static_cast<size_t>(kNumLayers)> layerShow{}; // overlay flags (current cell)
+    std::vector<juce::Component*> envStrip; // pinned Tune + envelope controls under the wave
 
     // Per-track sound knobs whose attachment is rebuilt for the selected track.
     struct PerTrackKnob
