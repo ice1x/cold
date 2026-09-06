@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dsp/Delay.h"
 #include "dsp/MultiEngine.h"
 #include "dsp/Waveform.h"
 #include "io/SampleBank.h"
@@ -125,7 +126,12 @@ private:
     void applySharedParamsToTrack(int track, bool polyChanged);
 
     dsp::MultiEngine multi;
+    dsp::Delay delay; // shared send/return delay fed by the per-cell sends
     io::SampleBank bank;
+
+    // Send bus (per block) feeding the delay, and its channel-pointer view.
+    std::vector<std::vector<float>> sendBuffer;
+    std::vector<float*> sendPtrs;
 
     // Per-bank-slot channel-pointer views (into each slot's buffer, offset by the
     // slot start window). Shared by every track's sample list, so they must outlive
@@ -161,6 +167,10 @@ private:
     std::atomic<float>* modToCutoffParam = nullptr;
     std::atomic<float>* modToTypeParam = nullptr;
     std::atomic<float>* midiAddressParam = nullptr; // 0 = channel->track, 1 = note map
+    std::atomic<float>* delayTimeParam = nullptr;
+    std::atomic<float>* delayFeedbackParam = nullptr;
+    std::atomic<float>* delayToneParam = nullptr;
+    std::atomic<float>* delayReturnParam = nullptr;
 
     // Multilayer one-shot stacks: per-track layer mode + up to kNumLayers layers
     // (kNumLayers declared public above), each a bank slot (-1 = off) with
@@ -174,6 +184,9 @@ private:
     // Per-cell output level (dB) + pan (balance) into the mix.
     std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> levelParam{};
     std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> panParam{};
+
+    // Per-cell send amount into the shared delay bus.
+    std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks> delaySendParam{};
 
     // Per-track amp envelope (each track/cell is an independent sound).
     using TrackFloats = std::array<std::atomic<float>*, dsp::MultiEngine::kNumTracks>;
