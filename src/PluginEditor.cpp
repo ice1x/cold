@@ -1003,7 +1003,11 @@ private:
         }
         {
             auto& s = newSection("Delay (send)");
-            gKnob(s, "delayTime", "Time", "Echo time in milliseconds.");
+            gKnob(s, "delayTime", "Time", "Echo time in milliseconds (used when Sync is off).");
+            gToggle(s, "delaySync", "Sync",
+                    "Lock the echo time to the host tempo (Division below).");
+            gCombo(s, "delayDivision", "Division",
+                   "Echo time as a musical division of the tempo when Sync is on.");
             gKnob(s, "delayFeedback", "Feedback",
                   "How much of each echo feeds the next (0..0.95): more = longer trail.");
             gKnob(s, "delayTone", "Tone",
