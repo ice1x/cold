@@ -1281,6 +1281,54 @@ TEST_CASE("Cold per-cell reverb send produces a tail", "[processor][e2e][reverb]
     proc.releaseResources();
 }
 
+TEST_CASE("Cold tempo-synced delay places the echo on the grid", "[processor][e2e][delay]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int frames = 8192;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    auto wav = writeTempWav(sampleRate, 1, 256);
+    REQUIRE(proc.loadSampleToTrack(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto windowPeak = [](const juce::AudioBuffer<float>& b, int from, int to)
+    {
+        float p = 0.0f;
+        for (int n = from; n < to; ++n)
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    // No playhead in the test harness -> host tempo defaults to 120 BPM. A 1/16
+    // (0.25 beat) echo at 120 BPM = 0.125 s = 5512 samples.
+    setParam("t0_delaySend", 1.0f);
+    setParam("delayFeedback", 0.0f);
+    setParam("delayReturn", 1.0f);
+    setParam("delaySync", 1.0f);
+    setParam("delayDivision", 6.0f); // "1/16"
+
+    juce::AudioBuffer<float> buffer(2, frames);
+    buffer.clear();
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+    renderBlock(proc, buffer, midi);
+    REQUIRE(bufferIsFinite(buffer));
+
+    REQUIRE(windowPeak(buffer, 0, 256) > 0.1f);      // dry hit
+    REQUIRE(windowPeak(buffer, 5300, 5800) > 0.05f); // echo ~5512 samples in (1/16 @ 120)
+    REQUIRE(windowPeak(buffer, 2000, 4000) < 0.01f); // nothing before the grid point
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
@@ -1531,6 +1579,8 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_delaySend",
                            "delayTime",
                            "delayReturn",
+                           "delaySync",
+                           "delayDivision",
                            "t0_reverbSend",
                            "reverbRoom",
                            "reverbReturn",

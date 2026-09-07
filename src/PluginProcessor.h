@@ -175,6 +175,8 @@ private:
     std::atomic<float>* delayFeedbackParam = nullptr;
     std::atomic<float>* delayToneParam = nullptr;
     std::atomic<float>* delayReturnParam = nullptr;
+    std::atomic<float>* delaySyncParam = nullptr;
+    std::atomic<float>* delayDivisionParam = nullptr;
     std::atomic<float>* reverbRoomParam = nullptr;
     std::atomic<float>* reverbDampParam = nullptr;
     std::atomic<float>* reverbReturnParam = nullptr;
