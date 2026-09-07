@@ -72,6 +72,8 @@ constexpr auto kDelayTimeId = "delayTime";
 constexpr auto kDelayFeedbackId = "delayFeedback";
 constexpr auto kDelayToneId = "delayTone";
 constexpr auto kDelayReturnId = "delayReturn";
+constexpr auto kDelaySyncId = "delaySync";
+constexpr auto kDelayDivisionId = "delayDivision";
 constexpr auto kReverbRoomId = "reverbRoom";
 constexpr auto kReverbDampId = "reverbDamp";
 constexpr auto kReverbReturnId = "reverbReturn";
@@ -198,6 +200,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
                                                      "Delay Tone", 0.0f, 1.0f, 0.3f));
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kDelayReturnId, 1},
                                                      "Delay Return", 0.0f, 1.0f, 1.0f));
+    // Tempo sync: when on, the echo time is a musical division of the host tempo
+    // (the Division below) instead of the free Time in ms.
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{kDelaySyncId, 1},
+                                                          "Delay Sync", false));
+    layout.add(std::make_unique<AudioParameterChoice>(
+        juce::ParameterID{kDelayDivisionId, 1}, "Delay Division",
+        juce::StringArray{"4 bars", "2 bars", "1 bar", "1/2", "1/4", "1/8", "1/16"}, 5));
 
     // Shared reverb send/return: room size, damping and the return level.
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kReverbRoomId, 1},
@@ -494,6 +503,8 @@ ColdAudioProcessor::ColdAudioProcessor()
     delayFeedbackParam = apvts.getRawParameterValue(kDelayFeedbackId);
     delayToneParam = apvts.getRawParameterValue(kDelayToneId);
     delayReturnParam = apvts.getRawParameterValue(kDelayReturnId);
+    delaySyncParam = apvts.getRawParameterValue(kDelaySyncId);
+    delayDivisionParam = apvts.getRawParameterValue(kDelayDivisionId);
     reverbRoomParam = apvts.getRawParameterValue(kReverbRoomId);
     reverbDampParam = apvts.getRawParameterValue(kReverbDampId);
     reverbReturnParam = apvts.getRawParameterValue(kReverbReturnId);
@@ -879,8 +890,16 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
 
     // Delay + reverb send/return: process each accumulated bus (in place -> wet) and
     // mix it back into the main output at its return level.
-    delay.setParameters(delayTimeParam->load() * 0.001f, delayFeedbackParam->load(),
-                        delayToneParam->load());
+    // Delay time: a musical division of the host tempo when synced, else free ms.
+    float delaySeconds = delayTimeParam->load() * 0.001f;
+    if (delaySyncParam->load() > 0.5f && hostBpm > 0.0)
+    {
+        const auto idx =
+            static_cast<size_t>(std::clamp(static_cast<int>(delayDivisionParam->load()), 0,
+                                           static_cast<int>(kDivisionBeats.size()) - 1));
+        delaySeconds = static_cast<float>(kDivisionBeats[idx] * 60.0 / hostBpm);
+    }
+    delay.setParameters(delaySeconds, delayFeedbackParam->load(), delayToneParam->load());
     delay.processBlock(delayOut, engineChannels, numSamples);
     reverb.setParameters(reverbRoomParam->load(), reverbDampParam->load());
     reverb.processBlock(reverbOut, engineChannels, numSamples);
