@@ -265,6 +265,8 @@ private:
     LayerFloats layerLpCutParam{};
     std::vector<dsp::Engine::Layer> layerScratch; // reused in applyParamsToTrack (avoids re-alloc)
 
+    bool sendsWereActive = false; // FX path used last block (to clear tails once on exit)
+
     double hostBpm = 120.0; // last known host tempo (for LFO sync)
 
     int lastPolyphony = -1;
