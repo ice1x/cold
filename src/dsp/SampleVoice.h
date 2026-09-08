@@ -129,6 +129,12 @@ public:
     // disables it. Independent of the tune and pitch-mod channels.
     void setVelToPitch(float semitones);
 
+    // Velocity -> filter cutoff: at note-on the base cutoff is shifted by
+    // `octaves * velocity`, so harder hits open (or, negative, close) the filter.
+    // Captured per note; 0 disables it. Applies on top of the LFO / mod-env filter
+    // modulation. No effect when the filter is off.
+    void setVelToCutoff(float octaves);
+
     // Stereo placement in [-1, 1] (L..R). Linear balance law: centre (0) leaves
     // both channels at unity (unchanged fan-out), a hard side silences the other.
     // Used to spread a stack's layers across the panorama.
@@ -192,8 +198,10 @@ private:
     float pitchEnvAmount = 0.0f; // semitones at full envelope
     bool usePitchEnv = false;
 
-    float velToPitchAmount = 0.0f; // semitones at full velocity (velocity -> pitch)
-    float velPitchMod = 0.0f;      // captured per note: velToPitchAmount * velocity
+    float velToPitchAmount = 0.0f;  // semitones at full velocity (velocity -> pitch)
+    float velPitchMod = 0.0f;       // captured per note: velToPitchAmount * velocity
+    float velToCutoffAmount = 0.0f; // octaves at full velocity (velocity -> cutoff)
+    float velCutoffMod = 0.0f;      // captured per note: velToCutoffAmount * velocity
 
     // Amp envelope parameter store (delay/hold added on top of the ADSR core).
     float ampDelay = 0.0f;
