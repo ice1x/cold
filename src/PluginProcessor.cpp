@@ -798,9 +798,20 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         channels[ch] = buffer.getWritePointer(ch);
     const int engineChannels = juce::jmin(numChannels, 2);
 
+    // Only route through the FX send path when at least one cell actually sends to
+    // the delay or reverb; otherwise take the zero-cost dry path (a plain summed
+    // render, no per-track scratch, no FX) so an untouched kit costs nothing extra.
+    bool anySend = false;
+    for (int t = 0; t < dsp::MultiEngine::kNumTracks && !anySend; ++t)
+    {
+        const auto tt = static_cast<size_t>(t);
+        if (delaySendParam[tt]->load() > 0.0f || reverbSendParam[tt]->load() > 0.0f)
+            anySend = true;
+    }
+
     // Send buses for the delay + reverb: cleared per block, filled (scaled by each
     // cell's sends) alongside the main render, then processed by each FX and mixed
-    // back below.
+    // back below. Only prepared on the FX path.
     const auto ec = static_cast<size_t>(engineChannels);
     auto prepareBus = [&](std::vector<std::vector<float>>& buf, std::vector<float*>& ptrs)
     {
@@ -816,10 +827,13 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
             ptrs.push_back(row.data());
         }
     };
-    prepareBus(delayBuffer, delayPtrs);
-    prepareBus(reverbBuffer, reverbPtrs);
-    float* const* delayOut = delayPtrs.data();
-    float* const* reverbOut = reverbPtrs.data();
+    if (anySend)
+    {
+        prepareBus(delayBuffer, delayPtrs);
+        prepareBus(reverbBuffer, reverbPtrs);
+    }
+    float* const* delayOut = anySend ? delayPtrs.data() : nullptr;
+    float* const* reverbOut = anySend ? reverbPtrs.data() : nullptr;
 
     const int rootNote = static_cast<int>(rootNoteParam->load());
 
@@ -889,30 +903,44 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         multi.renderNextBlock(channels, delayOut, reverbOut, engineChannels, pos, numSamples - pos);
 
     // Delay + reverb send/return: process each accumulated bus (in place -> wet) and
-    // mix it back into the main output at its return level.
-    // Delay time: a musical division of the host tempo when synced, else free ms.
-    float delaySeconds = delayTimeParam->load() * 0.001f;
-    if (delaySyncParam->load() > 0.5f && hostBpm > 0.0)
+    // mix it back into the main output at its return level. Skipped entirely on the
+    // dry path (no active sends), so it costs nothing when unused.
+    if (anySend)
     {
-        const auto idx =
-            static_cast<size_t>(std::clamp(static_cast<int>(delayDivisionParam->load()), 0,
-                                           static_cast<int>(kDivisionBeats.size()) - 1));
-        delaySeconds = static_cast<float>(kDivisionBeats[idx] * 60.0 / hostBpm);
-    }
-    delay.setParameters(delaySeconds, delayFeedbackParam->load(), delayToneParam->load());
-    delay.processBlock(delayOut, engineChannels, numSamples);
-    reverb.setParameters(reverbRoomParam->load(), reverbDampParam->load());
-    reverb.processBlock(reverbOut, engineChannels, numSamples);
+        // Delay time: a musical division of the host tempo when synced, else free ms.
+        float delaySeconds = delayTimeParam->load() * 0.001f;
+        if (delaySyncParam->load() > 0.5f && hostBpm > 0.0)
+        {
+            const auto idx =
+                static_cast<size_t>(std::clamp(static_cast<int>(delayDivisionParam->load()), 0,
+                                               static_cast<int>(kDivisionBeats.size()) - 1));
+            delaySeconds = static_cast<float>(kDivisionBeats[idx] * 60.0 / hostBpm);
+        }
+        delay.setParameters(delaySeconds, delayFeedbackParam->load(), delayToneParam->load());
+        delay.processBlock(delayOut, engineChannels, numSamples);
+        reverb.setParameters(reverbRoomParam->load(), reverbDampParam->load());
+        reverb.processBlock(reverbOut, engineChannels, numSamples);
+        sendsWereActive = true;
 
-    const float delayRet = delayReturnParam->load();
-    const float reverbRet = reverbReturnParam->load();
-    for (int ch = 0; ch < engineChannels; ++ch)
+        const float delayRet = delayReturnParam->load();
+        const float reverbRet = reverbReturnParam->load();
+        for (int ch = 0; ch < engineChannels; ++ch)
+        {
+            const float* dw = delayPtrs[static_cast<size_t>(ch)];
+            const float* rw = reverbPtrs[static_cast<size_t>(ch)];
+            float* dst = channels[ch];
+            for (int n = 0; n < numSamples; ++n)
+                dst[n] += dw[n] * delayRet + rw[n] * reverbRet;
+        }
+    }
+    else if (sendsWereActive)
     {
-        const float* dw = delayPtrs[static_cast<size_t>(ch)];
-        const float* rw = reverbPtrs[static_cast<size_t>(ch)];
-        float* dst = channels[ch];
-        for (int n = 0; n < numSamples; ++n)
-            dst[n] += dw[n] * delayRet + rw[n] * reverbRet;
+        // First dry block after the sends went silent: clear the FX tails once so
+        // turning a send back on later starts clean (and to avoid clearing a 2 s
+        // buffer every block).
+        delay.reset();
+        reverb.reset();
+        sendsWereActive = false;
     }
 
     const float gainLinear = juce::Decibels::decibelsToGain(gainParam->load(), -60.0f);
