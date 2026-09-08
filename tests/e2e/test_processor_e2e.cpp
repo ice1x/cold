@@ -1329,6 +1329,56 @@ TEST_CASE("Cold tempo-synced delay places the echo on the grid", "[processor][e2
     proc.releaseResources();
 }
 
+TEST_CASE("Cold velocity to cutoff brightens harder hits", "[processor][e2e][velocity][filter]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 8000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // A ~750 Hz sine (writeKnownSignal) into cell 0, low-passed dark, with a strong
+    // velocity->cutoff. A hard hit opens the filter far more than a soft hit.
+    auto wav = writeSineWav(sampleRate, frames, 6000.0);
+    REQUIRE(proc.loadSampleToTrack(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto tail = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int n = b.getNumSamples() - 1500; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    setParam("t0_filterCutoff", 500.0f); // dark base; the cell morph filter is always on
+    setParam("t0_velToCutoff", 6.0f);
+
+    juce::AudioBuffer<float> buffer(2, frames);
+    auto hit = [&](float vel)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, vel), 0);
+        renderBlock(proc, buffer, midi);
+        REQUIRE(bufferIsFinite(buffer));
+        return tail(buffer);
+    };
+
+    const float hard = hit(1.0f);
+    const float soft = hit(0.2f);
+    REQUIRE(hard > 0.2f);
+    REQUIRE(hard > soft * 4.0f);
+
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold addresses cells beyond the first eight", "[processor][e2e][multitrack]")
 {
     constexpr double sampleRate = 44100.0;
@@ -1584,6 +1634,7 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_reverbSend",
                            "reverbRoom",
                            "reverbReturn",
+                           "t0_velToCutoff",
                            "t0_lyr0_reverse",
                            "t0_lyr0_filterOn",
                            "t0_lyr0_cutoff",

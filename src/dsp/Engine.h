@@ -147,6 +147,11 @@ public:
     // `semitones * velocity`. Harder hits play higher (negative = lower).
     void setVelToPitch(float semitones);
 
+    // Velocity -> filter cutoff shared by every voice: each note's cutoff is shifted
+    // by `octaves * velocity` (harder hits open the filter). No effect if the filter
+    // is off.
+    void setVelToCutoff(float octaves);
+
     // Per-track compressor on the summed track output (post voice mix). When
     // enabled, the track renders into a scratch buffer, compresses it, then sums
     // into the output — so each cell can have its own punch/glue. Disabled = the
@@ -261,7 +266,8 @@ private:
     float pitchEnvAmount = 0.0f;
     float pitchEnvDecay = 0.0f;
 
-    float velToPitch = 0.0f; // velocity -> pitch, semitones at full velocity
+    float velToPitch = 0.0f;  // velocity -> pitch, semitones at full velocity
+    float velToCutoff = 0.0f; // velocity -> filter cutoff, octaves at full velocity
 
     float outGain = 1.0f; // per-track output level into the mix
     float outPan = 0.0f;  // per-track output balance [-1, 1]

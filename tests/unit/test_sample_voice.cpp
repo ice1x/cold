@@ -145,6 +145,44 @@ TEST_CASE("SampleVoice at root pitch reproduces the sample sample-for-sample",
         REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(static_cast<float>(n), 1e-4));
 }
 
+TEST_CASE("SampleVoice velocity opens the filter", "[samplevoice][dsp][unit][filter][velocity]")
+{
+    // A 6 kHz sine through a low-pass at 500 Hz is heavily attenuated. With a strong
+    // velocity->cutoff, a hard hit lifts the cutoff far above 6 kHz (bright), while a
+    // soft hit leaves it low (dark).
+    constexpr double sr = 48000.0;
+    constexpr int frames = 8000;
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] =
+            static_cast<float>(std::sin(2.0 * 3.14159265358979 * 6000.0 * n / sr));
+    s.rebuild();
+
+    auto tail = [](const std::vector<float>& out)
+    {
+        float p = 0.0f;
+        for (int n = static_cast<int>(out.size()) - 1500; n < static_cast<int>(out.size()); ++n)
+            p = std::max(p, std::abs(out[static_cast<size_t>(n)]));
+        return p;
+    };
+    auto play = [&](float velocity)
+    {
+        SampleVoice v;
+        v.prepare(sr);
+        v.setSample(s.data(), s.numChannels(), s.numFrames(), sr);
+        v.setFilter(500.0f, 0.707f, 0.0f); // low-pass, dark base
+        v.setVelToCutoff(6.0f);            // +6 octaves at full velocity
+        v.startNote(kRootNote, velocity, kRootNote);
+        return tail(render(v, frames));
+    };
+
+    const float hard = play(1.0f); // 500 * 2^6 = 32 kHz -> the 6 kHz tone passes
+    const float soft = play(0.2f); // 500 * 2^1.2 ~ 1.1 kHz -> the 6 kHz tone is cut
+    REQUIRE(hard > 0.3f);
+    REQUIRE(hard > soft * 4.0f);
+}
+
 TEST_CASE("SampleVoice low-cut removes a low tone", "[samplevoice][dsp][unit][filter]")
 {
     // A 100 Hz sine; a low-cut (high-pass) at 2 kHz should strongly attenuate it,
