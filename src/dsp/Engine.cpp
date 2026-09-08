@@ -203,6 +203,13 @@ void Engine::setVelToPitch(float semitones)
         voices[static_cast<size_t>(i)].setVelToPitch(velToPitch);
 }
 
+void Engine::setVelToCutoff(float octaves)
+{
+    velToCutoff = octaves;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setVelToCutoff(velToCutoff);
+}
+
 void Engine::setCompressor(bool enabled, float thresholdDb, float ratio, float attackSeconds,
                            float releaseSeconds, float makeupDb)
 {
@@ -250,6 +257,7 @@ void Engine::configureVoice(int voiceIndex, int sampleIndex)
     voice.setModEnvelope(modAttack, modDecay, modSustain, modRelease);
     voice.setPitchEnvelope(pitchEnvAmount, pitchEnvDecay);
     voice.setVelToPitch(velToPitch);
+    voice.setVelToCutoff(velToCutoff);
     voice.setModRouting(modToCutoff, modToType);
     voice.setFilterEnabled(filterEnabled);
     if (filterEnabled)

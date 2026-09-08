@@ -54,6 +54,7 @@ constexpr auto kModToTypeId = "modToType";
 constexpr auto kPitchEnvAmtId = "pitchEnvAmount";
 constexpr auto kPitchEnvDecayId = "pitchEnvDecay";
 constexpr auto kVelToPitchId = "velToPitch";
+constexpr auto kVelToCutoffId = "velToCutoff";
 constexpr auto kCompOnId = "compOn";
 constexpr auto kCompThreshId = "compThreshold";
 constexpr auto kCompRatioId = "compRatio";
@@ -340,6 +341,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         layout.add(std::make_unique<AudioParameterFloat>(
             juce::ParameterID{trackParamId(t, kVelToPitchId), 1}, tp + "Velocity to Pitch",
             juce::NormalisableRange<float>(-48.0f, 48.0f, 0.01f), 0.0f));
+        // Per-track velocity -> filter cutoff: octaves at full velocity.
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kVelToCutoffId), 1}, tp + "Velocity to Cutoff",
+            juce::NormalisableRange<float>(-6.0f, 6.0f, 0.01f), 0.0f));
 
         // Per-cell Note Map key: the MIDI note that triggers this cell (Note Map
         // mode). Default is a chromatic map from C1 (36) so cells are addressable
@@ -534,6 +539,7 @@ ColdAudioProcessor::ColdAudioProcessor()
         pitchEnvAmtParam[tt] = apvts.getRawParameterValue(trackParamId(t, kPitchEnvAmtId));
         pitchEnvDecayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kPitchEnvDecayId));
         velToPitchParam[tt] = apvts.getRawParameterValue(trackParamId(t, kVelToPitchId));
+        velToCutoffParam[tt] = apvts.getRawParameterValue(trackParamId(t, kVelToCutoffId));
         mapNoteParam[tt] = apvts.getRawParameterValue(trackParamId(t, kMapNoteId));
         compOnParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompOnId));
         compThreshParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompThreshId));
@@ -632,6 +638,7 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     e.setModRouting(modToCutoffParam->load(), modToTypeParam->load());
     e.setPitchEnvelope(pitchEnvAmtParam[tt]->load(), pitchEnvDecayParam[tt]->load());
     e.setVelToPitch(velToPitchParam[tt]->load());
+    e.setVelToCutoff(velToCutoffParam[tt]->load());
     e.setCompressor(compOnParam[tt]->load() > 0.5f, compThreshParam[tt]->load(),
                     compRatioParam[tt]->load(), compAttackParam[tt]->load(),
                     compReleaseParam[tt]->load(), compMakeupParam[tt]->load());

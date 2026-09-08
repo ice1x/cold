@@ -923,6 +923,9 @@ private:
                   "Velocity modulates pitch: this many semitones at full velocity, "
                   "scaled down for softer hits. + = harder plays higher, - = lower, "
                   "0 = off. (Velocity→volume is the Amp Envelope 'Vel' knob.)");
+            tKnob(s, "velToCutoff", u8("Vel→Cutoff"),
+                  "Velocity modulates the cell filter cutoff: this many octaves at full "
+                  "velocity (+ = harder opens the filter). Needs the Filter on; 0 = off.");
         }
         {
             auto& s = newSection("Compressor (selected cell)");
