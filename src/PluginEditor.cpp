@@ -502,7 +502,7 @@ public:
                 tab = -1; // the cell grid: always visible
             else if (title.startsWith("Compressor") || title.startsWith("Saturation") ||
                      title.startsWith("Lo-Fi") || title.startsWith("Delay") ||
-                     title.startsWith("Reverb"))
+                     title.startsWith("Reverb") || title.startsWith("Master"))
                 tab = 1; // FX
             else if (title.startsWith("Mod Envelope") || title == "LFO")
                 tab = 2; // Mod
@@ -1022,6 +1022,16 @@ private:
             gKnob(s, "reverbRoom", "Room", "Reverb size / tail length (0..1).");
             gKnob(s, "reverbDamp", "Damp", "High-frequency decay: higher = darker tail.");
             gKnob(s, "reverbReturn", "Return", "Level of the reverb mixed back into the master.");
+        }
+        {
+            auto& s = newSection("Master Limiter");
+            gToggle(s, "limiterOn", "On",
+                    "Brickwall limiter on the final output: holds the master at the ceiling "
+                    "so a dense mix can't clip.");
+            gKnob(s, "limiterCeiling", "Ceiling",
+                  "Maximum output level in dBFS; nothing exceeds it while the limiter is on.");
+            gKnob(s, "limiterRelease", "Release",
+                  "How fast the limiter's gain recovers after a peak, in milliseconds.");
         }
     }
 

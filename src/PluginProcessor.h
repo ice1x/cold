@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dsp/Delay.h"
+#include "dsp/Limiter.h"
 #include "dsp/MultiEngine.h"
 #include "dsp/Reverb.h"
 #include "dsp/Waveform.h"
@@ -127,8 +128,9 @@ private:
     void applySharedParamsToTrack(int track, bool polyChanged);
 
     dsp::MultiEngine multi;
-    dsp::Delay delay;   // shared send/return delay fed by the per-cell delay sends
-    dsp::Reverb reverb; // shared send/return reverb fed by the per-cell reverb sends
+    dsp::Delay delay;     // shared send/return delay fed by the per-cell delay sends
+    dsp::Reverb reverb;   // shared send/return reverb fed by the per-cell reverb sends
+    dsp::Limiter limiter; // master brickwall limiter on the final output (post gain)
     io::SampleBank bank;
 
     // Send buses (per block) feeding the delay + reverb, and their pointer views.
@@ -180,6 +182,9 @@ private:
     std::atomic<float>* reverbRoomParam = nullptr;
     std::atomic<float>* reverbDampParam = nullptr;
     std::atomic<float>* reverbReturnParam = nullptr;
+    std::atomic<float>* limiterOnParam = nullptr;
+    std::atomic<float>* limiterCeilingParam = nullptr;
+    std::atomic<float>* limiterReleaseParam = nullptr;
 
     // Multilayer one-shot stacks: per-track layer mode + up to kNumLayers layers
     // (kNumLayers declared public above), each a bank slot (-1 = off) with
