@@ -78,6 +78,9 @@ constexpr auto kDelayDivisionId = "delayDivision";
 constexpr auto kReverbRoomId = "reverbRoom";
 constexpr auto kReverbDampId = "reverbDamp";
 constexpr auto kReverbReturnId = "reverbReturn";
+constexpr auto kLimiterOnId = "limiterOn";
+constexpr auto kLimiterCeilingId = "limiterCeiling";
+constexpr auto kLimiterReleaseId = "limiterRelease";
 
 // Each cell (track) owns kNumLayers dedicated sample slots for layering: cell t's
 // layer l is slot (t * kNumLayers + l). The bank is these ranges laid end to end,
@@ -216,6 +219,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
                                                      "Reverb Damp", 0.0f, 1.0f, 0.4f));
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kReverbReturnId, 1},
                                                      "Reverb Return", 0.0f, 1.0f, 1.0f));
+
+    // Master brickwall limiter on the final output (post master gain): catches
+    // overs when many cells + FX returns sum past the ceiling. Bypassed by default
+    // (matches the other FX); ceiling in dBFS, release in ms.
+    layout.add(
+        std::make_unique<AudioParameterBool>(juce::ParameterID{kLimiterOnId, 1}, "Limiter", false));
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kLimiterCeilingId, 1},
+                                                     "Limiter Ceiling", -24.0f, 0.0f, -0.3f));
+    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kLimiterReleaseId, 1},
+                                                     "Limiter Release", 1.0f, 500.0f, 100.0f));
 
     // Amp envelope extras (delay/hold, per-segment curves, velocity) are PER-TRACK
     // too — created in the per-track loop below.
@@ -513,6 +526,9 @@ ColdAudioProcessor::ColdAudioProcessor()
     reverbRoomParam = apvts.getRawParameterValue(kReverbRoomId);
     reverbDampParam = apvts.getRawParameterValue(kReverbDampId);
     reverbReturnParam = apvts.getRawParameterValue(kReverbReturnId);
+    limiterOnParam = apvts.getRawParameterValue(kLimiterOnId);
+    limiterCeilingParam = apvts.getRawParameterValue(kLimiterCeilingId);
+    limiterReleaseParam = apvts.getRawParameterValue(kLimiterReleaseId);
 
     for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
     {
@@ -590,6 +606,7 @@ void ColdAudioProcessor::prepareToPlay(double sampleRate, int)
     multi.prepare(sampleRate);
     delay.prepare(sampleRate, 2.0); // up to 2 s echo
     reverb.prepare(sampleRate);
+    limiter.prepare(sampleRate);
     lastPolyphony = -1; // force a re-apply of polyphony on the next block
     updateEngineParameters();
 }
@@ -952,6 +969,15 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
 
     const float gainLinear = juce::Decibels::decibelsToGain(gainParam->load(), -60.0f);
     buffer.applyGain(gainLinear);
+
+    // Master brickwall limiter last: hold the final output at the ceiling so a
+    // dense mix (many cells + FX returns) can't clip. No cost while disabled.
+    limiter.setEnabled(limiterOnParam->load() > 0.5f);
+    if (limiter.enabled())
+    {
+        limiter.setParameters(limiterCeilingParam->load(), limiterReleaseParam->load() * 0.001f);
+        limiter.processBlock(channels, engineChannels, numSamples);
+    }
 }
 
 void ColdAudioProcessor::rebuildTrackSamples()
