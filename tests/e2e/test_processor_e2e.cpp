@@ -1634,6 +1634,9 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_reverbSend",
                            "reverbRoom",
                            "reverbReturn",
+                           "limiterOn",
+                           "limiterCeiling",
+                           "limiterRelease",
                            "t0_velToCutoff",
                            "t0_lyr0_reverse",
                            "t0_lyr0_filterOn",
@@ -1773,6 +1776,66 @@ TEST_CASE("Cold per-cell compressor tames a loud track", "[processor][e2e][pertr
         renderBlock(proc, buffer, midi);
     }
     REQUIRE(tailPeak(buffer) < dry * 0.7f); // clearly compressed
+
+    proc.releaseResources();
+}
+
+TEST_CASE("Cold master limiter holds the output under the ceiling",
+          "[processor][e2e][master][limiter]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 8000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // A full-scale sine so the master output peaks near 0 dBFS.
+    auto wav = writeSineWav(sampleRate, frames, 220.0);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto peak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+            for (int n = 0; n < b.getNumSamples(); ++n)
+                p = std::max(p, std::abs(b.getSample(ch, n)));
+        return p;
+    };
+
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    // Dry: no limiter -> the loud sine reaches near full scale.
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 69, 1.0f), 0); // A4 = the sample's pitch
+        renderBlock(proc, buffer, midi);
+    }
+    const float dry = peak(buffer);
+    REQUIRE(dry > 0.5f);
+
+    // Limiter on with a low ceiling: nothing may exceed it (a small margin for the
+    // dB->linear rounding), and it must actually be clamping the loud dry signal.
+    const float ceilingDb = -12.0f;
+    const float ceilingLin = std::pow(10.0f, ceilingDb / 20.0f);
+    REQUIRE(dry > ceilingLin); // the dry signal really is over the ceiling
+    setParam("limiterOn", 1.0f);
+    setParam("limiterCeiling", ceilingDb);
+    setParam("limiterRelease", 100.0f);
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 69, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    REQUIRE(peak(buffer) <= ceilingLin + 1e-3f);
 
     proc.releaseResources();
 }
