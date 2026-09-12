@@ -1634,6 +1634,12 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_reverbSend",
                            "reverbRoom",
                            "reverbReturn",
+                           "masterCompOn",
+                           "masterCompThreshold",
+                           "masterCompRatio",
+                           "masterCompAttack",
+                           "masterCompRelease",
+                           "masterCompMakeup",
                            "limiterOn",
                            "limiterCeiling",
                            "limiterRelease",
@@ -1836,6 +1842,63 @@ TEST_CASE("Cold master limiter holds the output under the ceiling",
         renderBlock(proc, buffer, midi);
     }
     REQUIRE(peak(buffer) <= ceilingLin + 1e-3f);
+
+    proc.releaseResources();
+}
+
+TEST_CASE("Cold master compressor glues the summed mix", "[processor][e2e][master][compressor]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 8000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // A sustained known signal so the master detector settles well above threshold.
+    auto wav = writeTempWav(sampleRate, 1, frames);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto tailPeak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int n = b.getNumSamples() - 1000; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    // Dry: no master compression.
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    const float dry = tailPeak(buffer);
+    REQUIRE(dry > 0.1f);
+
+    // Heavy master compressor -> the settled master tail is pulled down.
+    setParam("masterCompOn", 1.0f);
+    setParam("masterCompThreshold", -24.0f);
+    setParam("masterCompRatio", 10.0f);
+    setParam("masterCompAttack", 0.001f);
+    setParam("masterCompRelease", 0.05f);
+    setParam("masterCompMakeup", 0.0f);
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    REQUIRE(tailPeak(buffer) < dry * 0.7f); // clearly compressed on the master bus
 
     proc.releaseResources();
 }

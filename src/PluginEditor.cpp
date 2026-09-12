@@ -1024,6 +1024,18 @@ private:
             gKnob(s, "reverbReturn", "Return", "Level of the reverb mixed back into the master.");
         }
         {
+            auto& s = newSection("Master Comp");
+            gToggle(s, "masterCompOn", "On",
+                    "Glue compressor on the whole mix (before the master gain / limiter).");
+            gKnob(s, "masterCompThreshold", "Thresh",
+                  "Level in dBFS above which the master compressor starts working.");
+            gKnob(s, "masterCompRatio", "Ratio", "Compression ratio above the threshold.");
+            gKnob(s, "masterCompAttack", "Attack", "Master compressor attack time, in seconds.");
+            gKnob(s, "masterCompRelease", "Release", "Master compressor release time, in seconds.");
+            gKnob(s, "masterCompMakeup", "Makeup",
+                  "Make-up gain (dB) added after the master compression.");
+        }
+        {
             auto& s = newSection("Master Limiter");
             gToggle(s, "limiterOn", "On",
                     "Brickwall limiter on the final output: holds the master at the ceiling "
