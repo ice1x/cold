@@ -78,6 +78,12 @@ constexpr auto kDelayDivisionId = "delayDivision";
 constexpr auto kReverbRoomId = "reverbRoom";
 constexpr auto kReverbDampId = "reverbDamp";
 constexpr auto kReverbReturnId = "reverbReturn";
+constexpr auto kMasterCompOnId = "masterCompOn";
+constexpr auto kMasterCompThresholdId = "masterCompThreshold";
+constexpr auto kMasterCompRatioId = "masterCompRatio";
+constexpr auto kMasterCompAttackId = "masterCompAttack";
+constexpr auto kMasterCompReleaseId = "masterCompRelease";
+constexpr auto kMasterCompMakeupId = "masterCompMakeup";
 constexpr auto kLimiterOnId = "limiterOn";
 constexpr auto kLimiterCeilingId = "limiterCeiling";
 constexpr auto kLimiterReleaseId = "limiterRelease";
@@ -219,6 +225,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
                                                      "Reverb Damp", 0.0f, 1.0f, 0.4f));
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kReverbReturnId, 1},
                                                      "Reverb Return", 0.0f, 1.0f, 1.0f));
+
+    // Master glue compressor on the summed mix (pre master gain): gentle bus
+    // compression to glue a busy kit before the brickwall limiter. Reuses the
+    // per-cell compressor DSP; bypassed by default. Attack/release in seconds.
+    layout.add(std::make_unique<AudioParameterBool>(juce::ParameterID{kMasterCompOnId, 1},
+                                                    "Master Comp", false));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kMasterCompThresholdId, 1}, "Master Comp Threshold",
+        juce::NormalisableRange<float>(-60.0f, 0.0f, 0.1f), -12.0f));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kMasterCompRatioId, 1}, "Master Comp Ratio",
+        juce::NormalisableRange<float>(1.0f, 20.0f, 0.01f, 0.5f), 2.0f));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kMasterCompAttackId, 1}, "Master Comp Attack",
+        juce::NormalisableRange<float>(0.0001f, 0.1f, 0.0001f, 0.4f), 0.01f));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kMasterCompReleaseId, 1}, "Master Comp Release",
+        juce::NormalisableRange<float>(0.005f, 1.0f, 0.001f, 0.4f), 0.15f));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kMasterCompMakeupId, 1}, "Master Comp Makeup",
+        juce::NormalisableRange<float>(0.0f, 24.0f, 0.1f), 0.0f));
 
     // Master brickwall limiter on the final output (post master gain): catches
     // overs when many cells + FX returns sum past the ceiling. Bypassed by default
@@ -526,6 +553,12 @@ ColdAudioProcessor::ColdAudioProcessor()
     reverbRoomParam = apvts.getRawParameterValue(kReverbRoomId);
     reverbDampParam = apvts.getRawParameterValue(kReverbDampId);
     reverbReturnParam = apvts.getRawParameterValue(kReverbReturnId);
+    masterCompOnParam = apvts.getRawParameterValue(kMasterCompOnId);
+    masterCompThresholdParam = apvts.getRawParameterValue(kMasterCompThresholdId);
+    masterCompRatioParam = apvts.getRawParameterValue(kMasterCompRatioId);
+    masterCompAttackParam = apvts.getRawParameterValue(kMasterCompAttackId);
+    masterCompReleaseParam = apvts.getRawParameterValue(kMasterCompReleaseId);
+    masterCompMakeupParam = apvts.getRawParameterValue(kMasterCompMakeupId);
     limiterOnParam = apvts.getRawParameterValue(kLimiterOnId);
     limiterCeilingParam = apvts.getRawParameterValue(kLimiterCeilingId);
     limiterReleaseParam = apvts.getRawParameterValue(kLimiterReleaseId);
@@ -606,6 +639,7 @@ void ColdAudioProcessor::prepareToPlay(double sampleRate, int)
     multi.prepare(sampleRate);
     delay.prepare(sampleRate, 2.0); // up to 2 s echo
     reverb.prepare(sampleRate);
+    masterComp.prepare(sampleRate);
     limiter.prepare(sampleRate);
     lastPolyphony = -1; // force a re-apply of polyphony on the next block
     updateEngineParameters();
@@ -965,6 +999,17 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         delay.reset();
         reverb.reset();
         sendsWereActive = false;
+    }
+
+    // Master glue compressor on the summed mix, before the master gain: glue a
+    // busy kit together ahead of the brickwall limiter. No cost while disabled.
+    masterComp.setEnabled(masterCompOnParam->load() > 0.5f);
+    if (masterComp.enabled())
+    {
+        masterComp.setParameters(masterCompThresholdParam->load(), masterCompRatioParam->load(),
+                                 masterCompAttackParam->load(), masterCompReleaseParam->load(),
+                                 masterCompMakeupParam->load());
+        masterComp.processBlock(channels, engineChannels, numSamples);
     }
 
     const float gainLinear = juce::Decibels::decibelsToGain(gainParam->load(), -60.0f);
