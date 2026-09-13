@@ -87,6 +87,12 @@ void SampleVoice::setTuneSemitones(float semitones)
     updateStep();
 }
 
+void SampleVoice::setBendSemitones(float semitones)
+{
+    bendMod = semitones;
+    updateStep();
+}
+
 void SampleVoice::setVelToPitch(float semitones)
 {
     // Amount only; the actual per-note offset is captured from velocity at note-on.
@@ -135,7 +141,8 @@ void SampleVoice::updateStep()
     // Both the block-rate pitch mod and the static per-note tune ride on the note's
     // captured base step (magnitude), summed in semitones.
     const double semis = static_cast<double>(pitchMod) + static_cast<double>(tuneMod) +
-                         static_cast<double>(velPitchMod) + static_cast<double>(humanizePitchMod);
+                         static_cast<double>(bendMod) + static_cast<double>(velPitchMod) +
+                         static_cast<double>(humanizePitchMod);
     step = baseStep * std::pow(2.0, semis / 12.0);
 }
 
@@ -418,12 +425,13 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
         if (usePitchEnv)
         {
             const float pe = pitchEnv.getNextSample();
-            advance = baseStep *
-                      std::pow(2.0, (static_cast<double>(pitchMod) + static_cast<double>(tuneMod) +
-                                     static_cast<double>(velPitchMod) +
-                                     static_cast<double>(humanizePitchMod) +
-                                     static_cast<double>(pitchEnvAmount) * pe) /
-                                        12.0);
+            advance =
+                baseStep *
+                std::pow(2.0, (static_cast<double>(pitchMod) + static_cast<double>(tuneMod) +
+                               static_cast<double>(bendMod) + static_cast<double>(velPitchMod) +
+                               static_cast<double>(humanizePitchMod) +
+                               static_cast<double>(pitchEnvAmount) * pe) /
+                                  12.0);
         }
         position += static_cast<double>(direction) * advance;
 
