@@ -152,6 +152,11 @@ public:
     // is off.
     void setVelToCutoff(float octaves);
 
+    // Humanize shared by every voice: each note draws a random pitch offset (up to
+    // +/- `pitchCents` cents) and level offset (up to +/- `levelDb` dB), so repeated
+    // hits vary slightly. Both 0 disables it.
+    void setHumanize(float pitchCents, float levelDb);
+
     // Per-track compressor on the summed track output (post voice mix). When
     // enabled, the track renders into a scratch buffer, compresses it, then sums
     // into the output — so each cell can have its own punch/glue. Disabled = the
@@ -268,6 +273,9 @@ private:
 
     float velToPitch = 0.0f;  // velocity -> pitch, semitones at full velocity
     float velToCutoff = 0.0f; // velocity -> filter cutoff, octaves at full velocity
+
+    float humanizePitch = 0.0f; // humanize random pitch range, cents
+    float humanizeLevel = 0.0f; // humanize random level range, dB
 
     float outGain = 1.0f; // per-track output level into the mix
     float outPan = 0.0f;  // per-track output balance [-1, 1]

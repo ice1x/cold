@@ -135,6 +135,17 @@ public:
     // modulation. No effect when the filter is off.
     void setVelToCutoff(float octaves);
 
+    // Humanize: at note-on, a fresh random offset is drawn for the pitch (up to
+    // +/- `pitchCents` cents) and the level (up to +/- `levelDb` dB), so repeated
+    // identical hits vary slightly (anti "machine gun"). Both 0 disables it. The
+    // pitch offset stacks onto the tune / pitch-mod channels; the level offset
+    // scales the note gain.
+    void setHumanize(float pitchCents, float levelDb);
+
+    // Seed the per-voice random generator so voices in a pool diverge (otherwise
+    // every voice would draw the same humanize sequence). Any non-zero seed works.
+    void seedHumanize(unsigned int seed);
+
     // Stereo placement in [-1, 1] (L..R). Linear balance law: centre (0) leaves
     // both channels at unity (unchanged fan-out), a hard side silences the other.
     // Used to spread a stack's layers across the panorama.
@@ -202,6 +213,12 @@ private:
     float velPitchMod = 0.0f;       // captured per note: velToPitchAmount * velocity
     float velToCutoffAmount = 0.0f; // octaves at full velocity (velocity -> cutoff)
     float velCutoffMod = 0.0f;      // captured per note: velToCutoffAmount * velocity
+
+    float humanizePitchCents = 0.0f;     // +/- range of the random pitch offset (cents)
+    float humanizeLevelDb = 0.0f;        // +/- range of the random level offset (dB)
+    float humanizePitchMod = 0.0f;       // captured per note: random pitch offset (semitones)
+    float humanizeGain = 1.0f;           // captured per note: random level scale (linear)
+    unsigned int rngState = 0x9E3779B9u; // per-voice xorshift state (seeded per voice)
 
     // Amp envelope parameter store (delay/hold added on top of the ADSR core).
     float ampDelay = 0.0f;

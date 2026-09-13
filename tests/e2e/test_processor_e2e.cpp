@@ -1649,6 +1649,8 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "limiterCeiling",
                            "limiterRelease",
                            "t0_velToCutoff",
+                           "t0_humanizePitch",
+                           "t7_humanizeLevel",
                            "t0_lyr0_reverse",
                            "t0_lyr0_filterOn",
                            "t0_lyr0_cutoff",
@@ -2016,6 +2018,66 @@ TEST_CASE("Cold master stereo width collapses a panned mix to mono",
         renderBlock(proc, buffer, midi);
     }
     REQUIRE(maxChannelDiff(buffer) < 1e-4f); // collapsed to mono
+
+    proc.releaseResources();
+}
+
+TEST_CASE("Cold humanize varies repeated hits", "[processor][e2e][pertrack][humanize]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 2000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    auto wav = writeTempWav(sampleRate, 1, frames);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto peak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int n = 0; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+    // Fire one note, render a fresh block, and return its peak.
+    auto hit = [&](juce::AudioBuffer<float>& buf)
+    {
+        buf.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buf, midi);
+        return peak(buf);
+    };
+
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    // Humanize off: repeated identical hits are bit-for-bit identical.
+    setParam("t0_humanizePitch", 0.0f);
+    setParam("t0_humanizeLevel", 0.0f);
+    const float a = hit(buffer);
+    const float b = hit(buffer);
+    REQUIRE(a > 0.0f);
+    REQUIRE_THAT(a, Catch::Matchers::WithinAbs(b, 1e-6f)); // deterministic
+
+    // Strong level humanize: over several hits the peaks are no longer all equal.
+    setParam("t0_humanizeLevel", 12.0f);
+    float lo = 1.0e9f;
+    float hi = 0.0f;
+    for (int i = 0; i < 12; ++i)
+    {
+        const float p = hit(buffer);
+        lo = std::min(lo, p);
+        hi = std::max(hi, p);
+    }
+    REQUIRE(hi - lo > 0.01f); // the hits actually vary
 
     proc.releaseResources();
 }

@@ -928,6 +928,15 @@ private:
                   "velocity (+ = harder opens the filter). Needs the Filter on; 0 = off.");
         }
         {
+            auto& s = newSection("Humanize (selected cell)");
+            tKnob(s, "humanizePitch", "Pitch",
+                  "Random pitch variation per hit, in cents (+/-). Adds subtle detune so "
+                  "repeated hits aren't identical. 0 = off.");
+            tKnob(s, "humanizeLevel", "Level",
+                  "Random level variation per hit, in dB (+/-). Loosens up machine-gun "
+                  "repeats. 0 = off.");
+        }
+        {
             auto& s = newSection("Compressor (selected cell)");
             tToggle(s, "compOn", "On", "Enable this cell's compressor (punch / glue).");
             tKnob(s, "compThreshold", "Thresh",

@@ -55,6 +55,8 @@ constexpr auto kPitchEnvAmtId = "pitchEnvAmount";
 constexpr auto kPitchEnvDecayId = "pitchEnvDecay";
 constexpr auto kVelToPitchId = "velToPitch";
 constexpr auto kVelToCutoffId = "velToCutoff";
+constexpr auto kHumanizePitchId = "humanizePitch";
+constexpr auto kHumanizeLevelId = "humanizeLevel";
 constexpr auto kCompOnId = "compOn";
 constexpr auto kCompThreshId = "compThreshold";
 constexpr auto kCompRatioId = "compRatio";
@@ -410,6 +412,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         layout.add(std::make_unique<AudioParameterFloat>(
             juce::ParameterID{trackParamId(t, kVelToCutoffId), 1}, tp + "Velocity to Cutoff",
             juce::NormalisableRange<float>(-6.0f, 6.0f, 0.01f), 0.0f));
+        // Per-cell humanize: a random pitch (cents) and level (dB) offset per hit so
+        // repeated triggers vary slightly. 0 = off (deterministic).
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kHumanizePitchId), 1}, tp + "Humanize Pitch",
+            juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 0.0f));
+        layout.add(std::make_unique<AudioParameterFloat>(
+            juce::ParameterID{trackParamId(t, kHumanizeLevelId), 1}, tp + "Humanize Level",
+            juce::NormalisableRange<float>(0.0f, 12.0f, 0.1f), 0.0f));
 
         // Per-cell Note Map key: the MIDI note that triggers this cell (Note Map
         // mode). Default is a chromatic map from C1 (36) so cells are addressable
@@ -619,6 +629,8 @@ ColdAudioProcessor::ColdAudioProcessor()
         pitchEnvDecayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kPitchEnvDecayId));
         velToPitchParam[tt] = apvts.getRawParameterValue(trackParamId(t, kVelToPitchId));
         velToCutoffParam[tt] = apvts.getRawParameterValue(trackParamId(t, kVelToCutoffId));
+        humanizePitchParam[tt] = apvts.getRawParameterValue(trackParamId(t, kHumanizePitchId));
+        humanizeLevelParam[tt] = apvts.getRawParameterValue(trackParamId(t, kHumanizeLevelId));
         mapNoteParam[tt] = apvts.getRawParameterValue(trackParamId(t, kMapNoteId));
         compOnParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompOnId));
         compThreshParam[tt] = apvts.getRawParameterValue(trackParamId(t, kCompThreshId));
@@ -721,6 +733,7 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     e.setPitchEnvelope(pitchEnvAmtParam[tt]->load(), pitchEnvDecayParam[tt]->load());
     e.setVelToPitch(velToPitchParam[tt]->load());
     e.setVelToCutoff(velToCutoffParam[tt]->load());
+    e.setHumanize(humanizePitchParam[tt]->load(), humanizeLevelParam[tt]->load());
     e.setCompressor(compOnParam[tt]->load() > 0.5f, compThreshParam[tt]->load(),
                     compRatioParam[tt]->load(), compAttackParam[tt]->load(),
                     compReleaseParam[tt]->load(), compMakeupParam[tt]->load());
