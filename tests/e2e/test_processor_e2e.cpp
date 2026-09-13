@@ -1634,6 +1634,9 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "t0_reverbSend",
                            "reverbRoom",
                            "reverbReturn",
+                           "masterTiltOn",
+                           "masterTilt",
+                           "masterTiltPivot",
                            "masterCompOn",
                            "masterCompThreshold",
                            "masterCompRatio",
@@ -1899,6 +1902,62 @@ TEST_CASE("Cold master compressor glues the summed mix", "[processor][e2e][maste
         renderBlock(proc, buffer, midi);
     }
     REQUIRE(tailPeak(buffer) < dry * 0.7f); // clearly compressed on the master bus
+
+    proc.releaseResources();
+}
+
+TEST_CASE("Cold master tilt EQ shapes the mix tone", "[processor][e2e][master][tilteq]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 8000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // A low tone, well below the tilt pivot, so a positive (bright) tilt cuts it.
+    auto wav = writeSineWav(sampleRate, frames, 100.0);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    // Peak over the whole buffer past the filter's brief start-up.
+    auto peak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+            for (int n = 64; n < b.getNumSamples(); ++n)
+                p = std::max(p, std::abs(b.getSample(ch, n)));
+        return p;
+    };
+
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    // Dry: no tilt. Note 60 = the sample's root, so the 100 Hz stays 100 Hz.
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    const float dry = peak(buffer);
+    REQUIRE(dry > 0.3f);
+
+    // Strong positive tilt with a 700 Hz pivot -> the 100 Hz tone is attenuated.
+    setParam("masterTiltOn", 1.0f);
+    setParam("masterTilt", 12.0f);
+    setParam("masterTiltPivot", 700.0f);
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    REQUIRE(peak(buffer) < dry * 0.7f); // the lows were cut by the bright tilt
 
     proc.releaseResources();
 }
