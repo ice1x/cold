@@ -87,6 +87,8 @@ constexpr auto kMasterCompRatioId = "masterCompRatio";
 constexpr auto kMasterCompAttackId = "masterCompAttack";
 constexpr auto kMasterCompReleaseId = "masterCompRelease";
 constexpr auto kMasterCompMakeupId = "masterCompMakeup";
+constexpr auto kMasterWidthOnId = "masterWidthOn";
+constexpr auto kMasterWidthId = "masterWidth";
 constexpr auto kLimiterOnId = "limiterOn";
 constexpr auto kLimiterCeilingId = "limiterCeiling";
 constexpr auto kLimiterReleaseId = "limiterRelease";
@@ -261,6 +263,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     layout.add(std::make_unique<AudioParameterFloat>(
         juce::ParameterID{kMasterCompMakeupId, 1}, "Master Comp Makeup",
         juce::NormalisableRange<float>(0.0f, 24.0f, 0.1f), 0.0f));
+
+    // Master stereo width (mid/side) on the output: 0 = mono, 1 = unchanged, 2 =
+    // wide. Runs after the master gain, before the limiter. Bypassed by default.
+    layout.add(std::make_unique<AudioParameterBool>(juce::ParameterID{kMasterWidthOnId, 1},
+                                                    "Master Width", false));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kMasterWidthId, 1}, "Master Width Amount",
+        juce::NormalisableRange<float>(0.0f, 2.0f, 0.01f), 1.0f));
 
     // Master brickwall limiter on the final output (post master gain): catches
     // overs when many cells + FX returns sum past the ceiling. Bypassed by default
@@ -577,6 +587,8 @@ ColdAudioProcessor::ColdAudioProcessor()
     masterCompAttackParam = apvts.getRawParameterValue(kMasterCompAttackId);
     masterCompReleaseParam = apvts.getRawParameterValue(kMasterCompReleaseId);
     masterCompMakeupParam = apvts.getRawParameterValue(kMasterCompMakeupId);
+    masterWidthOnParam = apvts.getRawParameterValue(kMasterWidthOnId);
+    masterWidthParam = apvts.getRawParameterValue(kMasterWidthId);
     limiterOnParam = apvts.getRawParameterValue(kLimiterOnId);
     limiterCeilingParam = apvts.getRawParameterValue(kLimiterCeilingId);
     limiterReleaseParam = apvts.getRawParameterValue(kLimiterReleaseId);
@@ -1042,6 +1054,15 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
 
     const float gainLinear = juce::Decibels::decibelsToGain(gainParam->load(), -60.0f);
     buffer.applyGain(gainLinear);
+
+    // Master stereo width (mid/side) after the gain, before the limiter: narrow or
+    // widen the whole image. No cost while disabled; needs a true stereo pair.
+    stereoWidth.setEnabled(masterWidthOnParam->load() > 0.5f);
+    if (stereoWidth.enabled())
+    {
+        stereoWidth.setWidth(masterWidthParam->load());
+        stereoWidth.processBlock(channels, engineChannels, numSamples);
+    }
 
     // Master brickwall limiter last: hold the final output at the ceiling so a
     // dense mix (many cells + FX returns) can't clip. No cost while disabled.
