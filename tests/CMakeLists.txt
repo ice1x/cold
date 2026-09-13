@@ -31,6 +31,7 @@ add_executable(ColdTests
     unit/test_delay.cpp
     unit/test_reverb.cpp
     unit/test_limiter.cpp
+    unit/test_tilt_eq.cpp
     unit/test_logger.cpp)
 target_link_libraries(ColdTests PRIVATE
     cold_dsp
