@@ -42,6 +42,10 @@ public:
 
     void reset();
 
+    // Global pitch-bend in semitones (MIDI pitch wheel) applied to every track, so a
+    // live bend moves all sounding and future voices.
+    void setPitchBend(float semitones);
+
     // Number of shared FX send buses (0 = delay, 1 = reverb).
     static constexpr int kNumSends = 2;
 

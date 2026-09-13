@@ -21,6 +21,7 @@ constexpr auto kLoopModeId = "loopMode";
 constexpr auto kLoopStartId = "loopStart";
 constexpr auto kLoopEndId = "loopEnd";
 constexpr auto kRootNoteId = "rootNote";
+constexpr auto kPitchBendRangeId = "pitchBendRange";
 constexpr auto kAttackId = "ampAttack";
 constexpr auto kDecayId = "ampDecay";
 constexpr auto kSustainId = "ampSustain";
@@ -156,6 +157,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
 
     layout.add(std::make_unique<AudioParameterInt>(juce::ParameterID{kRootNoteId, 1}, "Root Note",
                                                    0, 127, 60));
+
+    // MIDI pitch-wheel range in semitones: the bend at full wheel deflection. 0
+    // ignores the wheel; default 2 (the GM standard whole-tone range).
+    layout.add(std::make_unique<AudioParameterInt>(juce::ParameterID{kPitchBendRangeId, 1},
+                                                   "Pitch Bend Range", 0, 24, 2));
 
     // Amp envelope and the morph filter (cutoff/resonance/type) are PER-TRACK (each
     // track/cell is an independent sound) — created in the per-track loop below.
@@ -553,6 +559,7 @@ ColdAudioProcessor::ColdAudioProcessor()
     loopStartParam = apvts.getRawParameterValue(kLoopStartId);
     loopEndParam = apvts.getRawParameterValue(kLoopEndId);
     rootNoteParam = apvts.getRawParameterValue(kRootNoteId);
+    pitchBendRangeParam = apvts.getRawParameterValue(kPitchBendRangeId);
     lfoShapeParam = apvts.getRawParameterValue(kLfoShapeId);
     lfoRateParam = apvts.getRawParameterValue(kLfoRateId);
     lfoDepthParam = apvts.getRawParameterValue(kLfoDepthId);
@@ -997,6 +1004,13 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         }
         else if (isOff)
             multi.routeNoteOff(msg.getChannel(), msg.getNoteNumber());
+        else if (msg.isPitchWheel())
+        {
+            // Normalise the 14-bit wheel (0..16383, centre 8192) to [-1, 1] and scale
+            // by the bend range; applied live to every track's sounding voices.
+            const float norm = (static_cast<float>(msg.getPitchWheelValue()) - 8192.0f) / 8192.0f;
+            multi.setPitchBend(norm * pitchBendRangeParam->load());
+        }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
             multi.reset();
     }
