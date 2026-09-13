@@ -1643,6 +1643,7 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "masterCompAttack",
                            "masterCompRelease",
                            "masterCompMakeup",
+                           "pitchBendRange",
                            "masterWidthOn",
                            "masterWidth",
                            "limiterOn",
@@ -2078,6 +2079,56 @@ TEST_CASE("Cold humanize varies repeated hits", "[processor][e2e][pertrack][huma
         hi = std::max(hi, p);
     }
     REQUIRE(hi - lo > 0.01f); // the hits actually vary
+
+    proc.releaseResources();
+}
+
+TEST_CASE("Cold pitch wheel bends the playback", "[processor][e2e][bend]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 4000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // A linear fade-in ramp: the output value tracks read position, so playing
+    // faster (a bend up) makes the ramp rise sooner.
+    auto wav = writeFadeInWav(sampleRate, frames);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    constexpr int probe = 500; // an early index, before either playback runs out
+
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    // No bend: the ramp rises at its natural rate.
+    setParam("pitchBendRange", 12.0f);
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    const float natural = std::abs(buffer.getSample(0, probe));
+    REQUIRE(natural > 0.0f);
+
+    // Full wheel up with a 12-semitone range ~= +1 octave = 2x speed, so the ramp
+    // reaches a clearly higher value by the same probe index.
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::pitchWheel(1, 16383), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    const float bent = std::abs(buffer.getSample(0, probe));
+    REQUIRE(bent > natural * 1.5f);
 
     proc.releaseResources();
 }

@@ -502,8 +502,9 @@ public:
                 tab = -1; // the cell grid: always visible
             else if (title.startsWith("Compressor") || title.startsWith("Saturation") ||
                      title.startsWith("Lo-Fi") || title.startsWith("Delay") ||
-                     title.startsWith("Reverb") || title.startsWith("Master"))
-                tab = 1; // FX
+                     title.startsWith("Reverb") || title.startsWith("Master "))
+                tab = 1; // FX (the master-bus sections are "Master <name>"; the bare
+                         // "Master" globals section below stays on Main)
             else if (title.startsWith("Mod Envelope") || title == "LFO")
                 tab = 2; // Mod
             // "Selected cell" + the per-layer rows live on Main: loading and editing
@@ -859,6 +860,9 @@ private:
             gKnob(s, "rootNote", "Root",
                   "MIDI note that plays a sample at its natural pitch. Other notes repitch "
                   "it varispeed-style.");
+            gKnob(s, "pitchBendRange", "Bend",
+                  "MIDI pitch-wheel range in semitones (bend at full deflection). 0 = ignore "
+                  "the wheel.");
             gCombo(s, "midiAddressing", "MIDI",
                    "How MIDI picks a track. Channel: MIDI channel N plays track N. "
                    "Note Map: one channel, the note number picks the track (GM-drum style).");

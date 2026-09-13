@@ -218,6 +218,13 @@ void Engine::setHumanize(float pitchCents, float levelDb)
         voices[static_cast<size_t>(i)].setHumanize(humanizePitch, humanizeLevel);
 }
 
+void Engine::setPitchBend(float semitones)
+{
+    pitchBend = semitones;
+    for (int i = 0; i < polyphony(); ++i)
+        voices[static_cast<size_t>(i)].setBendSemitones(pitchBend);
+}
+
 void Engine::setCompressor(bool enabled, float thresholdDb, float ratio, float attackSeconds,
                            float releaseSeconds, float makeupDb)
 {
@@ -267,6 +274,7 @@ void Engine::configureVoice(int voiceIndex, int sampleIndex)
     voice.setVelToPitch(velToPitch);
     voice.setVelToCutoff(velToCutoff);
     voice.setHumanize(humanizePitch, humanizeLevel);
+    voice.setBendSemitones(pitchBend);
     // A distinct non-zero seed per voice so the pool's humanize sequences diverge.
     voice.seedHumanize(0x9E3779B9u + static_cast<unsigned int>(voiceIndex) * 0x85EBCA6Bu + 1u);
     voice.setModRouting(modToCutoff, modToType);

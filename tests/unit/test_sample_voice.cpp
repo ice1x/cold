@@ -319,6 +319,38 @@ TEST_CASE("SampleVoice velocity maps to pitch", "[samplevoice][dsp][unit][veloci
     }
 }
 
+TEST_CASE("SampleVoice pitch bend shifts the playback ratio", "[samplevoice][dsp][unit][bend]")
+{
+    constexpr int frames = 64;
+    auto ramp = makeRamp(frames);
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+    voice.startNote(kRootNote, 1.0f, kRootNote);
+    REQUIRE_THAT(voice.increment(), WithinAbs(1.0, 1e-9)); // no bend yet
+
+    SECTION("a whole-tone bend up raises the ratio")
+    {
+        voice.setBendSemitones(2.0f);
+        REQUIRE_THAT(voice.increment(), WithinAbs(std::pow(2.0, 2.0 / 12.0), 1e-6));
+    }
+
+    SECTION("bend is a live, independent channel that stacks on tune")
+    {
+        voice.setTuneSemitones(12.0f);                         // +1 octave tune
+        voice.setBendSemitones(-12.0f);                        // wheel pulls back down an octave
+        REQUIRE_THAT(voice.increment(), WithinAbs(1.0, 1e-6)); // they cancel
+    }
+
+    SECTION("zero bend restores the natural pitch")
+    {
+        voice.setBendSemitones(7.0f);
+        voice.setBendSemitones(0.0f);
+        REQUIRE_THAT(voice.increment(), WithinAbs(1.0, 1e-9));
+    }
+}
+
 TEST_CASE("SampleVoice humanize varies pitch per note", "[samplevoice][dsp][unit][humanize]")
 {
     constexpr int frames = 64;
