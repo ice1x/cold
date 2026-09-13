@@ -20,7 +20,8 @@ std::vector<float> makeSine(int n, double freqHz, double sampleRate)
 {
     std::vector<float> v(static_cast<size_t>(n));
     for (int i = 0; i < n; ++i)
-        v[static_cast<size_t>(i)] = static_cast<float>(std::sin(2.0 * kPi * freqHz * i / sampleRate));
+        v[static_cast<size_t>(i)] =
+            static_cast<float>(std::sin(2.0 * kPi * freqHz * i / sampleRate));
     return v;
 }
 

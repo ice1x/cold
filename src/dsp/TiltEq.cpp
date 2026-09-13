@@ -51,8 +51,8 @@ void TiltEq::processBlock(float* const* channels, int numChannels, int numSample
         float* x = channels[c];
         for (int n = 0; n < numSamples; ++n)
         {
-            lp += lowCoeff * (x[n] - lp);       // low band (one-pole lowpass)
-            const float high = x[n] - lp;       // high band (complementary)
+            lp += lowCoeff * (x[n] - lp); // low band (one-pole lowpass)
+            const float high = x[n] - lp; // high band (complementary)
             x[n] = lp * lowGain + high * highGain;
         }
         lpState[c] = lp;

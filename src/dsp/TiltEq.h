@@ -43,9 +43,9 @@ private:
 
     double sampleRate = 44100.0;
     float pivotHz = 700.0f;
-    float lowCoeff = 0.0f;  // one-pole lowpass coefficient at the pivot
-    float lowGain = 1.0f;   // gain applied to the low band  (10^(-tilt/20))
-    float highGain = 1.0f;  // gain applied to the high band (10^(+tilt/20))
+    float lowCoeff = 0.0f; // one-pole lowpass coefficient at the pivot
+    float lowGain = 1.0f;  // gain applied to the low band  (10^(-tilt/20))
+    float highGain = 1.0f; // gain applied to the high band (10^(+tilt/20))
 
     float lpState[kMaxChannels] = {0.0f, 0.0f}; // per-channel one-pole state
     bool isEnabled = false;
