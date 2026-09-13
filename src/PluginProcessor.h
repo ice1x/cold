@@ -5,6 +5,7 @@
 #include "dsp/Limiter.h"
 #include "dsp/MultiEngine.h"
 #include "dsp/Reverb.h"
+#include "dsp/StereoWidth.h"
 #include "dsp/TiltEq.h"
 #include "dsp/Waveform.h"
 #include "io/SampleBank.h"
@@ -130,11 +131,12 @@ private:
     void applySharedParamsToTrack(int track, bool polyChanged);
 
     dsp::MultiEngine multi;
-    dsp::Delay delay;           // shared send/return delay fed by the per-cell delay sends
-    dsp::Reverb reverb;         // shared send/return reverb fed by the per-cell reverb sends
-    dsp::TiltEq tiltEq;         // master tilt tone control on the summed mix (pre comp)
-    dsp::Compressor masterComp; // master glue compressor on the summed mix (pre gain)
-    dsp::Limiter limiter;       // master brickwall limiter on the final output (post gain)
+    dsp::Delay delay;             // shared send/return delay fed by the per-cell delay sends
+    dsp::Reverb reverb;           // shared send/return reverb fed by the per-cell reverb sends
+    dsp::TiltEq tiltEq;           // master tilt tone control on the summed mix (pre comp)
+    dsp::Compressor masterComp;   // master glue compressor on the summed mix (pre gain)
+    dsp::StereoWidth stereoWidth; // master stereo-width (mid/side) on the output (pre limiter)
+    dsp::Limiter limiter;         // master brickwall limiter on the final output (post gain)
     io::SampleBank bank;
 
     // Send buses (per block) feeding the delay + reverb, and their pointer views.
@@ -195,6 +197,8 @@ private:
     std::atomic<float>* masterCompAttackParam = nullptr;
     std::atomic<float>* masterCompReleaseParam = nullptr;
     std::atomic<float>* masterCompMakeupParam = nullptr;
+    std::atomic<float>* masterWidthOnParam = nullptr;
+    std::atomic<float>* masterWidthParam = nullptr;
     std::atomic<float>* limiterOnParam = nullptr;
     std::atomic<float>* limiterCeilingParam = nullptr;
     std::atomic<float>* limiterReleaseParam = nullptr;
