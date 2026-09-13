@@ -22,6 +22,7 @@ constexpr auto kLoopStartId = "loopStart";
 constexpr auto kLoopEndId = "loopEnd";
 constexpr auto kRootNoteId = "rootNote";
 constexpr auto kPitchBendRangeId = "pitchBendRange";
+constexpr auto kModWheelToCutoffId = "modWheelToCutoff";
 constexpr auto kAttackId = "ampAttack";
 constexpr auto kDecayId = "ampDecay";
 constexpr auto kSustainId = "ampSustain";
@@ -162,6 +163,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     // ignores the wheel; default 2 (the GM standard whole-tone range).
     layout.add(std::make_unique<AudioParameterInt>(juce::ParameterID{kPitchBendRangeId, 1},
                                                    "Pitch Bend Range", 0, 24, 2));
+
+    // MIDI mod wheel (CC1) -> filter cutoff: octaves of cutoff offset at full wheel.
+    // 0 ignores the wheel; signed so it can open (+) or close (-) the filter.
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kModWheelToCutoffId, 1}, "Mod Wheel to Cutoff",
+        juce::NormalisableRange<float>(-8.0f, 8.0f, 0.1f), 0.0f));
 
     // Amp envelope and the morph filter (cutoff/resonance/type) are PER-TRACK (each
     // track/cell is an independent sound) — created in the per-track loop below.
@@ -560,6 +567,7 @@ ColdAudioProcessor::ColdAudioProcessor()
     loopEndParam = apvts.getRawParameterValue(kLoopEndId);
     rootNoteParam = apvts.getRawParameterValue(kRootNoteId);
     pitchBendRangeParam = apvts.getRawParameterValue(kPitchBendRangeId);
+    modWheelToCutoffParam = apvts.getRawParameterValue(kModWheelToCutoffId);
     lfoShapeParam = apvts.getRawParameterValue(kLfoShapeId);
     lfoRateParam = apvts.getRawParameterValue(kLfoRateId);
     lfoDepthParam = apvts.getRawParameterValue(kLfoDepthId);
@@ -1010,6 +1018,13 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
             // by the bend range; applied live to every track's sounding voices.
             const float norm = (static_cast<float>(msg.getPitchWheelValue()) - 8192.0f) / 8192.0f;
             multi.setPitchBend(norm * pitchBendRangeParam->load());
+        }
+        else if (msg.isController() && msg.getControllerNumber() == 1)
+        {
+            // Mod wheel (CC1): 0..127 -> [0, 1] scaled by the cutoff depth (octaves),
+            // applied live to every track's filters.
+            const float amt = static_cast<float>(msg.getControllerValue()) / 127.0f;
+            multi.setWheelCutoff(amt * modWheelToCutoffParam->load());
         }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
             multi.reset();

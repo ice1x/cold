@@ -104,6 +104,21 @@ void SampleVoice::setVelToCutoff(float octaves)
     velToCutoffAmount = octaves;
 }
 
+void SampleVoice::setWheelCutoff(float octaves)
+{
+    wheelCutoffOct = octaves;
+    // Recompute the static cutoff now so a held note responds live. The LFO / mod-env
+    // paths recompute per block/sample and add wheelCutoffOct there too, so this only
+    // matters for a plain (unmodulated) filter, where nothing else would update it.
+    if (useFilter)
+    {
+        const float cutoff =
+            baseCutoff * std::pow(2.0f, lfoCutoffOct + velCutoffMod + wheelCutoffOct);
+        for (auto& f : filters)
+            f.setCutoff(cutoff);
+    }
+}
+
 void SampleVoice::setHumanize(float pitchCents, float levelDb)
 {
     humanizePitchCents = std::max(0.0f, pitchCents);
@@ -279,12 +294,12 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
         f.reset();
     for (auto& f : highCutFilters)
         f.reset();
-    // Apply the per-note velocity->cutoff offset to the base cutoff. The LFO / mod-env
-    // paths recompute the cutoff each block/sample (and add velCutoffMod there), but a
-    // purely static filter keeps this value.
-    if (useFilter && std::abs(velCutoffMod) > 1.0e-6f)
+    // Apply the per-note velocity->cutoff offset (plus any live mod-wheel offset) to
+    // the base cutoff. The LFO / mod-env paths recompute the cutoff each block/sample
+    // (adding both terms there), but a purely static filter keeps this value.
+    if (useFilter && (std::abs(velCutoffMod) > 1.0e-6f || std::abs(wheelCutoffOct) > 1.0e-6f))
         for (auto& f : filters)
-            f.setCutoff(baseCutoff * std::pow(2.0f, velCutoffMod));
+            f.setCutoff(baseCutoff * std::pow(2.0f, velCutoffMod + wheelCutoffOct));
     active = true;
 }
 
@@ -350,7 +365,8 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
     // apply its relative octave/offset around this voice's base once for the block.
     if (useFilter && hasLfoFilterMod && !useModEnv)
     {
-        const float cutoff = baseCutoff * std::pow(2.0f, lfoCutoffOct + velCutoffMod);
+        const float cutoff =
+            baseCutoff * std::pow(2.0f, lfoCutoffOct + velCutoffMod + wheelCutoffOct);
         const float type = std::clamp(baseType + lfoTypeOff, 0.0f, 1.0f);
         for (auto& f : filters)
         {
@@ -375,8 +391,8 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
         if (useFilter && useModEnv)
         {
             const float m = modEnv.getNextSample();
-            const float modCutoff =
-                baseCutoff * std::pow(2.0f, lfoCutoffOct + modToCutoff * m + velCutoffMod);
+            const float modCutoff = baseCutoff * std::pow(2.0f, lfoCutoffOct + modToCutoff * m +
+                                                                    velCutoffMod + wheelCutoffOct);
             const float modType = std::clamp(baseType + lfoTypeOff + modToType * m, 0.0f, 1.0f);
             for (auto& f : filters)
             {

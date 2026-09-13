@@ -68,6 +68,12 @@ void MultiEngine::setPitchBend(float semitones)
         t.setPitchBend(semitones);
 }
 
+void MultiEngine::setWheelCutoff(float octaves)
+{
+    for (auto& t : tracks)
+        t.setWheelCutoff(octaves);
+}
+
 void MultiEngine::setSendGain(int trackIndex, int sendIndex, float gain)
 {
     if (validTrack(trackIndex) && sendIndex >= 0 && sendIndex < kNumSends)

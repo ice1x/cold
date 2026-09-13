@@ -351,6 +351,78 @@ TEST_CASE("SampleVoice pitch bend shifts the playback ratio", "[samplevoice][dsp
     }
 }
 
+TEST_CASE("SampleVoice mod wheel opens the filter", "[samplevoice][dsp][unit][filter][wheel]")
+{
+    // A 6 kHz sine through a low-pass at 500 Hz is heavily attenuated; a strong
+    // mod-wheel cutoff offset lifts the cutoff far above 6 kHz so the tone passes.
+    constexpr double sr = 48000.0;
+    constexpr int frames = 8000;
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] =
+            static_cast<float>(std::sin(2.0 * 3.14159265358979 * 6000.0 * n / sr));
+    s.rebuild();
+
+    auto tail = [](const std::vector<float>& out)
+    {
+        float p = 0.0f;
+        for (int n = static_cast<int>(out.size()) - 1500; n < static_cast<int>(out.size()); ++n)
+            p = std::max(p, std::abs(out[static_cast<size_t>(n)]));
+        return p;
+    };
+    auto play = [&](float wheelOct)
+    {
+        SampleVoice v;
+        v.prepare(sr);
+        v.setSample(s.data(), s.numChannels(), s.numFrames(), sr);
+        v.setFilter(500.0f, 0.707f, 0.0f); // low-pass, dark base
+        v.setWheelCutoff(wheelOct);
+        v.startNote(kRootNote, 1.0f, kRootNote);
+        return tail(render(v, frames));
+    };
+
+    const float open = play(6.0f); // 500 * 2^6 = 32 kHz -> the 6 kHz tone passes
+    const float shut = play(0.0f); // stays at 500 Hz -> the 6 kHz tone is cut
+    REQUIRE(open > 0.3f);
+    REQUIRE(open > shut * 4.0f);
+}
+
+TEST_CASE("SampleVoice mod wheel sweeps a held note live",
+          "[samplevoice][dsp][unit][filter][wheel]")
+{
+    // With the wheel open the tone passes; setting the wheel back to 0 on the SAME
+    // voice must close the filter again (the offset is live, not latched at note-on).
+    constexpr double sr = 48000.0;
+    constexpr int frames = 6000;
+    SourceSample s;
+    s.channels.assign(1, std::vector<float>(static_cast<size_t>(frames)));
+    for (int n = 0; n < frames; ++n)
+        s.channels[0][static_cast<size_t>(n)] =
+            static_cast<float>(std::sin(2.0 * 3.14159265358979 * 6000.0 * n / sr));
+    s.rebuild();
+
+    SampleVoice v;
+    v.prepare(sr);
+    v.setSample(s.data(), s.numChannels(), s.numFrames(), sr);
+    v.setFilter(500.0f, 0.707f, 0.0f);
+    v.setWheelCutoff(6.0f); // open
+    v.startNote(kRootNote, 1.0f, kRootNote);
+
+    auto tail = [](const std::vector<float>& out)
+    {
+        float p = 0.0f;
+        for (int n = static_cast<int>(out.size()) - 1000; n < static_cast<int>(out.size()); ++n)
+            p = std::max(p, std::abs(out[static_cast<size_t>(n)]));
+        return p;
+    };
+
+    const float openTail = tail(render(v, frames / 2)); // first half: filter open
+    v.setWheelCutoff(0.0f);                             // wheel released mid-note
+    const float shutTail = tail(render(v, frames / 2)); // second half: filter closed
+    REQUIRE(openTail > shutTail * 3.0f);
+}
+
 TEST_CASE("SampleVoice humanize varies pitch per note", "[samplevoice][dsp][unit][humanize]")
 {
     constexpr int frames = 64;

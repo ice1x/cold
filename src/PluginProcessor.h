@@ -159,6 +159,7 @@ private:
     std::atomic<float>* loopEndParam = nullptr;
     std::atomic<float>* rootNoteParam = nullptr;
     std::atomic<float>* pitchBendRangeParam = nullptr;
+    std::atomic<float>* modWheelToCutoffParam = nullptr;
     std::atomic<float>* lfoShapeParam = nullptr;
     std::atomic<float>* lfoRateParam = nullptr;
     std::atomic<float>* lfoDepthParam = nullptr;
