@@ -140,6 +140,12 @@ public:
     // modulation. No effect when the filter is off.
     void setVelToCutoff(float octaves);
 
+    // Live filter-cutoff offset in octaves from the MIDI mod wheel, applied on top
+    // of the base cutoff (stacks with the velocity / LFO / mod-env cutoff terms).
+    // Updates the filter immediately so a held note sweeps in real time; 0 restores
+    // the un-swept cutoff. No effect when the filter is off.
+    void setWheelCutoff(float octaves);
+
     // Humanize: at note-on, a fresh random offset is drawn for the pitch (up to
     // +/- `pitchCents` cents) and the level (up to +/- `levelDb` dB), so repeated
     // identical hits vary slightly (anti "machine gun"). Both 0 disables it. The
@@ -219,6 +225,7 @@ private:
     float velPitchMod = 0.0f;       // captured per note: velToPitchAmount * velocity
     float velToCutoffAmount = 0.0f; // octaves at full velocity (velocity -> cutoff)
     float velCutoffMod = 0.0f;      // captured per note: velToCutoffAmount * velocity
+    float wheelCutoffOct = 0.0f;    // live mod-wheel cutoff offset, octaves
 
     float humanizePitchCents = 0.0f;     // +/- range of the random pitch offset (cents)
     float humanizeLevelDb = 0.0f;        // +/- range of the random level offset (dB)
