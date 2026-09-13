@@ -78,6 +78,9 @@ constexpr auto kDelayDivisionId = "delayDivision";
 constexpr auto kReverbRoomId = "reverbRoom";
 constexpr auto kReverbDampId = "reverbDamp";
 constexpr auto kReverbReturnId = "reverbReturn";
+constexpr auto kMasterTiltOnId = "masterTiltOn";
+constexpr auto kMasterTiltId = "masterTilt";
+constexpr auto kMasterTiltPivotId = "masterTiltPivot";
 constexpr auto kMasterCompOnId = "masterCompOn";
 constexpr auto kMasterCompThresholdId = "masterCompThreshold";
 constexpr auto kMasterCompRatioId = "masterCompRatio";
@@ -225,6 +228,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
                                                      "Reverb Damp", 0.0f, 1.0f, 0.4f));
     layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kReverbReturnId, 1},
                                                      "Reverb Return", 0.0f, 1.0f, 1.0f));
+
+    // Master tilt EQ (tone): one knob tilts the spectrum around a pivot — positive
+    // brightens (lifts highs, cuts lows), negative darkens, zero is flat. First in
+    // the master chain (before the comp). Bypassed by default.
+    layout.add(std::make_unique<AudioParameterBool>(juce::ParameterID{kMasterTiltOnId, 1},
+                                                    "Master Tilt", false));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kMasterTiltId, 1}, "Master Tilt Amount",
+        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
+    layout.add(std::make_unique<AudioParameterFloat>(
+        juce::ParameterID{kMasterTiltPivotId, 1}, "Master Tilt Pivot",
+        juce::NormalisableRange<float>(100.0f, 4000.0f, 1.0f, 0.5f), 700.0f));
 
     // Master glue compressor on the summed mix (pre master gain): gentle bus
     // compression to glue a busy kit before the brickwall limiter. Reuses the
@@ -553,6 +568,9 @@ ColdAudioProcessor::ColdAudioProcessor()
     reverbRoomParam = apvts.getRawParameterValue(kReverbRoomId);
     reverbDampParam = apvts.getRawParameterValue(kReverbDampId);
     reverbReturnParam = apvts.getRawParameterValue(kReverbReturnId);
+    masterTiltOnParam = apvts.getRawParameterValue(kMasterTiltOnId);
+    masterTiltParam = apvts.getRawParameterValue(kMasterTiltId);
+    masterTiltPivotParam = apvts.getRawParameterValue(kMasterTiltPivotId);
     masterCompOnParam = apvts.getRawParameterValue(kMasterCompOnId);
     masterCompThresholdParam = apvts.getRawParameterValue(kMasterCompThresholdId);
     masterCompRatioParam = apvts.getRawParameterValue(kMasterCompRatioId);
@@ -639,6 +657,7 @@ void ColdAudioProcessor::prepareToPlay(double sampleRate, int)
     multi.prepare(sampleRate);
     delay.prepare(sampleRate, 2.0); // up to 2 s echo
     reverb.prepare(sampleRate);
+    tiltEq.prepare(sampleRate);
     masterComp.prepare(sampleRate);
     limiter.prepare(sampleRate);
     lastPolyphony = -1; // force a re-apply of polyphony on the next block
@@ -999,6 +1018,15 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         delay.reset();
         reverb.reset();
         sendsWereActive = false;
+    }
+
+    // Master tilt EQ first (tone): shape the overall balance before the dynamics.
+    // No cost while disabled.
+    tiltEq.setEnabled(masterTiltOnParam->load() > 0.5f);
+    if (tiltEq.enabled())
+    {
+        tiltEq.setParameters(masterTiltParam->load(), masterTiltPivotParam->load());
+        tiltEq.processBlock(channels, engineChannels, numSamples);
     }
 
     // Master glue compressor on the summed mix, before the master gain: glue a

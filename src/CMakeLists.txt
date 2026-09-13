@@ -17,6 +17,7 @@ add_library(cold_dsp STATIC
     dsp/Delay.cpp
     dsp/Reverb.cpp
     dsp/Limiter.cpp
+    dsp/TiltEq.cpp
     dsp/Logger.cpp)
 target_include_directories(cold_dsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(cold_dsp PUBLIC cxx_std_20)

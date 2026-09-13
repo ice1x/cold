@@ -1024,6 +1024,16 @@ private:
             gKnob(s, "reverbReturn", "Return", "Level of the reverb mixed back into the master.");
         }
         {
+            auto& s = newSection("Master Tilt");
+            gToggle(s, "masterTiltOn", "On",
+                    "Tilt tone control on the whole mix: brighter or darker in one knob.");
+            gKnob(s, "masterTilt", "Tilt",
+                  "Spectral tilt in dB: positive brightens (lifts highs, cuts lows), negative "
+                  "darkens, zero is flat.");
+            gKnob(s, "masterTiltPivot", "Pivot",
+                  "The balance frequency the tilt rotates around, in Hz.");
+        }
+        {
             auto& s = newSection("Master Comp");
             gToggle(s, "masterCompOn", "On",
                     "Glue compressor on the whole mix (before the master gain / limiter).");

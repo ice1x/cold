@@ -5,6 +5,7 @@
 #include "dsp/Limiter.h"
 #include "dsp/MultiEngine.h"
 #include "dsp/Reverb.h"
+#include "dsp/TiltEq.h"
 #include "dsp/Waveform.h"
 #include "io/SampleBank.h"
 
@@ -131,6 +132,7 @@ private:
     dsp::MultiEngine multi;
     dsp::Delay delay;           // shared send/return delay fed by the per-cell delay sends
     dsp::Reverb reverb;         // shared send/return reverb fed by the per-cell reverb sends
+    dsp::TiltEq tiltEq;         // master tilt tone control on the summed mix (pre comp)
     dsp::Compressor masterComp; // master glue compressor on the summed mix (pre gain)
     dsp::Limiter limiter;       // master brickwall limiter on the final output (post gain)
     io::SampleBank bank;
@@ -184,6 +186,9 @@ private:
     std::atomic<float>* reverbRoomParam = nullptr;
     std::atomic<float>* reverbDampParam = nullptr;
     std::atomic<float>* reverbReturnParam = nullptr;
+    std::atomic<float>* masterTiltOnParam = nullptr;
+    std::atomic<float>* masterTiltParam = nullptr;
+    std::atomic<float>* masterTiltPivotParam = nullptr;
     std::atomic<float>* masterCompOnParam = nullptr;
     std::atomic<float>* masterCompThresholdParam = nullptr;
     std::atomic<float>* masterCompRatioParam = nullptr;
