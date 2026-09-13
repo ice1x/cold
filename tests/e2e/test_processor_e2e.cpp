@@ -1643,6 +1643,8 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "masterCompAttack",
                            "masterCompRelease",
                            "masterCompMakeup",
+                           "masterWidthOn",
+                           "masterWidth",
                            "limiterOn",
                            "limiterCeiling",
                            "limiterRelease",
@@ -1958,6 +1960,62 @@ TEST_CASE("Cold master tilt EQ shapes the mix tone", "[processor][e2e][master][t
         renderBlock(proc, buffer, midi);
     }
     REQUIRE(peak(buffer) < dry * 0.7f); // the lows were cut by the bright tilt
+
+    proc.releaseResources();
+}
+
+TEST_CASE("Cold master stereo width collapses a panned mix to mono",
+          "[processor][e2e][master][width]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 4000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    auto wav = writeTempWav(sampleRate, 1, frames);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto maxChannelDiff = [](const juce::AudioBuffer<float>& b)
+    {
+        float d = 0.0f;
+        for (int n = 0; n < b.getNumSamples(); ++n)
+            d = std::max(d, std::abs(b.getSample(0, n) - b.getSample(1, n)));
+        return d;
+    };
+
+    // Hard-pan the cell to one side so L and R clearly differ.
+    setParam("t0_pan", -1.0f);
+
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    // Dry: no width processing -> the panned hit leaves L and R different.
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    const float dryDiff = maxChannelDiff(buffer);
+    REQUIRE(dryDiff > 0.05f); // there really is a stereo difference
+
+    // Width 0 -> fully mono: L and R become identical.
+    setParam("masterWidthOn", 1.0f);
+    setParam("masterWidth", 0.0f);
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    REQUIRE(maxChannelDiff(buffer) < 1e-4f); // collapsed to mono
 
     proc.releaseResources();
 }

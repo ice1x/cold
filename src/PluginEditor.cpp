@@ -1046,6 +1046,11 @@ private:
                   "Make-up gain (dB) added after the master compression.");
         }
         {
+            auto& s = newSection("Master Width");
+            gToggle(s, "masterWidthOn", "On", "Stereo-width control on the whole mix (mid/side).");
+            gKnob(s, "masterWidth", "Width", "Stereo width: 0 = mono, 1 = unchanged, 2 = wide.");
+        }
+        {
             auto& s = newSection("Master Limiter");
             gToggle(s, "limiterOn", "On",
                     "Brickwall limiter on the final output: holds the master at the ceiling "
