@@ -1644,6 +1644,7 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "masterCompRelease",
                            "masterCompMakeup",
                            "pitchBendRange",
+                           "modWheelToCutoff",
                            "masterWidthOn",
                            "masterWidth",
                            "limiterOn",
@@ -2129,6 +2130,61 @@ TEST_CASE("Cold pitch wheel bends the playback", "[processor][e2e][bend]")
     }
     const float bent = std::abs(buffer.getSample(0, probe));
     REQUIRE(bent > natural * 1.5f);
+
+    proc.releaseResources();
+}
+
+TEST_CASE("Cold mod wheel opens the filter", "[processor][e2e][wheel]")
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 8000;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+
+    // A bright 6 kHz tone; a dark cell filter cuts it until the wheel opens up.
+    auto wav = writeSineWav(sampleRate, frames, 6000.0);
+    REQUIRE(proc.loadSampleToSlot(0, wav));
+    wav.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    auto tailPeak = [](const juce::AudioBuffer<float>& b)
+    {
+        float p = 0.0f;
+        for (int n = b.getNumSamples() - 1500; n < b.getNumSamples(); ++n)
+            p = std::max(p, std::abs(b.getSample(0, n)));
+        return p;
+    };
+
+    setParam("t0_filterCutoff", 500.0f); // dark base; the cell morph filter is always on
+    setParam("modWheelToCutoff", 6.0f);  // +6 octaves at full wheel
+
+    juce::AudioBuffer<float> buffer(2, frames);
+
+    // Wheel down (no CC): the 6 kHz tone is cut.
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    const float dark = tailPeak(buffer);
+
+    // Full mod wheel: cutoff lifts ~6 octaves so the tone passes -> a louder tail.
+    buffer.clear();
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::controllerEvent(1, 1, 127), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+    }
+    const float bright = tailPeak(buffer);
+    REQUIRE(bright > dark * 3.0f);
 
     proc.releaseResources();
 }
