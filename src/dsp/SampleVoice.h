@@ -116,6 +116,11 @@ public:
     // the two are independent channels onto the same playback ratio.
     void setTuneSemitones(float semitones);
 
+    // Pitch-bend in semitones (from the MIDI pitch wheel). A separate channel from
+    // the tune / pitch-mod so a live bend can move a sounding voice without
+    // disturbing them. Takes effect immediately; 0 restores the un-bent pitch.
+    void setBendSemitones(float semitones);
+
     // Per-note pitch envelope (the classic drum "pitch blip"): at note-on the pitch
     // is offset by `amountSemitones` and decays back to the note pitch over
     // `decaySeconds`. Runs per sample, stacking onto tune + pitch mod. amount 0
@@ -193,6 +198,7 @@ private:
     double step = 1.0;     // input frames consumed per output sample (magnitude)
     float pitchMod = 0.0f; // pitch modulation in semitones (mod source, block-rate)
     float tuneMod = 0.0f;  // static per-note tune in semitones (e.g. a layer's tune)
+    float bendMod = 0.0f;  // pitch-wheel bend in semitones (live, independent channel)
     float panLeft = 1.0f;  // left/right channel gains from the pan (unity at centre)
     float panRight = 1.0f;
     int direction = 1;         // +1 forward, -1 reverse (ping-pong / reverse playback)

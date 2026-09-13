@@ -62,6 +62,12 @@ void MultiEngine::reset()
         t.reset();
 }
 
+void MultiEngine::setPitchBend(float semitones)
+{
+    for (auto& t : tracks)
+        t.setPitchBend(semitones);
+}
+
 void MultiEngine::setSendGain(int trackIndex, int sendIndex, float gain)
 {
     if (validTrack(trackIndex) && sendIndex >= 0 && sendIndex < kNumSends)
