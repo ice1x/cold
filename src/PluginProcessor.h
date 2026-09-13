@@ -243,6 +243,8 @@ private:
     TrackFloats pitchEnvDecayParam{};
     TrackFloats velToPitchParam{};
     TrackFloats velToCutoffParam{};
+    TrackFloats humanizePitchParam{};
+    TrackFloats humanizeLevelParam{};
     TrackFloats mapNoteParam{}; // per-cell Note Map key (MIDI note)
     TrackFloats compOnParam{};
     TrackFloats compThreshParam{};

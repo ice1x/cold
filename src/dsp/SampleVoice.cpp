@@ -98,6 +98,29 @@ void SampleVoice::setVelToCutoff(float octaves)
     velToCutoffAmount = octaves;
 }
 
+void SampleVoice::setHumanize(float pitchCents, float levelDb)
+{
+    humanizePitchCents = std::max(0.0f, pitchCents);
+    humanizeLevelDb = std::max(0.0f, levelDb);
+}
+
+void SampleVoice::seedHumanize(unsigned int seed)
+{
+    rngState = seed != 0u ? seed : 0x9E3779B9u; // xorshift needs a non-zero state
+}
+
+namespace
+{
+// A cheap per-voice xorshift32; advances `state` and returns a uniform in [-1, 1].
+float nextBipolar(unsigned int& state)
+{
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return static_cast<float>(state) / 2147483647.5f - 1.0f;
+}
+} // namespace
+
 void SampleVoice::setPan(float pan)
 {
     // Linear balance law: centre leaves both channels at unity; panning attenuates
@@ -112,7 +135,7 @@ void SampleVoice::updateStep()
     // Both the block-rate pitch mod and the static per-note tune ride on the note's
     // captured base step (magnitude), summed in semitones.
     const double semis = static_cast<double>(pitchMod) + static_cast<double>(tuneMod) +
-                         static_cast<double>(velPitchMod);
+                         static_cast<double>(velPitchMod) + static_cast<double>(humanizePitchMod);
     step = baseStep * std::pow(2.0, semis / 12.0);
 }
 
@@ -212,6 +235,17 @@ void SampleVoice::startNote(int newMidiNote, float velocity, int rootNote)
 
     midiNote = newMidiNote;
     gain = std::clamp(velocity, 0.0f, 1.0f);
+
+    // Humanize: draw a fresh random pitch (cents) and level (dB) offset for this
+    // note so repeated hits differ slightly. Drawn only when enabled so an
+    // un-humanized voice stays deterministic.
+    humanizePitchMod = 0.0f;
+    humanizeGain = 1.0f;
+    if (humanizePitchCents > 0.0f)
+        humanizePitchMod = nextBipolar(rngState) * humanizePitchCents / 100.0f;
+    if (humanizeLevelDb > 0.0f)
+        humanizeGain = std::pow(10.0f, (nextBipolar(rngState) * humanizeLevelDb) / 20.0f);
+    gain *= humanizeGain;
     // Reverse starts at the last frame of the playable region and reads downward; a
     // one-shot then frees itself when the position falls below zero.
     position = playReversed ? static_cast<double>(sourceNumFrames - 1) : 0.0;
@@ -387,6 +421,7 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
             advance = baseStep *
                       std::pow(2.0, (static_cast<double>(pitchMod) + static_cast<double>(tuneMod) +
                                      static_cast<double>(velPitchMod) +
+                                     static_cast<double>(humanizePitchMod) +
                                      static_cast<double>(pitchEnvAmount) * pe) /
                                         12.0);
         }

@@ -319,6 +319,47 @@ TEST_CASE("SampleVoice velocity maps to pitch", "[samplevoice][dsp][unit][veloci
     }
 }
 
+TEST_CASE("SampleVoice humanize varies pitch per note", "[samplevoice][dsp][unit][humanize]")
+{
+    constexpr int frames = 64;
+    auto ramp = makeRamp(frames);
+
+    SampleVoice voice;
+    voice.prepare(44100.0);
+    voice.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+
+    SECTION("disabled leaves the note at its natural pitch (deterministic)")
+    {
+        voice.setHumanize(0.0f, 0.0f);
+        voice.seedHumanize(12345u);
+        voice.startNote(kRootNote, 1.0f, kRootNote);
+        REQUIRE_THAT(voice.increment(), WithinAbs(1.0, 1e-9));
+        voice.startNote(kRootNote, 1.0f, kRootNote);
+        REQUIRE_THAT(voice.increment(), WithinAbs(1.0, 1e-9)); // same every time
+    }
+
+    SECTION("a pitch amount detunes each note within the cents band, and hits differ")
+    {
+        const float cents = 50.0f;
+        const double band = std::pow(2.0, cents / 1200.0); // +/- 50 cents bound
+        voice.setHumanize(cents, 0.0f);
+        voice.seedHumanize(12345u);
+
+        voice.startNote(kRootNote, 1.0f, kRootNote);
+        const double first = voice.increment();
+        voice.startNote(kRootNote, 1.0f, kRootNote);
+        const double second = voice.increment();
+
+        // Each hit sits within the +/- band around unity...
+        REQUIRE(first >= 1.0 / band - 1e-6);
+        REQUIRE(first <= band + 1e-6);
+        REQUIRE(second >= 1.0 / band - 1e-6);
+        REQUIRE(second <= band + 1e-6);
+        // ...and two hits are not identical (the random offset moved).
+        REQUIRE(std::abs(first - second) > 1e-6);
+    }
+}
+
 TEST_CASE("SampleVoice source sample rate corrects playback speed", "[samplevoice][dsp][unit]")
 {
     constexpr int frames = 64;
