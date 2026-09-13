@@ -46,6 +46,9 @@ public:
     // live bend moves all sounding and future voices.
     void setPitchBend(float semitones);
 
+    // Global mod-wheel -> filter cutoff offset in octaves applied to every track.
+    void setWheelCutoff(float octaves);
+
     // Number of shared FX send buses (0 = delay, 1 = reverb).
     static constexpr int kNumSends = 2;
 

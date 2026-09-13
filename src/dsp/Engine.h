@@ -161,6 +161,11 @@ public:
     // sounding notes bend too. A separate channel from tune / pitch-mod; 0 = no bend.
     void setPitchBend(float semitones);
 
+    // Live mod-wheel -> filter cutoff offset in octaves, applied to every voice (a
+    // held note sweeps in real time). Stacks with the LFO / mod-env / velocity cutoff
+    // terms; 0 = no offset. No effect where the filter is off.
+    void setWheelCutoff(float octaves);
+
     // Per-track compressor on the summed track output (post voice mix). When
     // enabled, the track renders into a scratch buffer, compresses it, then sums
     // into the output — so each cell can have its own punch/glue. Disabled = the
@@ -281,6 +286,7 @@ private:
     float humanizePitch = 0.0f; // humanize random pitch range, cents
     float humanizeLevel = 0.0f; // humanize random level range, dB
     float pitchBend = 0.0f;     // live pitch-wheel bend, semitones
+    float wheelCutoff = 0.0f;   // live mod-wheel -> cutoff offset, octaves
 
     float outGain = 1.0f; // per-track output level into the mix
     float outPan = 0.0f;  // per-track output balance [-1, 1]

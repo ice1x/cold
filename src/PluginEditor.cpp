@@ -863,6 +863,9 @@ private:
             gKnob(s, "pitchBendRange", "Bend",
                   "MIDI pitch-wheel range in semitones (bend at full deflection). 0 = ignore "
                   "the wheel.");
+            gKnob(s, "modWheelToCutoff", u8("Wheel→Cut"),
+                  "MIDI mod wheel (CC1) -> filter cutoff: octaves of offset at full wheel. "
+                  "+ opens, - closes; 0 = ignore. Needs a cell filter on.");
             gCombo(s, "midiAddressing", "MIDI",
                    "How MIDI picks a track. Channel: MIDI channel N plays track N. "
                    "Note Map: one channel, the note number picks the track (GM-drum style).");
