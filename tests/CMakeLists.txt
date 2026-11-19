@@ -76,6 +76,7 @@ catch_discover_tests(ColdIntegrationTests PROPERTIES LABELS "integration")
 # ----------------------------------------------------------------------------
 add_executable(ColdE2ETests
     e2e/test_processor_e2e.cpp
+    e2e/test_editor_e2e.cpp
     ${CMAKE_SOURCE_DIR}/src/PluginProcessor.cpp
     ${CMAKE_SOURCE_DIR}/src/PluginEditor.cpp)
 target_include_directories(ColdE2ETests PRIVATE ${CMAKE_SOURCE_DIR}/src)
