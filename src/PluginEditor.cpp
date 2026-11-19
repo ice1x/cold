@@ -156,6 +156,16 @@ public:
     // the whole sample. The editor maps these to frames and sets the slot window.
     std::function<void(float startFrac, float endFrac)> onWindowChanged;
 
+    // Fired on any press (before a marker drag), e.g. to focus the owning layer strip.
+    std::function<void()> onPress;
+
+    // What to say when there is no sample to draw.
+    void setEmptyText(const juce::String& text)
+    {
+        emptyText = text;
+        repaint();
+    }
+
     // Show a sample's peaks with its window as fractions [0, 1] of the whole
     // sample. `startFrac`/`endFrac` place the markers; pass 0/1 for the full clip.
     void setContent(dsp::WaveformPeaks newPeaks, float startFrac, float endFrac)
@@ -193,22 +203,7 @@ public:
         repaint();
     }
 
-    // Other layers' waveforms + envelopes drawn on top for comparison, each in its
-    // own colour (toggled by the per-layer "Show" checkboxes).
-    struct Overlay
-    {
-        dsp::WaveformPeaks peaks;
-        std::vector<float> env;
-        juce::Colour colour;
-    };
-    void setOverlays(std::vector<Overlay> newOverlays)
-    {
-        overlays = std::move(newOverlays);
-        repaint();
-    }
-
-    // Colour of the base (selected layer) waveform, so it matches that layer's
-    // colour in the overlay set.
+    // Colour of the waveform (each layer strip draws in its layer's colour).
     void setBaseColour(juce::Colour c)
     {
         if (baseColour != c)
@@ -220,6 +215,8 @@ public:
 
     void mouseDown(const juce::MouseEvent& e) override
     {
+        if (onPress)
+            onPress();
         if (!hasSample)
             return;
         // Grab the nearer of the two markers.
@@ -255,7 +252,7 @@ public:
         if (!hasSample)
         {
             g.setColour(juce::Colour(0xff5a6470));
-            g.drawText("no sample in this cell", getLocalBounds(), juce::Justification::centred);
+            g.drawText(emptyText, getLocalBounds(), juce::Justification::centred);
             return;
         }
 
@@ -345,45 +342,6 @@ public:
             g.strokePath(top, juce::PathStrokeType(1.5f));
             g.strokePath(bot, juce::PathStrokeType(1.5f));
         }
-
-        // Comparison overlays: other layers' waveforms (translucent) + envelopes
-        // (solid), each in its own colour, drawn on top of the base.
-        for (const auto& ov : overlays)
-        {
-            const int wn = ov.peaks.numBins();
-            if (wn > 0)
-            {
-                g.setColour(ov.colour.withAlpha(0.45f));
-                for (int x = 0; x < px; ++x)
-                {
-                    const int src = reversed ? (px - 1 - x) : x;
-                    const int bin = (wn <= 1) ? 0 : juce::jlimit(0, wn - 1, src * wn / px);
-                    const float lo = ov.peaks.minValues[static_cast<size_t>(bin)];
-                    const float hi = ov.peaks.maxValues[static_cast<size_t>(bin)];
-                    const float fx = area.getX() + static_cast<float>(x);
-                    g.drawLine(fx, midY - hi * halfH, fx, midY - lo * halfH, 1.0f);
-                }
-            }
-            const int en = static_cast<int>(ov.env.size());
-            if (en > 0)
-            {
-                juce::Path e;
-                for (int x = 0; x < px; ++x)
-                {
-                    const int src = reversed ? (px - 1 - x) : x;
-                    const int idx = (en <= 1) ? 0 : juce::jlimit(0, en - 1, src * en / px);
-                    const float ev = ov.env[static_cast<size_t>(idx)];
-                    const float fx = area.getX() + static_cast<float>(x);
-                    const float y = midY - ev * halfH;
-                    if (x == 0)
-                        e.startNewSubPath(fx, y);
-                    else
-                        e.lineTo(fx, y);
-                }
-                g.setColour(ov.colour);
-                g.strokePath(e, juce::PathStrokeType(1.5f));
-            }
-        }
     }
 
 private:
@@ -398,9 +356,9 @@ private:
         return reversed ? 1.0f - raw : raw; // logical (forward-frame) fraction
     }
 
+    juce::String emptyText{"no sample in this cell"};
     dsp::WaveformPeaks peaks;
-    std::vector<float> envelope;   // amp-envelope contour overlay (0..1), empty = hidden
-    std::vector<Overlay> overlays; // other layers' waveforms + envelopes, colour-coded
+    std::vector<float> envelope; // amp-envelope contour overlay (0..1), empty = hidden
     juce::Colour baseColour{0xff58b0f0};
     float windowStart = 0.0f;
     float windowEnd = 1.0f;
@@ -419,6 +377,264 @@ juce::String layerId(int track, int layer, const juce::String& base)
     return "t" + juce::String(track) + "_lyr" + juce::String(layer) + "_" + base;
 }
 
+// One layer of the selected cell as a self-contained strip: its sample, the most
+// reached switches, a mini waveform (envelope mask + draggable start/end) and the
+// core knobs with their values. All four strips are on screen at once, so a cell's
+// layers read and compare at a glance; the focused strip's deeper settings (own
+// envelope, filters) show in the "details" section below.
+class LayerStrip : public juce::Component
+{
+public:
+    LayerStrip(int layerIndex, juce::Colour c) : layer(layerIndex), colour(c)
+    {
+        setComponentID("layerStrip" + juce::String(layer));
+
+        focusButton.setComponentID("focus");
+        focusButton.setButtonText("L" + juce::String(layer + 1));
+        focusButton.setTooltip("Edit this layer's details below (own envelope, filters).");
+        focusButton.setColour(juce::TextButton::buttonColourId, colour);
+        focusButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff101216));
+        focusButton.onClick = [this] { focus(); };
+        addAndMakeVisible(focusButton);
+
+        loadButton.setComponentID("load");
+        loadButton.setTooltip("Load a sample into this layer.");
+        loadButton.onClick = [this]
+        {
+            focus();
+            if (onLoad)
+                onLoad();
+        };
+        addAndMakeVisible(loadButton);
+
+        setupToggle(muteButton, "mute", "M", "Mute this layer.", juce::Colour(0xffd65a5a));
+        setupToggle(soloButton, "solo", "S",
+                    "Solo this layer: if any layer is soloed, only soloed layers sound.",
+                    juce::Colour(0xffe0c341));
+        setupToggle(reverseButton, "reverse", "REV", "Play this layer backwards.",
+                    juce::Colour(0xff58b0f0));
+        // The attachment updates the param from its listener before onClick runs, so
+        // the waveform can re-read the new reverse state here.
+        reverseButton.onClick = [this]
+        {
+            if (onReverseChanged)
+                onReverseChanged();
+        };
+
+        wave.setComponentID("wave");
+        wave.setBaseColour(colour);
+        wave.setEmptyText("empty");
+        wave.onPress = [this] { focus(); };
+        addAndMakeVisible(wave);
+
+        setupKnob(gainKnob, gainCaption, "gain", "GAIN", "Layer level.");
+        setupKnob(tuneKnob, tuneCaption, "tune", "TUNE",
+                  "Layer pitch in semitones. Changes playback speed, so it reshapes the "
+                  "envelope mask on the waveform.");
+        setupKnob(panKnob, panCaption, "pan", "PAN", "Layer stereo position: left .. right.");
+    }
+
+    std::function<void()> onFocus;          // make this the layer shown in "details"
+    std::function<void()> onLoad;           // open a file chooser for this layer
+    std::function<void()> onReverseChanged; // re-mirror the waveform
+
+    [[nodiscard]] WaveformDisplay& waveform() noexcept { return wave; }
+
+    // Point every control at (track, this layer).
+    void attach(juce::AudioProcessorValueTreeState& apvts, int track)
+    {
+        sliderAtt.clear();
+        buttonAtt.clear();
+        auto slider = [&](const char* base, juce::Slider& s)
+        {
+            sliderAtt.push_back(
+                std::make_unique<APVTS::SliderAttachment>(apvts, layerId(track, layer, base), s));
+        };
+        auto button = [&](const char* base, juce::Button& b)
+        {
+            buttonAtt.push_back(
+                std::make_unique<APVTS::ButtonAttachment>(apvts, layerId(track, layer, base), b));
+        };
+        slider("gain", gainKnob);
+        slider("tune", tuneKnob);
+        slider("pan", panKnob);
+        button("mute", muteButton);
+        button("solo", soloButton);
+        button("reverse", reverseButton);
+        formatKnobs(); // after the attachments, which install the param's raw formatting
+    }
+
+    void setSampleName(const juce::String& name)
+    {
+        loadButton.setButtonText(name.isEmpty() ? u8("Load…") : name);
+        loadButton.setColour(juce::TextButton::buttonColourId,
+                             name.isEmpty() ? juce::Colour(0xff21252b) : juce::Colour(0xff262c35));
+        loadButton.setColour(juce::TextButton::textColourOffId,
+                             name.isEmpty() ? juce::Colour(0xff8a94a3) : juce::Colour(0xffe6ebf2));
+    }
+
+    void setFocused(bool shouldBeFocused)
+    {
+        if (focused != shouldBeFocused)
+        {
+            focused = shouldBeFocused;
+            repaint();
+        }
+    }
+
+    void mouseDown(const juce::MouseEvent&) override { focus(); }
+
+    void paint(juce::Graphics& g) override
+    {
+        const auto r = getLocalBounds().toFloat().reduced(0.5f);
+        g.setColour(juce::Colour(0xff181b21));
+        g.fillRoundedRectangle(r, 6.0f);
+        g.setColour(focused ? colour : juce::Colour(0xff2a2f37));
+        g.drawRoundedRectangle(r, 6.0f, focused ? 2.0f : 1.0f);
+    }
+
+    void resized() override
+    {
+        constexpr int gap = 4;
+        auto b = getLocalBounds().reduced(8, 6);
+
+        // Left: tag + sample name, then the switches.
+        auto left = b.removeFromLeft(176);
+        auto row1 = left.removeFromTop(26);
+        focusButton.setBounds(row1.removeFromLeft(34));
+        row1.removeFromLeft(gap);
+        loadButton.setBounds(row1);
+        left.removeFromTop(8);
+        auto row2 = left.removeFromTop(24);
+        muteButton.setBounds(row2.removeFromLeft(34));
+        row2.removeFromLeft(gap);
+        soloButton.setBounds(row2.removeFromLeft(34));
+        row2.removeFromLeft(gap);
+        reverseButton.setBounds(row2.removeFromLeft(48));
+
+        // Right: the core knobs, caption above and value below each.
+        constexpr int knobW = 62;
+        auto knobs = b.removeFromRight(3 * knobW + 2 * gap);
+        for (auto [knob, caption] :
+             {std::pair{&gainKnob, &gainCaption}, std::pair{&tuneKnob, &tuneCaption},
+              std::pair{&panKnob, &panCaption}})
+        {
+            auto col = knobs.removeFromLeft(knobW);
+            knobs.removeFromLeft(gap);
+            caption->setBounds(col.removeFromTop(12));
+            knob->setBounds(col);
+        }
+
+        // Middle: the waveform takes whatever is left.
+        b.removeFromLeft(10);
+        b.removeFromRight(10);
+        wave.setBounds(b);
+    }
+
+private:
+    void focus()
+    {
+        if (onFocus)
+            onFocus();
+    }
+
+    // Musician-readable values: gain in dB, tune in signed semitones, pan as C/L/R
+    // (no "-0.00"), with typed text parsed back the same way.
+    void formatKnobs()
+    {
+        gainKnob.textFromValueFunction = [](double v)
+        {
+            if (v <= 1.0e-4)
+                return juce::String("-inf dB");
+            const double db = juce::Decibels::gainToDecibels(v);
+            return juce::String(std::abs(db) < 0.05 ? 0.0 : db, 1) + " dB";
+        };
+        gainKnob.valueFromTextFunction = [](const juce::String& t)
+        {
+            if (t.containsIgnoreCase("inf"))
+                return 0.0;
+            return juce::Decibels::decibelsToGain(t.getDoubleValue());
+        };
+
+        tuneKnob.textFromValueFunction = [](double v)
+        {
+            if (std::abs(v) < 0.05)
+                return juce::String("0 st");
+            return (v > 0.0 ? "+" : "") + juce::String(v, 1) + " st";
+        };
+        tuneKnob.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue(); };
+
+        panKnob.textFromValueFunction = [](double v)
+        {
+            const int pct = juce::roundToInt(std::abs(v) * 100.0);
+            if (pct == 0)
+                return juce::String("C");
+            return (v < 0.0 ? "L" : "R") + juce::String(pct);
+        };
+        panKnob.valueFromTextFunction = [](const juce::String& t)
+        {
+            const auto s = t.trim().toUpperCase();
+            const double amount = s.retainCharacters("0123456789.").getDoubleValue() / 100.0;
+            if (s.startsWith("L"))
+                return -amount;
+            if (s.startsWith("R"))
+                return amount;
+            return 0.0; // "C" or anything unrecognised -> centre
+        };
+
+        for (auto* k : {&gainKnob, &tuneKnob, &panKnob})
+            k->updateText();
+    }
+
+    void setupToggle(juce::TextButton& b, const char* id, const char* text, const char* tip,
+                     juce::Colour onColour)
+    {
+        b.setComponentID(id);
+        b.setButtonText(text);
+        b.setTooltip(tip);
+        b.setClickingTogglesState(true);
+        b.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff21252b));
+        b.setColour(juce::TextButton::buttonOnColourId, onColour);
+        b.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff8a94a3));
+        b.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff101216));
+        addAndMakeVisible(b);
+    }
+
+    void setupKnob(juce::Slider& s, juce::Label& caption, const char* id, const char* name,
+                   const char* tip)
+    {
+        s.setComponentID(id);
+        s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, knobTextW, 14);
+        s.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        s.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+        s.setColour(juce::Slider::textBoxTextColourId, juce::Colour(0xffd6dbe4));
+        s.setTooltip(tip);
+        addAndMakeVisible(s);
+
+        caption.setText(name, juce::dontSendNotification);
+        caption.setJustificationType(juce::Justification::centred);
+        caption.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
+        caption.setColour(juce::Label::textColourId, juce::Colour(0xff8a94a3));
+        addAndMakeVisible(caption);
+    }
+
+    static constexpr int knobTextW = 60;
+
+    const int layer;
+    const juce::Colour colour;
+    bool focused = false;
+
+    juce::TextButton focusButton, loadButton;
+    juce::TextButton muteButton, soloButton, reverseButton;
+    WaveformDisplay wave;
+    juce::Slider gainKnob, tuneKnob, panKnob;
+    juce::Label gainCaption, tuneCaption, panCaption;
+
+    std::vector<std::unique_ptr<APVTS::SliderAttachment>> sliderAtt;
+    std::vector<std::unique_ptr<APVTS::ButtonAttachment>> buttonAtt;
+};
+
 } // namespace
 
 // ============================================================================
@@ -431,23 +647,10 @@ public:
         dsp::Logger::instance().log("editor opened");
         buildLogView();
         buildCellGrid();
-        addAndMakeVisible(waveformView); // under the cell pads (positioned in resized)
-        // Dragging a marker sets the selected cell's playable window (frames).
-        waveformView.onWindowChanged = [this](float startFrac, float endFrac)
-        {
-            const int slot = slotForLayer(currentLayer); // the layer being edited
-            const int total = proc.slotTotalFrames(slot);
-            if (total <= 0)
-                return;
-            const int start = juce::roundToInt(startFrac * static_cast<float>(total));
-            const int length =
-                juce::jmax(1, juce::roundToInt((endFrac - startFrac) * static_cast<float>(total)));
-            proc.setSlotStartFrames(slot, start);
-            proc.setSlotLengthFrames(slot, length);
-        };
-        // Track panel FIRST so "Selected cell" + the layer rows sit at the top of the
-        // Main tab, right under the waveform (loading/editing layers is the core
-        // workflow); the global sound-shaping sections follow below.
+        buildLayerStrips(); // the selected cell's 4 layers, pinned under the pads
+        // Track panel FIRST so "Selected cell" + the focused layer's details sit at the
+        // top of the Main tab (loading/editing layers is the core workflow); the
+        // global sound-shaping sections follow below.
         buildTrackPanel();
         buildGlobals();
         buildTabs();  // after all sections exist
@@ -575,9 +778,8 @@ public:
         }
         else
         {
-            // Live-update the envelope mask + comparison overlays as knobs move.
+            // Live-update every strip's envelope mask as knobs move.
             refreshEnvOverlay();
-            refreshOverlays();
         }
     }
 
@@ -626,27 +828,18 @@ public:
     {
         constexpr int pad = 10;
         constexpr int gap = 6;
-        constexpr int waveH = 96;
+        constexpr int stripH = 84;
         constexpr int tabH = 28;
 
         const int width = juce::jmax(getWidth(), 320);
 
-        // Always-on header: the cell grid (section 0) + the selected cell's waveform.
+        // Always-on header: the cell grid (section 0) + the selected cell's four layer
+        // strips, so every layer of the cell is visible at once.
         int y = pad;
         y = layoutSection(sections[0], width, y, /*tallPads*/ true);
-        waveformView.setBounds(pad, y, width - 2 * pad, waveH);
-        y += waveH + gap;
-
-        // Pinned envelope strip: the selected layer's Tune + amp envelope, right under
-        // the waveform so they sit next to the mask they shape. Always visible.
-        if (!envStrip.empty())
+        for (auto& strip : strips)
         {
-            const int n = static_cast<int>(envStrip.size());
-            constexpr int stripH = 60;
-            const int cellW = (width - 2 * pad - gap * (n - 1)) / n;
-            for (int i = 0; i < n; ++i)
-                envStrip[static_cast<size_t>(i)]->setBounds(pad + i * (cellW + gap), y, cellW,
-                                                            stripH);
+            strip->setBounds(pad, y, width - 2 * pad, stripH);
             y += stripH + gap;
         }
 
@@ -715,24 +908,14 @@ public:
         return currentTrack * ColdAudioProcessor::kNumLayers + layer;
     }
 
-    // Refresh the layer selector (label + loaded dot + highlight for each of the 4
-    // layers) and the single editor's Load button (the current layer's sample).
+    // Refresh each layer strip's sample name and the focus highlight.
     void refreshLayerButtons()
     {
-        for (int l = 0; l < static_cast<int>(layerSelectors.size()); ++l)
+        for (int l = 0; l < kNumLayers; ++l)
         {
-            const bool hasSample = proc.slotSampleName(slotForLayer(l)).isNotEmpty();
-            const bool sel = (l == currentLayer);
-            auto* b = layerSelectors[static_cast<size_t>(l)];
-            b->setButtonText("L" + juce::String(l + 1) + (hasSample ? u8(" ●") : juce::String()));
-            b->setColour(juce::TextButton::buttonColourId, sel         ? juce::Colour(0xff2b6cb0)
-                                                           : hasSample ? juce::Colour(0xff2d5f57)
-                                                                       : juce::Colour(0xff21252b));
-        }
-        if (layerCtl.load != nullptr)
-        {
-            const auto name = proc.slotSampleName(slotForLayer(currentLayer));
-            layerCtl.load->setButtonText(name.isEmpty() ? u8("Load…") : name);
+            auto& strip = *strips[static_cast<size_t>(l)];
+            strip.setSampleName(proc.slotSampleName(slotForLayer(l)));
+            strip.setFocused(l == currentLayer);
         }
     }
 
@@ -776,18 +959,6 @@ private:
         addAndMakeVisible(*ptr);
         owned.push_back(std::move(lc));
         sec.cells.push_back(ptr);
-    }
-
-    // Wrap the last-made control and PIN it in the strip directly under the waveform
-    // (always visible, above the tab bar) — for Tune + the amp envelope, which shape
-    // the mask drawn on the waveform.
-    void placePinned(const juce::String& name, const juce::String& tooltip = {})
-    {
-        auto lc = std::make_unique<LabeledControl>(name, std::move(pendingControl), tooltip);
-        auto* ptr = lc.get();
-        addAndMakeVisible(*ptr);
-        owned.push_back(std::move(lc));
-        envStrip.push_back(ptr);
     }
 
     Section& newSection(const juce::String& title)
@@ -1162,6 +1333,7 @@ private:
             ptr->onRightClick = [this, t] { showCellMenu(t); };
             ptr->onAudition = [this, t] { proc.auditionCell(t); };
             ptr->onAuditionEnd = [this, t] { proc.releaseCell(t); };
+            ptr->setComponentID("cellPad" + juce::String(t));
             addAndMakeVisible(*ptr);
             cellPads.push_back(ptr);
             owned.push_back(std::move(btn));
@@ -1169,15 +1341,42 @@ private:
         }
     }
 
+    // The selected cell's four layers as always-visible strips (see LayerStrip).
+    void buildLayerStrips()
+    {
+        for (int l = 0; l < kNumLayers; ++l)
+        {
+            auto strip = std::make_unique<LayerStrip>(l, kLayerColours[static_cast<size_t>(l)]);
+            strip->onFocus = [this, l] { selectLayer(l); };
+            strip->onLoad = [this, l] { chooseForLayer(l); };
+            strip->onReverseChanged = [this] { updateWaveform(); };
+            strip->waveform().onWindowChanged = [this, l](float startFrac, float endFrac)
+            { setLayerWindow(l, startFrac, endFrac); };
+            addAndMakeVisible(*strip);
+            strips[static_cast<size_t>(l)] = std::move(strip);
+        }
+    }
+
+    // Dragging a strip's markers sets that layer's playable window (in frames).
+    void setLayerWindow(int layer, float startFrac, float endFrac)
+    {
+        const int slot = slotForLayer(layer);
+        const int total = proc.slotTotalFrames(slot);
+        if (total <= 0)
+            return;
+        const int start = juce::roundToInt(startFrac * static_cast<float>(total));
+        const int length =
+            juce::jmax(1, juce::roundToInt((endFrac - startFrac) * static_cast<float>(total)));
+        proc.setSlotStartFrames(slot, start);
+        proc.setSlotLengthFrames(slot, length);
+    }
+
     // Select which track/cell the panel edits: set the param, re-point the per-track
     // attachments, refresh the pad labels/highlight and the top-bar sample name.
     void selectCell(int t)
     {
         dsp::Logger::instance().log("selectCell(" + std::to_string(t) + ")");
-        const int newTrack = juce::jlimit(0, dsp::MultiEngine::kNumTracks - 1, t);
-        if (newTrack != currentTrack)
-            layerShow.fill(false); // overlays are per-cell; clear when the cell changes
-        currentTrack = newTrack;
+        currentTrack = juce::jlimit(0, dsp::MultiEngine::kNumTracks - 1, t);
         if (auto* p = proc.apvts.getParameter("track"))
             p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(currentTrack)));
         setTrack(currentTrack);
@@ -1187,32 +1386,33 @@ private:
             onBankChanged();
     }
 
-    // Pull the selected cell's primary sample (layer 0) into the waveform view.
-    // Fetches peaks at the view's current pixel width so bins map ~1:1 to columns.
+    // Pull each of the selected cell's layers into its strip's waveform (peaks at the
+    // strip's pixel width, the playable window, reverse mirroring, envelope mask).
     void updateWaveform()
     {
-        // Mirror the view when this layer plays in reverse.
-        if (auto* rev =
-                proc.apvts.getRawParameterValue(layerId(currentTrack, currentLayer, "reverse")))
-            waveformView.setReversed(rev->load() > 0.5f);
-
-        const int slot = slotForLayer(currentLayer); // the layer being edited
-        const int total = proc.slotTotalFrames(slot);
-        if (total <= 0)
+        for (int l = 0; l < kNumLayers; ++l)
         {
-            waveformView.clear();
-            return;
+            auto& wave = strips[static_cast<size_t>(l)]->waveform();
+            if (auto* rev = proc.apvts.getRawParameterValue(layerId(currentTrack, l, "reverse")))
+                wave.setReversed(rev->load() > 0.5f);
+
+            const int slot = slotForLayer(l);
+            const int total = proc.slotTotalFrames(slot);
+            if (total <= 0)
+            {
+                wave.clear();
+                wave.setEnvelope({});
+                continue;
+            }
+            const int bins = juce::jmax(1, wave.getWidth());
+            const float startFrac =
+                static_cast<float>(proc.slotWindowStart(slot)) / static_cast<float>(total);
+            const float endFrac =
+                static_cast<float>(proc.slotWindowStart(slot) + proc.slotWindowLength(slot)) /
+                static_cast<float>(total);
+            wave.setContent(proc.slotWaveform(slot, bins), startFrac, endFrac);
         }
-        const int bins = juce::jmax(1, waveformView.getWidth());
-        const float startFrac =
-            static_cast<float>(proc.slotWindowStart(slot)) / static_cast<float>(total);
-        const float endFrac =
-            static_cast<float>(proc.slotWindowStart(slot) + proc.slotWindowLength(slot)) /
-            static_cast<float>(total);
-        waveformView.setBaseColour(kLayerColours[static_cast<size_t>(currentLayer)]);
-        waveformView.setContent(proc.slotWaveform(slot, bins), startFrac, endFrac);
         refreshEnvOverlay();
-        refreshOverlays();
     }
 
     // The amp-envelope contour for layer `l` of the current cell, its time axis scaled
@@ -1263,30 +1463,15 @@ private:
         return dsp::sampleEnvelopeShape(shape, totalSeconds, cols);
     }
 
-    // The selected layer's envelope mask on the waveform.
+    // Each strip's envelope mask (its layer's own envelope, or the cell's, scaled by
+    // that layer's tune).
     void refreshEnvOverlay()
     {
-        const int cols = juce::jmax(1, waveformView.getWidth());
-        waveformView.setEnvelope(layerEnvCurve(currentLayer, cols));
-    }
-
-    // Comparison overlays: every OTHER layer with "Show" on is drawn (waveform +
-    // envelope) in its own colour on top of the selected layer.
-    void refreshOverlays()
-    {
-        const int bins = juce::jmax(1, waveformView.getWidth());
-        std::vector<WaveformDisplay::Overlay> ov;
         for (int l = 0; l < kNumLayers; ++l)
         {
-            if (l == currentLayer || !layerShow[static_cast<size_t>(l)])
-                continue;
-            const int slot = slotForLayer(l);
-            if (proc.slotTotalFrames(slot) <= 0)
-                continue; // unloaded layer -> nothing to overlay
-            ov.push_back({proc.slotWaveform(slot, bins), layerEnvCurve(l, bins),
-                          kLayerColours[static_cast<size_t>(l)]});
+            auto& wave = strips[static_cast<size_t>(l)]->waveform();
+            wave.setEnvelope(layerEnvCurve(l, juce::jmax(1, wave.getWidth())));
         }
-        waveformView.setOverlays(std::move(ov));
     }
 
     void refreshCellPads()
@@ -1356,73 +1541,38 @@ private:
               "How much of this cell is sent to the shared reverb (0 = dry). Set the reverb "
               "itself in the FX tab.");
 
-        // Layer selector: pick which of the cell's 4 layers the editor below edits.
-        // (You can't show 4 layers' full envelopes at once, so layers are selected
-        // like cells — one at a time.)
-        {
-            auto& sel = newSection(u8("Layers — click to edit a layer (loaded shown ●)"));
-            sel.wideCells = true;
-            for (int l = 0; l < kNumLayers; ++l)
-            {
-                auto btn = std::make_unique<juce::TextButton>();
-                btn->setTooltip("Edit layer " + juce::String(l + 1) +
-                                " of the selected cell below. Right-click a cell to load a "
-                                "sample into a specific layer.");
-                auto* ptr = btn.get();
-                ptr->onClick = [this, l] { selectLayer(l); };
-                addAndMakeVisible(*ptr);
-                layerSelectors.push_back(ptr);
-                owned.push_back(std::move(btn));
-                sel.cells.push_back(ptr);
-            }
-        }
-
-        // The single layer editor. Its controls re-attach to the selected layer.
-        auto& row = newSection("Layer");
+        // The focused layer's deeper settings (its strip above carries the core ones).
+        // The controls re-attach to whichever strip is focused (selectLayer).
+        auto& row = newSection("Layer 1 details");
+        layerDetailsHeader = row.header;
+        layerDetailsHeader->setComponentID("layerDetailsHeader");
         auto& c = layerCtl;
 
-        auto btn = std::make_unique<juce::TextButton>();
-        btn->setTooltip("Load a sample into the selected layer of the selected cell.");
-        c.load = btn.get();
-        c.load->onClick = [this] { chooseForLayer(currentLayer); };
-        pendingControl = std::move(btn);
-        place(row, "Sample");
+        // Own amp envelope first: per-layer envelopes are the essence of layering.
+        c.envOn = makeToggle();
+        place(row, "Own Env",
+              "Give this layer its OWN amp envelope instead of the cell's shared one "
+              "(e.g. a fast click layer + a long tail layer). Its shape is drawn on the "
+              "layer's waveform.");
+        c.envDelay = makeSlider();
+        place(row, "Delay", "This layer's envelope: silence before the attack (seconds).");
+        c.envAttack = makeSlider();
+        place(row, "Attack", "This layer's envelope attack (fade-in), in seconds.");
+        c.envHold = makeSlider();
+        place(row, "Hold", "This layer's envelope hold at full level, in seconds.");
+        c.envDecay = makeSlider();
+        place(row, "Decay", "This layer's envelope decay to the sustain level, in seconds.");
+        c.envSustain = makeSlider();
+        place(row, "Sustain", "This layer's envelope sustain level (0..1).");
+        c.envRelease = makeSlider();
+        place(row, "Release", "This layer's envelope release after note-off, in seconds.");
 
-        // The most-reached per-layer switches, kept at the top so they are visible the
-        // moment a layer is selected (not buried under the knobs).
-        c.mute = makeToggle();
-        place(row, "Mute", "Silence this layer in the stack (Stack / Round-Robin / Velocity).");
-        c.solo = makeToggle();
-        place(row, "Solo",
-              "Solo this layer: if any layer in the cell is soloed, only soloed layers "
-              "sound.");
-        c.reverse = makeToggle();
-        place(row, "Reverse",
-              "Play THIS layer backwards (per layer — a stack can mix forward and "
-              "reversed layers).");
-        {
-            auto tg = std::make_unique<juce::ToggleButton>();
-            c.show = tg.get();
-            c.show->onClick = [this]
-            {
-                layerShow[static_cast<size_t>(currentLayer)] = layerCtl.show->getToggleState();
-                refreshOverlays();
-            };
-            pendingControl = std::move(tg);
-            place(row, "Show",
-                  "Overlay THIS layer's waveform + envelope on the display (colour-coded "
-                  "per layer) so you can line up and compare the cell's layers.");
-        }
-
-        c.gain = makeSlider();
-        place(row, "Gain", "Layer level (multiplies note velocity).");
-        c.pan = makeSlider();
-        place(row, "Pan", "Layer stereo position: -1 hard left .. +1 hard right.");
         c.flt = makeToggle();
         place(row, "Filter",
               "Give this layer its OWN filter instead of the shared track filter "
               "(e.g. low-pass only the boom layer).");
         c.cutoff = makeSlider();
+        c.cutoff->setComponentID("detailCutoff");
         place(row, "Cutoff", "This layer's filter cutoff, in Hz (when Filter is on).");
         c.ftype = makeSlider();
         place(row, "F.Type",
@@ -1442,29 +1592,6 @@ private:
               "Low-pass this layer: removes the highs above the frequency at right.");
         c.lpCut = makeSlider();
         place(row, "HC Freq", "High-cut (low-pass) frequency in Hz (200-20000).");
-
-        // Tune + the per-layer amp envelope are PINNED directly under the waveform
-        // (they shape the mask drawn there), so they build into the pinned strip
-        // rather than this section. Still per-layer: attached in selectLayer.
-        c.tune = makeSlider();
-        placePinned("Tune", "Layer pitch offset in semitones (+/-24). Changes playback speed, so "
-                            "it reshapes the envelope mask on the waveform.");
-        c.envOn = makeToggle();
-        placePinned("Env",
-                    "Give this layer its OWN amp envelope instead of the cell's shared one — "
-                    "the essence of layering (e.g. a fast click layer + a long tail layer).");
-        c.envDelay = makeSlider();
-        placePinned("E.Delay", "This layer's envelope: silence before the attack (seconds).");
-        c.envAttack = makeSlider();
-        placePinned("E.Attack", "This layer's envelope attack (fade-in), in seconds.");
-        c.envHold = makeSlider();
-        placePinned("E.Hold", "This layer's envelope hold at full level, in seconds.");
-        c.envDecay = makeSlider();
-        placePinned("E.Decay", "This layer's envelope decay to the sustain level, in seconds.");
-        c.envSustain = makeSlider();
-        placePinned("E.Sustain", "This layer's envelope sustain level (0..1).");
-        c.envRelease = makeSlider();
-        placePinned("E.Release", "This layer's envelope release after note-off, in seconds.");
     }
 
     // Rebuild the per-track attachments (layer mode + per-track knobs/toggles) to
@@ -1488,11 +1615,15 @@ private:
             trackAtt.button.push_back(std::make_unique<APVTS::ButtonAttachment>(
                 proc.apvts, trackId(track, tg.base), *tg.ctl));
 
-        selectLayer(currentLayer); // re-point the layer editor at the new cell's layer
+        // Every layer strip follows the cell.
+        for (auto& strip : strips)
+            strip->attach(proc.apvts, track);
+
+        selectLayer(currentLayer); // re-point the details at the new cell's layer
     }
 
-    // Point the single layer editor at (currentTrack, layer): rebuild its attachments
-    // and refresh the selector highlight + the Load button label.
+    // Focus layer `layer` of the current cell: highlight its strip and point the
+    // details section (own envelope, filters) at it.
     void selectLayer(int layer)
     {
         currentLayer = juce::jlimit(0, kNumLayers - 1, layer);
@@ -1500,10 +1631,10 @@ private:
         const int l = currentLayer;
         auto& c = layerCtl;
 
-        // The Show toggle is editor-local (per current cell), not an APVTS param.
-        if (c.show != nullptr)
-            c.show->setToggleState(layerShow[static_cast<size_t>(currentLayer)],
-                                   juce::dontSendNotification);
+        if (layerDetailsHeader != nullptr)
+            layerDetailsHeader->setText("Layer " + juce::String(l + 1) +
+                                            u8(" details — own envelope + filters"),
+                                        juce::dontSendNotification);
 
         layerAtt.slider.clear();
         layerAtt.combo.clear();
@@ -1519,9 +1650,6 @@ private:
             layerAtt.button.push_back(
                 std::make_unique<APVTS::ButtonAttachment>(proc.apvts, layerId(track, l, base), *b));
         };
-        attSlider("gain", c.gain);
-        attSlider("tune", c.tune);
-        attSlider("pan", c.pan);
         attButton("filterOn", c.flt);
         attSlider("cutoff", c.cutoff);
         attSlider("ftype", c.ftype);
@@ -1532,33 +1660,23 @@ private:
         attSlider("ampDecay", c.envDecay);
         attSlider("ampSustain", c.envSustain);
         attSlider("ampRelease", c.envRelease);
-        attButton("mute", c.mute);
-        attButton("solo", c.solo);
-        attButton("reverse", c.reverse);
         attButton("hpOn", c.hpOn);
         attSlider("hpCut", c.hpCut);
         attButton("lpOn", c.lpOn);
         attSlider("lpCut", c.lpCut);
-        // Refresh the waveform when this layer's reverse is toggled (it mirrors).
-        c.reverse->onClick = [this] { updateWaveform(); };
 
         refreshLayerButtons();
-        updateWaveform(); // the waveform follows the layer being edited
+        updateWaveform();
     }
 
     // ---- state ---------------------------------------------------------------
 
     static constexpr int kNumLayers = ColdAudioProcessor::kNumLayers;
 
-    // The single per-layer editor: its controls re-attach to the selected layer
-    // (currentLayer) of the selected cell, so one layer's full set — including its
-    // own amp envelope — is on screen at a time (a Layer 1|2|3|4 selector switches).
+    // The focused layer's details (own envelope + filters); re-attached to the
+    // focused strip's layer. The core per-layer controls live on the strips.
     struct LayerCtl
     {
-        juce::TextButton* load = nullptr; // the selected layer's sample Load button
-        juce::Slider* gain = nullptr;
-        juce::Slider* tune = nullptr;
-        juce::Slider* pan = nullptr;
         juce::ToggleButton* flt = nullptr;
         juce::Slider* cutoff = nullptr;
         juce::Slider* ftype = nullptr;
@@ -1570,10 +1688,6 @@ private:
         juce::Slider* envDecay = nullptr;
         juce::Slider* envSustain = nullptr;
         juce::Slider* envRelease = nullptr;
-        juce::ToggleButton* mute = nullptr;
-        juce::ToggleButton* solo = nullptr;
-        juce::ToggleButton* reverse = nullptr;
-        juce::ToggleButton* show = nullptr; // overlay this layer's wave + env for compare
         juce::ToggleButton* hpOn = nullptr;
         juce::Slider* hpCut = nullptr;
         juce::ToggleButton* lpOn = nullptr;
@@ -1594,11 +1708,11 @@ private:
     std::unique_ptr<juce::Component> pendingControl; // set by makeX, consumed by place
 
     juce::ComboBox* layerModeCombo = nullptr;
-    LayerCtl layerCtl{};                           // one editor, re-attached per layer
-    std::vector<juce::TextButton*> layerSelectors; // Layer 1|2|3|4, owned via `owned`
+    LayerCtl layerCtl{};                       // focused layer's details, re-attached per layer
+    juce::Label* layerDetailsHeader = nullptr; // "Layer N details ...", owned via `owned`
     int currentLayer = 0;
-    std::array<bool, static_cast<size_t>(kNumLayers)> layerShow{}; // overlay flags (current cell)
-    std::vector<juce::Component*> envStrip; // pinned Tune + envelope controls under the wave
+    // The selected cell's four layers, always on screen.
+    std::array<std::unique_ptr<LayerStrip>, static_cast<size_t>(kNumLayers)> strips;
 
     // Per-track sound knobs whose attachment is rebuilt for the selected track.
     struct PerTrackKnob
@@ -1619,7 +1733,6 @@ private:
     std::vector<juce::TextButton*> cellPads;   // one per track, owned via `owned`
     std::vector<juce::TextButton*> tabButtons; // Main/FX/Mod/Logs, owned via `owned`
     int currentTab = 0;
-    WaveformDisplay waveformView; // selected cell's sample + window
 
     juce::TextEditor logView; // the Logs tab's live console
     juce::TextButton logClearButton;
@@ -1667,7 +1780,8 @@ ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     viewport.setScrollBarsShown(true, false);
     addAndMakeVisible(viewport);
 
-    setSize(660, 560);
+    // Wide enough for a layer strip (sample + switches | waveform | knobs) per row.
+    setSize(820, 700);
 }
 
 ColdAudioProcessorEditor::~ColdAudioProcessorEditor()
