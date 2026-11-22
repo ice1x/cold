@@ -4,21 +4,19 @@ TDD-first. Every feature: write failing Catch2 tests → implement → integrate
 verify (Standalone, then Logic for in-DAW tasks). Mark `[x]` on completion.
 Task IDs increment monotonically (`000001` …) — do not renumber.
 
-Distinctive goals beyond a plain Digitakt clone:
+Goals:
 - **Polyphony** (chords with samples).
-- **Looping** (Digitakt-style) **and** classic **repitch/varispeed** mode.
+- **Looping** (loop points) **and** classic **repitch/varispeed** mode.
 - **Continuously morphing filter** with the **filter type as a modulation target**.
-- **Octatrack-grade performance & sound design**: **Scenes + crossfader morph**
-  (the OT signature), **slice grids** with per-step slice locks, **dual LFO**
+- **Performance & sound design**: **Scenes + crossfader morph**,
+  **slice grids** with per-step slice locks, **dual LFO**
   with a custom **LFO designer**, **two insert FX per track**, **live
   resampling**, **timestretch**, and **Parts**.
 - **MCP control** for LLM/voice control + tuning recommendations (the crossfader,
   scenes, and morph filter are first-class MCP modulation targets).
 
-> The Octatrack-inspired milestones (M8–M15) intentionally push Cold past the
-> Digitakt feature set toward Elektron's flagship sampler. See
-> [docs/OCTATRACK_REFERENCE.md](docs/OCTATRACK_REFERENCE.md) for the
-> feature → milestone mapping and the deliberate plugin-context adaptations.
+> Milestones M8–M15 extend Cold into performance features: slicing, scenes,
+> resampling, timestretch, parts and an advanced sequencer.
 
 ---
 
@@ -27,7 +25,7 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000001 — Set up top-level CMake with JUCE (FetchContent/submodule), C++20, arm64 macOS
 - [x] 000002 — Configure `juce_add_plugin`: AU + VST3 + Standalone instrument, set `Cold` name + manufacturer/plugin codes
 - [x] 000003 — Wire Catch2 + CTest test target via FetchContent
-- [x] 000004 — Add build/test/lint helper scripts (the `dt-*` skills) and `.clang-format` / `.clang-tidy`
+- [x] 000004 — Add build/test/lint helper scripts (the `cold-*` skills) and `.clang-format` / `.clang-tidy`
 - [ ] 000005 — Implement minimal empty `AudioProcessor`/`Editor`; build, pass `auval`, load empty `Cold` in Logic Pro  _(builds + `auval` PASSED; manual Logic load pending owner)_
 
 ## M1 — Minimal playable sampler PoC (FIRST USABLE BUILD)
@@ -50,7 +48,7 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000018 — Tests: SVF LP/BP/HP/Notch outputs at given cutoff/resonance
 - [x] 000019 — Implement `dsp/MorphFilter` SVF core (TPT/Zavalishin, simultaneous outputs)
 - [x] 000020 — Tests: continuous type morph (smooth blend across LP→BP→HP→Notch)
-- [x] 000021 — Implement morphable `filterType` parameter (Ableton-style blend) + param smoothing
+- [x] 000021 — Implement morphable `filterType` parameter (continuous blend) + param smoothing
 - [x] 000022 — Integrate filter into voice path; expose cutoff/resonance/type params
 - [ ] 000023 — Logic smoke test: sweep cutoff and morph type, confirm artifact-free
 
@@ -71,15 +69,15 @@ Distinctive goals beyond a plain Digitakt clone:
 - [x] 000033 — Implement sample start/length controls (per slot)
 - [ ] 000034 — Logic smoke test: load a bank, switch slots, trigger each
 
-## M5 — Multi-track engine (8 Digitakt-style tracks, each polyphonic)
+## M5 — Multi-track engine (8 tracks, each polyphonic)
 
 - [x] 000035 — Tests: 8-track engine (per-track sample + amp + filter + LFO + voice pool)
 - [x] 000036 — Implement 8-track architecture (track = full polyphonic voice chain)
-- [x] 000037 — Implement MIDI-channel→track routing (Digitakt-style)
+- [x] 000037 — Implement MIDI-channel→track routing
 - [x] 000038 — Per-track UI with track selector
 - [ ] 000039 — Logic smoke test: 8 tracks playable via MIDI channels
 
-## M6 — Step sequencer + parameter locks (Digitakt core)
+## M6 — Step sequencer + parameter locks
 
 - [ ] 000040 — Tests: 16-step sequencer (steps, host-transport sync, trigs)
 - [ ] 000041 — Implement step sequencer synced to Logic transport
@@ -100,9 +98,9 @@ Distinctive goals beyond a plain Digitakt clone:
 
 ---
 
-# Octatrack-inspired milestones (push beyond the Digitakt)
+# Performance milestones
 
-## M8 — Sample slicing & chops (Octatrack-style slice grids)
+## M8 — Sample slicing & chops (slice grids)
 
 - [ ] 000053 — Tests: slice-grid model (up to 64 slices, equal/transient auto-slice, manual edit, per-slice start/length/loop)
 - [ ] 000054 — Implement slice grid on the sample (auto + manual), persisted per slot
@@ -127,7 +125,7 @@ Distinctive goals beyond a plain Digitakt clone:
 - [ ] 000067 — Two ordered insert FX slots per track, fully **p-lockable**
 - [ ] 000068 — FX UI; Logic smoke test: stack two FX per track and p-lock them
 
-## M11 — Scenes + crossfader morph (Octatrack signature feature)
+## M11 — Scenes + crossfader morph
 
 - [ ] 000069 — Tests: scene snapshot model (capture/restore any "in-scene" param across all tracks)
 - [ ] 000070 — Implement scene store with per-param **scene assignment** + two active slots (A / B)
@@ -175,8 +173,8 @@ Distinctive goals beyond a plain Digitakt clone:
 
 > Repositioned as a **layering instrument**. Priority: a high-quality, deeply
 > modulatable voice. Pulls the backlog's *separate filter envelope* and *per-trig
-> sample-lock* forward. Digitakt "killer" destinations: **LFO→filter type** (done in
-> M3) and **LFO→sample select**.
+> sample-lock* forward. Key destinations: **LFO→filter type** (done in M3) and
+> **LFO→sample select**.
 
 - [x] 000098 — Tests: `dsp/Envelope` (DAHDSR stages, per-segment curves, velocity)
 - [x] 000099 — Implement `dsp/Envelope` (curved DAHDSR, velocity, usable as a mod source)

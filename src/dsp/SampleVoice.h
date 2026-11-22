@@ -128,7 +128,7 @@ public:
     void setPitchEnvelope(float amountSemitones, float decaySeconds);
     [[nodiscard]] bool pitchEnvelopeActive() const noexcept { return usePitchEnv; }
 
-    // Velocity -> pitch (Battery-style modulation): at note-on the pitch is offset
+    // Velocity -> pitch: at note-on the pitch is offset
     // by `semitones * velocity` (velocity in [0, 1]), so harder hits play higher
     // (or lower, for a negative amount). Captured per note like a static tune; 0
     // disables it. Independent of the tune and pitch-mod channels.

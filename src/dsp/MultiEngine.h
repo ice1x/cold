@@ -4,7 +4,7 @@
 //
 // Owns eight independent per-track voice chains (each an Engine: sample + amp env
 // + morph filter + LFO + mod matrix + polyphonic voice pool) and routes incoming
-// notes to a track. This is Cold's Digitakt-style 8-track layout — but each track
+// notes to a track. This is Cold's multi-track layout — but each track
 // is polyphonic (Cold's deliberate deviation). MIDI channel N drives track N-1.
 
 #include "dsp/Engine.h"
@@ -34,7 +34,7 @@ public:
     // index.
     void stopAllNotes(int trackIndex);
 
-    // Digitakt-style routing: MIDI channel (1..16) -> track (0..7); returns -1 for
+    // Channel routing: MIDI channel (1..16) -> track (0..7); returns -1 for
     // channels outside the eight tracks.
     [[nodiscard]] static int trackForChannel(int midiChannel);
     void routeNoteOn(int midiChannel, int midiNote, float velocity = 1.0f, int rootNote = 60);

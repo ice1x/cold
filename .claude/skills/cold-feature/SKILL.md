@@ -1,9 +1,9 @@
 ---
-name: dt-feature
+name: cold-feature
 description: End-to-end TDD workflow for adding a Cold feature (next TASKS.md item) — failing tests, implement, integrate, build, verify in Logic, lint, commit on a feature branch. Use when implementing any roadmap task.
 ---
 
-# dt-feature
+# cold-feature
 
 The standard loop for delivering a roadmap item from [TASKS.md](../../../TASKS.md).
 Encodes the project's TDD + git rules so every feature is consistent.
@@ -15,13 +15,13 @@ Encodes the project's TDD + git rules so every feature is consistent.
 
 2. **Red (unit)** — write failing Catch2 **unit** tests first in `tests/unit/`,
    targeting the framework-agnostic class in `dsp/` or `io/`. Tag them `[unit]`.
-   Run `dt-test`; confirm they fail for the right reason.
+   Run `cold-test`; confirm they fail for the right reason.
 
 3. **Green** — implement the minimum to pass. Keep DSP JUCE-free; put host/file/
-   control-server glue in `src/` or `io/`. Re-run `dt-test` to green.
+   control-server glue in `src/` or `io/`. Re-run `cold-test` to green.
 
 4. **Cover (integration + e2e)** — a feature is **not done with only unit tests**.
-   Add the higher levels (see `dt-test` for the level/target/label map):
+   Add the higher levels (see `cold-test` for the level/target/label map):
    - **Integration** (`tests/integration/`, tag `[integration]`): several units
      in a realistic workflow — e.g. multi-format sample-bank load, file↔stream
      parity, an end-to-end DSP render.
@@ -31,12 +31,12 @@ Encodes the project's TDD + git rules so every feature is consistent.
      asserting the audible/observable result.
    Reuse `tests/support/SignalFixtures.h` for deterministic audio.
 
-5. **Build & install** — `dt-build`, then `dt-install` for in-DAW tasks.
+5. **Build & install** — `cold-build`, then `cold-install` for in-DAW tasks.
 
-6. **Verify** — Standalone for quick listening; `dt-logic-smoke` for the milestone's
+6. **Verify** — Standalone for quick listening; `cold-logic-smoke` for the milestone's
    manual Logic check. Report real results.
 
-7. **Gate** — `dt-lint` clean and full `dt-test` green.
+7. **Gate** — `cold-lint` clean and full `cold-test` green.
 
 8. **Commit & push** — `git reset HEAD`, `git add` only intended files, commit with
    a **title + descriptive body** (no Claude co-author trailer), then
