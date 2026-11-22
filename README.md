@@ -86,7 +86,8 @@ pull request on a GitHub-hosted Apple Silicon runner and enforces `clang-format`
 
 ## Contributing
 
-Work is test-driven: add a failing Catch2 test, make it pass, then verify in a DAW.
+By submitting a pull request you agree to section 8 of the [license](LICENSE)
+(contributions may be included in commercial licenses). Work is test-driven: add a failing Catch2 test, make it pass, then verify in a DAW.
 Keep DSP classes free of JUCE so they stay testable without a plugin host. Design
 notes live in [`docs/`](docs/):
 
@@ -97,11 +98,26 @@ notes live in [`docs/`](docs/):
 
 ## License
 
-Cold's own source code is licensed under the [Apache License 2.0](LICENSE).
+Cold is **source-available** under the [Cold Indie License 1.0](LICENSE) — not an
+OSI open-source license. In short:
 
-Cold is built on **JUCE**, which is licensed separately (AGPLv3 or a commercial JUCE
-licence — see [juce.com/legal](https://juce.com/legal/)). If you distribute builds of
-Cold, you must also comply with JUCE's terms.
+- **Free** for independent musicians, producers and small studios — anyone whose
+  annual revenue is under USD 1,000,000, on projects with a budget under USD 250,000 —
+  including commercial work.
+- **Your music is yours.** No rights are claimed in audio you make with Cold.
+- **Forks are welcome as source code**, free of charge and under the same license.
+  Selling Cold, distributing compiled builds of it, or bundling it in another product
+  needs written permission.
+- Larger companies need a **commercial license** — open an
+  [issue](https://github.com/ice1x/cold/issues) to ask.
+- Contributions are licensed to the maintainer so they can be included in commercial
+  licenses (see section 8 of the license).
+
+The [LICENSE](LICENSE) file is the binding text; this summary is for convenience.
+
+Cold is built on **JUCE**, which is licensed separately (see
+[juce.com/legal](https://juce.com/legal/)); building or distributing Cold also means
+complying with JUCE's terms.
 
 ## Trademarks
 
