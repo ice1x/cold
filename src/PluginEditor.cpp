@@ -97,7 +97,12 @@ public:
     {
         auto b = getLocalBounds();
         caption.setBounds(b.removeFromTop(14));
-        control->setBounds(b.reduced(2, 0));
+        // Knobs take the whole cell; buttons and combos sit at a normal height,
+        // centred, instead of stretching into tall slabs.
+        if (dynamic_cast<juce::Slider*>(control.get()) != nullptr)
+            control->setBounds(b.reduced(2, 0));
+        else
+            control->setBounds(b.withSizeKeepingCentre(b.getWidth() - 6, 24));
     }
 
     [[nodiscard]] juce::Component& inner() const noexcept { return *control; }
@@ -105,6 +110,33 @@ public:
 private:
     juce::Label caption;
     std::unique_ptr<juce::Component> control;
+};
+
+// A switch that says what it is: "ON" lit in the accent colour, "OFF" dim. The
+// default toggle box drew as a near-invisible outline on the dark background.
+class OnOffButton : public juce::TextButton
+{
+public:
+    OnOffButton()
+    {
+        setClickingTogglesState(true);
+        setColour(buttonColourId, juce::Colour(0xff21252b));
+        setColour(buttonOnColourId, juce::Colour(0xff58b0f0));
+        setColour(textColourOffId, juce::Colour(0xff8a94a3));
+        setColour(textColourOnId, juce::Colour(0xff101216));
+        updateText();
+    }
+
+    // Called on every toggle change, including the silent ones a parameter
+    // attachment makes, so the label always matches the state.
+    void buttonStateChanged() override
+    {
+        juce::TextButton::buttonStateChanged();
+        updateText();
+    }
+
+private:
+    void updateText() { setButtonText(getToggleState() ? "ON" : "OFF"); }
 };
 
 // A cell/track pad. Left-click selects the cell (juce::Button's normal click);
@@ -377,6 +409,204 @@ juce::String layerId(int track, int layer, const juce::String& base)
     return "t" + juce::String(track) + "_lyr" + juce::String(layer) + "_" + base;
 }
 
+// ---- value formatting ---------------------------------------------------------
+// Knobs show musician units (ms / s, Hz / kHz, dB, %, st, oct, C/L/R) instead of
+// raw parameter numbers, and never "-0.00". Typed text parses back in the same
+// units. Applied AFTER a SliderAttachment is made, since the attachment installs
+// the parameter's raw formatting.
+
+// Snap tiny values to 0 so a centred / reset knob never reads as "-0.00".
+double snapZero(double v, double eps)
+{
+    return std::abs(v) < eps ? 0.0 : v;
+}
+
+juce::String signedText(double v, int decimals, const char* unit, double eps)
+{
+    v = snapZero(v, eps);
+    if (v == 0.0)
+        return juce::String("0 ") + unit;
+    return (v > 0.0 ? "+" : "") + juce::String(v, decimals) + " " + unit;
+}
+
+using TextFn = std::function<juce::String(double)>;
+using ParseFn = std::function<double(const juce::String&)>;
+
+void setFormat(juce::Slider& s, TextFn text, ParseFn parse)
+{
+    s.textFromValueFunction = std::move(text);
+    s.valueFromTextFunction = std::move(parse);
+    s.updateText();
+}
+
+// Time stored in seconds: "0 ms", "12 ms", "1.20 s".
+void formatSeconds(juce::Slider& s)
+{
+    setFormat(
+        s,
+        [](double v)
+        {
+            if (v < 0.9995)
+                return juce::String(juce::roundToInt(v * 1000.0)) + " ms";
+            return juce::String(v, 2) + " s";
+        },
+        [](const juce::String& t)
+        { return t.containsIgnoreCase("ms") ? t.getDoubleValue() / 1000.0 : t.getDoubleValue(); });
+}
+
+// Time stored in milliseconds: "250 ms", "1.20 s".
+void formatMilliseconds(juce::Slider& s)
+{
+    setFormat(
+        s,
+        [](double v)
+        {
+            if (v < 999.5)
+                return juce::String(juce::roundToInt(v)) + " ms";
+            return juce::String(v / 1000.0, 2) + " s";
+        },
+        [](const juce::String& t)
+        {
+            const bool seconds = !t.containsIgnoreCase("ms") && t.containsIgnoreCase("s");
+            return seconds ? t.getDoubleValue() * 1000.0 : t.getDoubleValue();
+        });
+}
+
+// Frequency in Hz: "700 Hz", "1.5 kHz", "20.0 kHz".
+void formatHz(juce::Slider& s)
+{
+    setFormat(
+        s,
+        [](double v)
+        {
+            if (v < 999.5)
+                return juce::String(juce::roundToInt(v)) + " Hz";
+            return juce::String(v / 1000.0, 1) + " kHz";
+        },
+        [](const juce::String& t)
+        { return t.containsIgnoreCase("k") ? t.getDoubleValue() * 1000.0 : t.getDoubleValue(); });
+}
+
+// Value already in dB: "-12.0 dB".
+void formatDb(juce::Slider& s)
+{
+    setFormat(
+        s, [](double v) { return juce::String(snapZero(v, 0.05), 1) + " dB"; },
+        [](const juce::String& t) { return t.getDoubleValue(); });
+}
+
+// 0..1 amount: "25%".
+void formatPercent(juce::Slider& s)
+{
+    setFormat(
+        s, [](double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; },
+        [](const juce::String& t) { return t.getDoubleValue() / 100.0; });
+}
+
+// Stereo position -1..1: "C", "L40", "R100".
+void formatPan(juce::Slider& s)
+{
+    setFormat(
+        s,
+        [](double v)
+        {
+            const int pct = juce::roundToInt(std::abs(v) * 100.0);
+            if (pct == 0)
+                return juce::String("C");
+            return (v < 0.0 ? "L" : "R") + juce::String(pct);
+        },
+        [](const juce::String& t)
+        {
+            const auto u = t.trim().toUpperCase();
+            const double amount = u.retainCharacters("0123456789.").getDoubleValue() / 100.0;
+            if (u.startsWith("L"))
+                return -amount;
+            if (u.startsWith("R"))
+                return amount;
+            return 0.0; // "C" or anything unrecognised -> centre
+        });
+}
+
+// Signed amount with a unit: "+7.0 st", "-2.0 oct", "0 st".
+void formatSigned(juce::Slider& s, const char* unit)
+{
+    setFormat(
+        s, [unit](double v) { return signedText(v, 1, unit, 0.05); },
+        [](const juce::String& t) { return t.getDoubleValue(); });
+}
+
+// Plain signed number without negative zero: "0.00", "-0.35".
+void formatPlain(juce::Slider& s)
+{
+    setFormat(
+        s, [](double v) { return juce::String(snapZero(v, 0.005), 2); },
+        [](const juce::String& t) { return t.getDoubleValue(); });
+}
+
+// Pick the format for a parameter by its id (un-prefixed for per-cell / per-layer
+// controls). Unknown ids keep the parameter's own text.
+void formatSlider(juce::Slider& s, const juce::String& base)
+{
+    static const juce::StringArray seconds{
+        "ampDelay",    "ampAttack",        "ampHold",          "ampDecay",      "ampRelease",
+        "modAttack",   "modDecay",         "modRelease",       "pitchEnvDecay", "compAttack",
+        "compRelease", "masterCompAttack", "masterCompRelease"};
+    static const juce::StringArray millis{"delayTime", "limiterRelease"};
+    static const juce::StringArray hertz{"cutoff", "filterCutoff", "hpCut", "lpCut",
+                                         "masterTiltPivot"};
+    static const juce::StringArray decibels{"level",
+                                            "gain",
+                                            "compThreshold",
+                                            "compMakeup",
+                                            "satDrive",
+                                            "masterCompThreshold",
+                                            "masterCompMakeup",
+                                            "limiterCeiling",
+                                            "masterTilt",
+                                            "humanizeLevel"};
+    static const juce::StringArray percent{
+        "ampSustain",  "modSustain", "delaySend",  "reverbSend",   "delayFeedback", "delayTone",
+        "delayReturn", "reverbRoom", "reverbDamp", "reverbReturn", "satMix",        "lfoDepth"};
+    static const juce::StringArray semitones{"tune", "pitchEnvAmount", "velToPitch", "lfoToPitch"};
+    static const juce::StringArray octaves{"velToCutoff", "modToCutoff", "lfoToCutoff",
+                                           "modWheelToCutoff"};
+    static const juce::StringArray plain{
+        "ampAttackCurve",    "ampDecayCurve", "ampReleaseCurve", "modToType", "lfoToType",
+        "lfoToSampleSelect", "ampVelocity",   "filterType",      "ftype",     "filterResonance",
+        "loopStart",         "loopEnd",       "masterWidth"};
+
+    if (seconds.contains(base))
+        formatSeconds(s);
+    else if (millis.contains(base))
+        formatMilliseconds(s);
+    else if (hertz.contains(base))
+        formatHz(s);
+    else if (decibels.contains(base))
+        formatDb(s);
+    else if (percent.contains(base))
+        formatPercent(s);
+    else if (base == "pan")
+        formatPan(s);
+    else if (semitones.contains(base))
+        formatSigned(s, "st");
+    else if (octaves.contains(base))
+        formatSigned(s, "oct");
+    else if (base == "compRatio" || base == "masterCompRatio")
+        setFormat(
+            s, [](double v) { return juce::String(v, 1) + ":1"; },
+            [](const juce::String& t) { return t.getDoubleValue(); });
+    else if (base == "lfoRate")
+        setFormat(
+            s, [](double v) { return juce::String(v, 2) + " Hz"; },
+            [](const juce::String& t) { return t.getDoubleValue(); });
+    else if (base == "humanizePitch")
+        setFormat(
+            s, [](double v) { return juce::String(juce::roundToInt(v)) + " ct"; },
+            [](const juce::String& t) { return t.getDoubleValue(); });
+    else if (plain.contains(base))
+        formatPlain(s);
+}
+
 // One layer of the selected cell as a self-contained strip: its sample, the most
 // reached switches, a mini waveform (envelope mask + draggable start/end) and the
 // core knobs with their values. All four strips are on screen at once, so a cell's
@@ -556,34 +786,9 @@ private:
             return juce::Decibels::decibelsToGain(t.getDoubleValue());
         };
 
-        tuneKnob.textFromValueFunction = [](double v)
-        {
-            if (std::abs(v) < 0.05)
-                return juce::String("0 st");
-            return (v > 0.0 ? "+" : "") + juce::String(v, 1) + " st";
-        };
-        tuneKnob.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue(); };
-
-        panKnob.textFromValueFunction = [](double v)
-        {
-            const int pct = juce::roundToInt(std::abs(v) * 100.0);
-            if (pct == 0)
-                return juce::String("C");
-            return (v < 0.0 ? "L" : "R") + juce::String(pct);
-        };
-        panKnob.valueFromTextFunction = [](const juce::String& t)
-        {
-            const auto s = t.trim().toUpperCase();
-            const double amount = s.retainCharacters("0123456789.").getDoubleValue() / 100.0;
-            if (s.startsWith("L"))
-                return -amount;
-            if (s.startsWith("R"))
-                return amount;
-            return 0.0; // "C" or anything unrecognised -> centre
-        };
-
-        for (auto* k : {&gainKnob, &tuneKnob, &panKnob})
-            k->updateText();
+        gainKnob.updateText();
+        formatSigned(tuneKnob, "st");
+        formatPan(panKnob);
     }
 
     void setupToggle(juce::TextButton& b, const char* id, const char* text, const char* tip,
@@ -653,8 +858,7 @@ public:
         // global sound-shaping sections follow below.
         buildTrackPanel();
         buildGlobals();
-        buildTabs();  // after all sections exist
-        assignTabs(); // route each section to a tab
+        buildTabs(); // after all sections exist
 
         selectCell(proc.selectedTrack()); // initial attachments + pad highlight
         startTimerHz(5);                  // poll the log ring for the Logs tab
@@ -668,17 +872,39 @@ public:
 
     // ---- tabs ----------------------------------------------------------------
 
-    // The editing sections are grouped under tabs (the cell grid + waveform stay
-    // pinned above). Keeps the panel short instead of one long scroll. "Logs" is a
-    // special tab: a live view of the debug log ring (no sections).
-    static constexpr const char* kTabNames[] = {"Main", "FX", "Mod", "Logs"};
-    [[nodiscard]] int logsTabIndex() const { return static_cast<int>(std::size(kTabNames)) - 1; }
+    // The drawer below the layer strips: each tab holds one small group (at most two
+    // rows of controls), so the whole editor fits on one screen with no scrolling.
+    // A section's tab is set explicitly when it is built (never inferred from its
+    // title). "Logs" is special: a live view of the debug log ring.
+    enum Tab
+    {
+        kLayerTab,
+        kCellEnvTab,
+        kToneTab,
+        kFxTab,
+        kModTab,
+        kSendsTab,
+        kMasterTab,
+        kGlobalTab,
+        kLogsTab,
+        kNumTabs
+    };
+    // Placements for sections that are always visible, outside the drawer.
+    static constexpr int kPinnedGrid = -1;    // the cell pads
+    static constexpr int kPinnedCellBar = -2; // the selected cell's own controls
+
+    static constexpr const char* kTabNames[kNumTabs] = {"Layer", "Cell Env", "Tone",   "FX",  "Mod",
+                                                        "Sends", "Master",   "Global", "Logs"};
+    static constexpr const char* kTabIds[kNumTabs] = {"tabLayer",  "tabCellEnv", "tabTone",
+                                                      "tabFX",     "tabMod",     "tabSends",
+                                                      "tabMaster", "tabGlobal",  "tabLogs"};
 
     void buildTabs()
     {
-        for (int i = 0; i < static_cast<int>(std::size(kTabNames)); ++i)
+        for (int i = 0; i < kNumTabs; ++i)
         {
             auto btn = std::make_unique<juce::TextButton>(kTabNames[i]);
+            btn->setComponentID(kTabIds[i]);
             btn->setClickingTogglesState(false);
             auto* ptr = btn.get();
             ptr->onClick = [this, i]
@@ -694,28 +920,6 @@ public:
         refreshTabs();
     }
 
-    // Route each section to a tab by its header text (the cell grid stays pinned).
-    void assignTabs()
-    {
-        for (size_t si = 0; si < sections.size(); ++si)
-        {
-            const auto title = sections[si].header->getText();
-            int tab = 0; // Main
-            if (si == 0)
-                tab = -1; // the cell grid: always visible
-            else if (title.startsWith("Compressor") || title.startsWith("Saturation") ||
-                     title.startsWith("Lo-Fi") || title.startsWith("Delay") ||
-                     title.startsWith("Reverb") || title.startsWith("Master "))
-                tab = 1; // FX (the master-bus sections are "Master <name>"; the bare
-                         // "Master" globals section below stays on Main)
-            else if (title.startsWith("Mod Envelope") || title == "LFO")
-                tab = 2; // Mod
-            // "Selected cell" + the per-layer rows live on Main: loading and editing
-            // a cell's layers is the core workflow, so it must not hide behind a tab.
-            sections[si].tab = tab;
-        }
-    }
-
     void refreshTabs()
     {
         for (int i = 0; i < static_cast<int>(tabButtons.size()); ++i)
@@ -723,7 +927,7 @@ public:
                 juce::TextButton::buttonColourId,
                 i == currentTab ? juce::Colour(0xff2b6cb0) : juce::Colour(0xff21252b));
         // Refresh the log view immediately when switching onto the Logs tab.
-        if (currentTab == logsTabIndex())
+        if (currentTab == kLogsTab)
             refreshLogs(true);
     }
 
@@ -772,7 +976,7 @@ public:
     {
         if (!isShowing())
             return;
-        if (currentTab == logsTabIndex())
+        if (currentTab == kLogsTab)
         {
             refreshLogs();
         }
@@ -786,109 +990,176 @@ public:
     struct Section
     {
         juce::Label* header;
-        std::vector<juce::Component*> cells; // LabeledControl* (or raw buttons if wide)
-        bool wideCells = false;              // stretched short rows (the cell grid)
-        int tab = 0;                         // which tab shows it; -1 = always visible
+        std::vector<juce::Component*> cells; // LabeledControl* (or pads for the grid)
+        int tab = 0;                         // drawer tab (Tab), or kPinnedGrid / kPinnedCellBar
     };
 
-    // Lay a section's header + cell grid starting at `y`; returns the y below it.
-    // `tallPads` gives the cell grid its taller Battery-style pad rows.
-    int layoutSection(Section& s, int width, int y, bool tallPads = false)
+    // Drawer / cell-bar control cell size: compact so a tab never needs more than
+    // two rows and the editor fits on one screen.
+    static constexpr int kCellW = 72;
+    static constexpr int kComboW = 96; // combos need room for "Channel" / "One-Shot"
+    static constexpr int kCellH = 64;
+
+    // A cell's width: wider for a combo box, so its choice is not cut off.
+    static int cellWidth(juce::Component* cell)
     {
-        constexpr int pad = 10;
-        constexpr int cellH = 78; // taller cells so the Battery-style knobs read clearly
-        constexpr int headerH = 22;
+        if (auto* lc = dynamic_cast<LabeledControl*>(cell))
+            if (dynamic_cast<juce::ComboBox*>(&lc->inner()) != nullptr)
+                return kComboW;
+        return kCellW;
+    }
+
+    // Flow the given sections left to right, each a small header over its controls,
+    // wrapping to a new line when a section does not fit (a section wider than the
+    // line wraps its own controls). Returns the y below the last line.
+    static int layoutFlow(const std::vector<Section*>& secs, int x0, int y0, int lineW)
+    {
+        constexpr int headerH = 16;
         constexpr int gap = 6;
+        constexpr int sectionGap = 14;
 
-        s.header->setBounds(pad, y, width - 2 * pad, headerH);
-        y += headerH;
-
-        const int cellW = s.wideCells ? (width - 2 * pad - 3 * gap) / 4 : 84;
-        const int rowH = s.wideCells ? (tallPads ? 40 : 24) : cellH;
-        const int cols = s.wideCells ? 4 : juce::jmax(1, (width - 2 * pad + gap) / (cellW + gap));
-
-        int col = 0;
-        int rowTop = y;
-        for (auto* cell : s.cells)
+        int x = x0;
+        int lineTop = y0;
+        int bottom = y0;
+        for (auto* s : secs)
         {
-            const int x = pad + col * (cellW + gap);
-            cell->setBounds(x, rowTop, cellW, rowH);
-            if (++col >= cols)
+            int secW = -gap;
+            for (auto* cell : s->cells)
+                secW += cellWidth(cell) + gap;
+            if (x > x0 && x + secW > x0 + lineW)
             {
-                col = 0;
-                rowTop += rowH + gap;
+                x = x0; // this section does not fit on the current line
+                lineTop = bottom + gap;
+            }
+            s->header->setBounds(x, lineTop, juce::jmin(juce::jmax(secW, 60), x0 + lineW - x),
+                                 headerH);
+
+            int cx = x;
+            int cy = lineTop + headerH;
+            for (auto* cell : s->cells)
+            {
+                const int w = cellWidth(cell);
+                if (cx > x && cx + w > x0 + lineW)
+                {
+                    cx = x0; // wrap within a section that is wider than the line
+                    cy += kCellH + gap;
+                }
+                cell->setBounds(cx, cy, w, kCellH);
+                cx += w + gap;
+            }
+            bottom = juce::jmax(bottom, cy + kCellH);
+            const bool wrapped = cy > lineTop + headerH;
+            if (wrapped)
+            {
+                x = x0; // continue below a wrapped section
+                lineTop = bottom + gap;
+            }
+            else
+            {
+                x = cx - gap + sectionGap;
             }
         }
-        if (col != 0)
-            rowTop += rowH + gap;
-        return rowTop + gap;
+        return bottom;
     }
 
     void resized() override
     {
         constexpr int pad = 10;
         constexpr int gap = 6;
-        constexpr int stripH = 84;
-        constexpr int tabH = 28;
+        constexpr int padH = 32;   // cell pad height
+        constexpr int padCols = 8; // two rows of eight
+        constexpr int stripH = 76;
+        constexpr int tabH = 26;
+        constexpr int titleW = 118; // cell-bar title column
 
         const int width = juce::jmax(getWidth(), 320);
-
-        // Always-on header: the cell grid (section 0) + the selected cell's four layer
-        // strips, so every layer of the cell is visible at once.
+        const int inner = width - 2 * pad;
         int y = pad;
-        y = layoutSection(sections[0], width, y, /*tallPads*/ true);
+
+        // 1. Cell pads: two rows of eight (the grid section carries no header).
+        for (auto& s : sections)
+        {
+            if (s.tab != kPinnedGrid)
+                continue;
+            s.header->setVisible(false);
+            const int padW = (inner - (padCols - 1) * gap) / padCols;
+            for (size_t i = 0; i < s.cells.size(); ++i)
+            {
+                const int col = static_cast<int>(i) % padCols;
+                const int row = static_cast<int>(i) / padCols;
+                s.cells[i]->setBounds(pad + col * (padW + gap), y + row * (padH + gap), padW, padH);
+            }
+            const int rows = (static_cast<int>(s.cells.size()) + padCols - 1) / padCols;
+            y += rows * (padH + gap);
+        }
+
+        // 2. Cell bar: the selected cell's own controls in one row, titled at left.
+        for (auto& s : sections)
+        {
+            if (s.tab != kPinnedCellBar)
+                continue;
+            s.header->setVisible(true);
+            s.header->setBounds(pad, y, titleW, kCellH);
+            int x = pad + titleW;
+            for (auto* cell : s.cells)
+            {
+                // The cell bar has room to spare: show "Round-Robin" in full.
+                const int w = cellWidth(cell) == kComboW ? 124 : cellWidth(cell);
+                cell->setVisible(true);
+                cell->setBounds(x, y, w, kCellH);
+                x += w + gap;
+            }
+            y += kCellH + gap;
+        }
+
+        // 3. The selected cell's four layer strips.
         for (auto& strip : strips)
         {
-            strip->setBounds(pad, y, width - 2 * pad, stripH);
+            strip->setBounds(pad, y, inner, stripH);
             y += stripH + gap;
         }
 
-        // Tab bar: switches which editing sections are shown below.
-        const int tabW = (width - 2 * pad - gap * (static_cast<int>(tabButtons.size()) - 1)) /
-                         juce::jmax(1, static_cast<int>(tabButtons.size()));
-        for (int i = 0; i < static_cast<int>(tabButtons.size()); ++i)
+        // 4. Tab bar for the drawer below.
+        const int nTabs = static_cast<int>(tabButtons.size());
+        const int tabW = (inner - gap * (nTabs - 1)) / juce::jmax(1, nTabs);
+        for (int i = 0; i < nTabs; ++i)
             tabButtons[static_cast<size_t>(i)]->setBounds(pad + i * (tabW + gap), y, tabW, tabH);
         y += tabH + gap;
 
-        const bool onLogs = (currentTab == logsTabIndex());
+        // 5. The drawer: only the active tab's sections (or the log console).
+        const bool onLogs = (currentTab == kLogsTab);
+        std::vector<Section*> active;
+        for (auto& s : sections)
+        {
+            if (s.tab < 0)
+                continue; // pinned, laid out above
+            const bool vis = !onLogs && s.tab == currentTab;
+            s.header->setVisible(vis);
+            for (auto* c : s.cells)
+                c->setVisible(vis);
+            if (vis)
+                active.push_back(&s);
+        }
 
-        // The Logs tab: a live console filling the area below the tab bar (no sections).
         logView.setVisible(onLogs);
         logClearButton.setVisible(onLogs);
         if (onLogs)
         {
-            for (size_t si = 1; si < sections.size(); ++si) // hide every section
-            {
-                sections[si].header->setVisible(false);
-                for (auto* c : sections[si].cells)
-                    c->setVisible(false);
-            }
-            constexpr int btnH = 24;
+            constexpr int btnH = 22;
+            constexpr int logH = 136; // the same footprint as a two-row tab
             logClearButton.setBounds(width - pad - 80, y, 80, btnH);
-            y += btnH + gap;
-            constexpr int logH = 440; // scrolls within the outer viewport
-            logView.setBounds(pad, y, width - 2 * pad, logH);
-            y += logH + pad;
+            logView.setBounds(pad, y + btnH + gap, inner - 0, logH);
+            y += btnH + gap + logH;
             refreshLogs(true);
         }
         else
         {
-            // Only the active tab's sections are visible / laid out.
-            for (size_t si = 1; si < sections.size(); ++si)
-            {
-                auto& s = sections[si];
-                const bool vis = (s.tab == currentTab);
-                s.header->setVisible(vis);
-                for (auto* c : s.cells)
-                    c->setVisible(vis);
-                if (vis)
-                    y = layoutSection(s, width, y);
-            }
-            y += pad;
+            y = layoutFlow(active, pad, y, inner);
         }
+        y += pad;
 
         if (y != getHeight())
-            setSize(width, y); // grow so the Viewport can scroll to everything
+            setSize(width, y); // the Viewport only scrolls if the window is shrunk
 
         updateWaveform(); // re-fetch at the new pixel width for a crisp envelope
     }
@@ -943,9 +1214,9 @@ private:
         return ptr;
     }
 
-    juce::ToggleButton* makeToggle()
+    juce::Button* makeToggle()
     {
-        auto t = std::make_unique<juce::ToggleButton>();
+        auto t = std::make_unique<OnOffButton>();
         auto* ptr = t.get();
         pendingControl = std::move(t);
         return ptr;
@@ -961,16 +1232,19 @@ private:
         sec.cells.push_back(ptr);
     }
 
-    Section& newSection(const juce::String& title)
+    // A new section placed on drawer tab `tab` (or pinned: kPinnedGrid /
+    // kPinnedCellBar). The tab is explicit so placement never depends on the title.
+    Section& newSection(const juce::String& title, int tab)
     {
         auto h = std::make_unique<juce::Label>();
         h->setText(title, juce::dontSendNotification);
-        h->setFont(juce::Font(13.0f, juce::Font::bold));
+        h->setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         h->setColour(juce::Label::textColourId, juce::Colour(0xff8fd0ff));
+        h->setBorderSize({});
         auto* hp = h.get();
         addAndMakeVisible(*hp);
         owned.push_back(std::move(h));
-        sections.push_back({hp, {}});
+        sections.push_back({hp, {}, tab});
         return sections.back();
     }
 
@@ -979,13 +1253,16 @@ private:
                const juce::String& tip = {})
     {
         auto* sl = makeSlider();
+        sl->setComponentID(id);
         globalAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(proc.apvts, id, *sl));
+        formatSlider(*sl, id);
         place(s, name, tip);
     }
     void gCombo(Section& s, const juce::String& id, const juce::String& name,
                 const juce::String& tip = {})
     {
         auto* cb = makeCombo(id);
+        cb->setComponentID(id);
         globalAtt.combo.push_back(std::make_unique<APVTS::ComboBoxAttachment>(proc.apvts, id, *cb));
         place(s, name, tip);
     }
@@ -993,6 +1270,7 @@ private:
                  const juce::String& tip = {})
     {
         auto* tg = makeToggle();
+        tg->setComponentID(id);
         globalAtt.button.push_back(std::make_unique<APVTS::ButtonAttachment>(proc.apvts, id, *tg));
         place(s, name, tip);
     }
@@ -1003,6 +1281,7 @@ private:
                const juce::String& tip = {})
     {
         auto* sl = makeSlider();
+        sl->setComponentID(base);
         perTrackKnobs.push_back({sl, base});
         place(s, name, tip);
     }
@@ -1012,6 +1291,7 @@ private:
                  const juce::String& tip = {})
     {
         auto* tg = makeToggle();
+        tg->setComponentID(base);
         perTrackToggles.push_back({tg, base});
         place(s, name, tip);
     }
@@ -1021,7 +1301,7 @@ private:
     void buildGlobals()
     {
         {
-            auto& s = newSection("Master");
+            auto& s = newSection("Output & MIDI", kGlobalTab);
             const auto nTracks = juce::String(dsp::MultiEngine::kNumTracks);
             gKnob(s, "gain", "Gain",
                   "Output gain in dB, applied to the mix of all " + nTracks + " cells.");
@@ -1042,7 +1322,7 @@ private:
                    "Note Map: one channel, the note number picks the track (GM-drum style).");
         }
         {
-            auto& s = newSection("Amp Envelope (selected track)");
+            auto& s = newSection("Amp Envelope", kCellEnvTab);
             tKnob(s, "ampDelay", "Delay", "Silence before the attack starts, in seconds (DAHDSR).");
             tKnob(s, "ampAttack", "Attack", "Fade-in time, in seconds.");
             tKnob(s, "ampHold", "Hold",
@@ -1063,7 +1343,7 @@ private:
                   "follows how hard you hit the key.");
         }
         {
-            auto& s = newSection("Mod Envelope");
+            auto& s = newSection("Mod Envelope", kModTab);
             gKnob(s, "modAttack", "Attack",
                   "Second envelope that shapes the FILTER over each note. Attack time in "
                   "seconds.");
@@ -1078,7 +1358,7 @@ private:
                   "(LP→BP→HP→Notch) over the note.");
         }
         {
-            auto& s = newSection("Filter (selected cell)");
+            auto& s = newSection("Filter", kToneTab);
             tKnob(s, "filterCutoff", "Cutoff", "This cell's filter cutoff frequency, in Hz.");
             tKnob(s, "filterResonance", "Reso",
                   "Filter resonance (Q): emphasis at the cutoff frequency.");
@@ -1087,7 +1367,7 @@ private:
                   "0.66 = high-pass, 1 = notch — everything in between blends.");
         }
         {
-            auto& s = newSection("Pitch Envelope (selected cell)");
+            auto& s = newSection("Pitch Envelope", kCellEnvTab);
             tKnob(s, "pitchEnvAmount", "Amount",
                   "Drum 'blip': the pitch is offset by this many semitones at the "
                   "note start, then decays back. + sweeps down from above, - up. 0 = off.");
@@ -1096,7 +1376,7 @@ private:
                   "seconds. Short = a snappy click; longer = a falling 'dooo'.");
         }
         {
-            auto& s = newSection("Velocity (selected cell)");
+            auto& s = newSection("Velocity", kToneTab);
             tKnob(s, "velToPitch", u8("Vel→Pitch"),
                   "Velocity modulates pitch: this many semitones at full velocity, "
                   "scaled down for softer hits. + = harder plays higher, - = lower, "
@@ -1106,7 +1386,7 @@ private:
                   "velocity (+ = harder opens the filter). Needs the Filter on; 0 = off.");
         }
         {
-            auto& s = newSection("Humanize (selected cell)");
+            auto& s = newSection("Humanize", kToneTab);
             tKnob(s, "humanizePitch", "Pitch",
                   "Random pitch variation per hit, in cents (+/-). Adds subtle detune so "
                   "repeated hits aren't identical. 0 = off.");
@@ -1115,7 +1395,7 @@ private:
                   "repeats. 0 = off.");
         }
         {
-            auto& s = newSection("Compressor (selected cell)");
+            auto& s = newSection("Compressor", kFxTab);
             tToggle(s, "compOn", "On", "Enable this cell's compressor (punch / glue).");
             tKnob(s, "compThreshold", "Thresh",
                   "Level (dBFS) above which the cell is compressed. Lower = more of "
@@ -1133,7 +1413,7 @@ private:
                   "back up).");
         }
         {
-            auto& s = newSection("Saturation (selected cell)");
+            auto& s = newSection("Saturation", kFxTab);
             tToggle(s, "satOn", "On", "Enable this cell's drive / saturation (warmth, grit).");
             tKnob(s, "satDrive", "Drive",
                   "How hard the signal is pushed into the tanh shaper, in dB. More = "
@@ -1143,7 +1423,7 @@ private:
                   "drive that keeps the transient.");
         }
         {
-            auto& s = newSection("Lo-Fi (selected cell)");
+            auto& s = newSection("Lo-Fi", kFxTab);
             tToggle(s, "crushOn", "On",
                     "Enable this cell's lo-fi: bit-depth + sample-rate reduction (vintage grit).");
             tKnob(s, "crushBits", "Bits",
@@ -1154,7 +1434,7 @@ private:
                   "grittier, more aliased (down-sampled).");
         }
         {
-            auto& s = newSection("LFO");
+            auto& s = newSection("LFO", kModTab);
             gCombo(s, "lfoShape", "Shape",
                    "LFO waveform. Random = stepped sample & hold; Custom = the "
                    "multi-step designer shape.");
@@ -1184,7 +1464,7 @@ private:
                   "it can roam.");
         }
         {
-            auto& s = newSection("Loop");
+            auto& s = newSection("Loop", kGlobalTab);
             gCombo(s, "loopMode", "Mode",
                    "One-Shot: play once. Forward: repeat the loop region. Ping-Pong: "
                    "bounce back and forth inside it. Loop speed follows pitch.");
@@ -1192,7 +1472,7 @@ private:
             gKnob(s, "loopEnd", "End", "Loop region end, as a fraction of the sample.");
         }
         {
-            auto& s = newSection("Delay (send)");
+            auto& s = newSection("Delay", kSendsTab);
             gKnob(s, "delayTime", "Time", "Echo time in milliseconds (used when Sync is off).");
             gToggle(s, "delaySync", "Sync",
                     "Lock the echo time to the host tempo (Division below).");
@@ -1205,13 +1485,13 @@ private:
             gKnob(s, "delayReturn", "Return", "Level of the delay mixed back into the master.");
         }
         {
-            auto& s = newSection("Reverb (send)");
+            auto& s = newSection("Reverb", kSendsTab);
             gKnob(s, "reverbRoom", "Room", "Reverb size / tail length (0..1).");
             gKnob(s, "reverbDamp", "Damp", "High-frequency decay: higher = darker tail.");
             gKnob(s, "reverbReturn", "Return", "Level of the reverb mixed back into the master.");
         }
         {
-            auto& s = newSection("Master Tilt");
+            auto& s = newSection("Tilt EQ", kMasterTab);
             gToggle(s, "masterTiltOn", "On",
                     "Tilt tone control on the whole mix: brighter or darker in one knob.");
             gKnob(s, "masterTilt", "Tilt",
@@ -1221,7 +1501,7 @@ private:
                   "The balance frequency the tilt rotates around, in Hz.");
         }
         {
-            auto& s = newSection("Master Comp");
+            auto& s = newSection("Glue Comp", kMasterTab);
             gToggle(s, "masterCompOn", "On",
                     "Glue compressor on the whole mix (before the master gain / limiter).");
             gKnob(s, "masterCompThreshold", "Thresh",
@@ -1233,12 +1513,12 @@ private:
                   "Make-up gain (dB) added after the master compression.");
         }
         {
-            auto& s = newSection("Master Width");
+            auto& s = newSection("Width", kMasterTab);
             gToggle(s, "masterWidthOn", "On", "Stereo-width control on the whole mix (mid/side).");
             gKnob(s, "masterWidth", "Width", "Stereo width: 0 = mono, 1 = unchanged, 2 = wide.");
         }
         {
-            auto& s = newSection("Master Limiter");
+            auto& s = newSection("Limiter", kMasterTab);
             gToggle(s, "limiterOn", "On",
                     "Brickwall limiter on the final output: holds the master at the ceiling "
                     "so a dense mix can't clip.");
@@ -1316,8 +1596,7 @@ private:
     // Replaces a track-selector knob; the pads drive the "track" param + setTrack().
     void buildCellGrid()
     {
-        auto& s = newSection(u8("Cells — click to play/edit, right-click to load a sample"));
-        s.wideCells = true;
+        auto& s = newSection({}, kPinnedGrid);
         for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
         {
             auto btn = std::make_unique<CellPad>();
@@ -1380,6 +1659,9 @@ private:
         if (auto* p = proc.apvts.getParameter("track"))
             p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(currentTrack)));
         setTrack(currentTrack);
+        if (cellBarTitle != nullptr)
+            cellBarTitle->setText("Cell " + juce::String(currentTrack + 1),
+                                  juce::dontSendNotification);
         refreshCellPads();
         updateWaveform();
         if (onBankChanged)
@@ -1495,8 +1777,7 @@ private:
                                                       juce::String(ColdAudioProcessor::kNumLayers)
                                                 : juce::String();
 
-            pad->setButtonText("T" + juce::String(t + 1) + (loaded ? "  " + name : u8("  ·")) +
-                               badge);
+            pad->setButtonText(juce::String(t + 1) + (loaded ? "  " + name : u8("  ·")) + badge);
 
             // Selected = blue; loaded = teal; empty = dark. Text brightens when there
             // is a sample, so a full kit reads at a glance.
@@ -1513,10 +1794,15 @@ private:
 
     void buildTrackPanel()
     {
-        auto& s = newSection("Selected cell");
+        auto& s = newSection("Cell 1", kPinnedCellBar);
+        cellBarTitle = s.header;
+        cellBarTitle->setComponentID("cellBarTitle");
+        cellBarTitle->setFont(juce::Font(juce::FontOptions(15.0f, juce::Font::bold)));
+        cellBarTitle->setJustificationType(juce::Justification::centredLeft);
 
         // Layer mode is per-track; its attachment is rebuilt on cell change.
         layerModeCombo = makeCombo("t0_layerMode");
+        layerModeCombo->setComponentID("layerMode");
         place(s, "Layer Mode",
               "Single: the cell plays one layer per note (layer 1, or wherever "
               "LFO→Sample points among the loaded layers). Stack: every loaded layer "
@@ -1543,7 +1829,7 @@ private:
 
         // The focused layer's deeper settings (its strip above carries the core ones).
         // The controls re-attach to whichever strip is focused (selectLayer).
-        auto& row = newSection("Layer 1 details");
+        auto& row = newSection("Layer 1 details", kLayerTab);
         layerDetailsHeader = row.header;
         layerDetailsHeader->setComponentID("layerDetailsHeader");
         auto& c = layerCtl;
@@ -1608,8 +1894,11 @@ private:
 
         // Per-track sound knobs (amp envelope, ...) re-point at the selected track.
         for (const auto& k : perTrackKnobs)
+        {
             trackAtt.slider.push_back(std::make_unique<APVTS::SliderAttachment>(
                 proc.apvts, trackId(track, k.base), *k.ctl));
+            formatSlider(*k.ctl, k.base);
+        }
 
         for (const auto& tg : perTrackToggles)
             trackAtt.button.push_back(std::make_unique<APVTS::ButtonAttachment>(
@@ -1644,6 +1933,7 @@ private:
         {
             layerAtt.slider.push_back(
                 std::make_unique<APVTS::SliderAttachment>(proc.apvts, layerId(track, l, base), *s));
+            formatSlider(*s, base);
         };
         auto attButton = [&](const char* base, juce::Button* b)
         {
@@ -1677,20 +1967,20 @@ private:
     // focused strip's layer. The core per-layer controls live on the strips.
     struct LayerCtl
     {
-        juce::ToggleButton* flt = nullptr;
+        juce::Button* flt = nullptr;
         juce::Slider* cutoff = nullptr;
         juce::Slider* ftype = nullptr;
         // Per-layer amp envelope (Env On + DAHDSR).
-        juce::ToggleButton* envOn = nullptr;
+        juce::Button* envOn = nullptr;
         juce::Slider* envDelay = nullptr;
         juce::Slider* envAttack = nullptr;
         juce::Slider* envHold = nullptr;
         juce::Slider* envDecay = nullptr;
         juce::Slider* envSustain = nullptr;
         juce::Slider* envRelease = nullptr;
-        juce::ToggleButton* hpOn = nullptr;
+        juce::Button* hpOn = nullptr;
         juce::Slider* hpCut = nullptr;
-        juce::ToggleButton* lpOn = nullptr;
+        juce::Button* lpOn = nullptr;
         juce::Slider* lpCut = nullptr;
     };
 
@@ -1710,6 +2000,7 @@ private:
     juce::ComboBox* layerModeCombo = nullptr;
     LayerCtl layerCtl{};                       // focused layer's details, re-attached per layer
     juce::Label* layerDetailsHeader = nullptr; // "Layer N details ...", owned via `owned`
+    juce::Label* cellBarTitle = nullptr;       // "Cell N" over the cell bar, owned via `owned`
     int currentLayer = 0;
     // The selected cell's four layers, always on screen.
     std::array<std::unique_ptr<LayerStrip>, static_cast<size_t>(kNumLayers)> strips;
@@ -1725,7 +2016,7 @@ private:
     // Per-track toggles whose attachment is rebuilt for the selected track.
     struct PerTrackToggle
     {
-        juce::ToggleButton* ctl;
+        juce::Button* ctl;
         juce::String base;
     };
     std::vector<PerTrackToggle> perTrackToggles;
@@ -1780,8 +2071,9 @@ ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     viewport.setScrollBarsShown(true, false);
     addAndMakeVisible(viewport);
 
-    // Wide enough for a layer strip (sample + switches | waveform | knobs) per row.
-    setSize(820, 700);
+    // Fits everything on one screen: pads, cell bar, four layer strips and a two-row
+    // drawer, with no scrolling.
+    setSize(900, 760);
 }
 
 ColdAudioProcessorEditor::~ColdAudioProcessorEditor()
@@ -1791,7 +2083,7 @@ ColdAudioProcessorEditor::~ColdAudioProcessorEditor()
 
 void ColdAudioProcessorEditor::refreshSampleName()
 {
-    sampleNameLabel.setText("Track " + juce::String(processorRef.selectedTrack() + 1) + ": " +
+    sampleNameLabel.setText("Cell " + juce::String(processorRef.selectedTrack() + 1) + ": " +
                                 processorRef.loadedSampleName(),
                             juce::dontSendNotification);
 }

@@ -10,6 +10,8 @@ namespace
 {
 constexpr double kPi = 3.14159265358979323846;
 constexpr std::uint32_t kSeed = 0x1234567u;
+constexpr double kFadeCycles = 4.0; // |fade| = 1 spans this many LFO cycles
+constexpr double kExpCurve = 5.0;   // steepness of the Exponential wave
 } // namespace
 
 void Lfo::setSampleRate(double newSampleRate)
@@ -40,8 +42,18 @@ void Lfo::setCustomShape(const float* points, int count)
 
 void Lfo::setRate(float hz)
 {
-    rateHz = std::max(0.0f, hz);
+    rateHz = hz; // negative = backward
     phaseInc = static_cast<double>(rateHz) / sampleRate;
+}
+
+void Lfo::setSlew(float newSlew)
+{
+    slew = std::clamp(newSlew, 0.0f, 1.0f);
+}
+
+void Lfo::setFade(float newFade)
+{
+    fade = std::clamp(newFade, -1.0f, 1.0f);
 }
 
 void Lfo::setDepth(float newDepth)
@@ -59,6 +71,8 @@ void Lfo::reset()
     phase = phaseOffset;
     rngState = kSeed;
     heldRandom = nextRandom();
+    prevRandom = heldRandom;
+    fadeCounter = 0.0;
     latched = 0.0f;
     running = true;
 }
@@ -70,6 +84,18 @@ void Lfo::retrigger()
 
 void Lfo::noteTrigger()
 {
+    fadeCounter = 0.0; // the fade restarts on every trig
+
+    // A restarting mode draws a fresh random value, so Random is new on every hit
+    // (glide starts from wherever the output is now).
+    const bool restarts = trigMode == LfoTrigMode::Trig || trigMode == LfoTrigMode::OneShot ||
+                          trigMode == LfoTrigMode::Half;
+    if (restarts && shape == LfoShape::Random)
+    {
+        prevRandom = shapeValue(phase);
+        heldRandom = nextRandom();
+    }
+
     switch (trigMode)
     {
     case LfoTrigMode::Free:
@@ -78,9 +104,10 @@ void Lfo::noteTrigger()
         phase = phaseOffset;
         break;
     case LfoTrigMode::Hold:
-        latched = shapeValue(phase) * depth; // sample the free-running value now
+        latched = shapeValue(phase) * depth * fadeGain(); // sample the free-running value now
         break;
     case LfoTrigMode::OneShot:
+    case LfoTrigMode::Half:
         phase = phaseOffset;
         running = true;
         break;
@@ -92,6 +119,30 @@ double Lfo::divisionToHz(double bpm, double beatsPerCycle)
     if (beatsPerCycle <= 0.0)
         return 0.0;
     return (bpm / 60.0) / beatsPerCycle;
+}
+
+double Lfo::digitaktRateHz(double speed, double multiplier, double bpm)
+{
+    // SPD x MULT = 128 -> one cycle per bar; a 4/4 bar lasts 240 / bpm seconds.
+    if (bpm <= 0.0)
+        return 0.0;
+    return speed * multiplier / 128.0 * (bpm / 240.0);
+}
+
+float Lfo::fadeGain() const
+{
+    if (std::abs(fade) < 1.0e-6f || rateHz == 0.0f)
+        return 1.0f;
+    const double fadeSamples = std::abs(static_cast<double>(fade)) * kFadeCycles * sampleRate /
+                               std::abs(static_cast<double>(rateHz));
+    const double t = std::min(1.0, fadeCounter / fadeSamples);
+    return static_cast<float>(fade < 0.0f ? t : 1.0 - t);
+}
+
+void Lfo::stepRandom()
+{
+    prevRandom = heldRandom;
+    heldRandom = nextRandom();
 }
 
 float Lfo::nextRandom()
@@ -119,7 +170,19 @@ float Lfo::shapeValue(double p) const
     case LfoShape::Square:
         return p < 0.5 ? 1.0f : -1.0f;
     case LfoShape::Random:
-        return heldRandom;
+    {
+        if (slew <= 0.0f)
+            return heldRandom;
+        // Glide from the previous value over the first `slew` of the step.
+        const double progress = rateHz >= 0.0f ? p : 1.0 - p;
+        const double t = std::min(1.0, progress / static_cast<double>(slew));
+        return prevRandom + (heldRandom - prevRandom) * static_cast<float>(t);
+    }
+    case LfoShape::Exponential:
+        return static_cast<float>((std::exp(-kExpCurve * p) - std::exp(-kExpCurve)) /
+                                  (1.0 - std::exp(-kExpCurve)));
+    case LfoShape::Ramp:
+        return static_cast<float>(p);
     case LfoShape::Custom:
     {
         if (customPoints.empty())
@@ -138,11 +201,28 @@ float Lfo::shapeValue(double p) const
 
 void Lfo::advancePhase()
 {
+    const double before = phase;
     phase += phaseInc;
-    if (phase >= 1.0)
+
+    // Half: stop (and hold) when the run reaches the middle of the cycle.
+    if (trigMode == LfoTrigMode::Half && running)
     {
-        phase -= 1.0;
-        heldRandom = nextRandom();
+        const bool crossed =
+            phaseInc >= 0.0 ? (before < 0.5 && phase >= 0.5) : (before > 0.5 && phase <= 0.5);
+        if (crossed)
+        {
+            phase = 0.5;
+            running = false;
+            latched = shapeValue(phase) * depth * fadeGain();
+            return;
+        }
+    }
+
+    // Wrap in either direction (a negative rate runs backwards).
+    if (phase >= 1.0 || phase < 0.0)
+    {
+        phase += phase >= 1.0 ? -1.0 : 1.0;
+        stepRandom();
         if (trigMode == LfoTrigMode::OneShot)
             running = false; // one cycle done -> freeze the last value
     }
@@ -155,20 +235,23 @@ float Lfo::getNextSample()
         advancePhase(); // keep the internal phase moving so the next trig samples afresh
         return latched;
     }
-    if (trigMode == LfoTrigMode::OneShot && !running)
+    if ((trigMode == LfoTrigMode::OneShot || trigMode == LfoTrigMode::Half) && !running)
         return latched;
 
-    const float out = shapeValue(phase) * depth;
+    const float out = shapeValue(phase) * depth * fadeGain();
     latched = out;
+    fadeCounter += 1.0;
     advancePhase();
     return out;
 }
 
 float Lfo::peek() const
 {
-    if (trigMode == LfoTrigMode::Hold || (trigMode == LfoTrigMode::OneShot && !running))
+    const bool stopped =
+        (trigMode == LfoTrigMode::OneShot || trigMode == LfoTrigMode::Half) && !running;
+    if (trigMode == LfoTrigMode::Hold || stopped)
         return latched;
-    return shapeValue(phase) * depth;
+    return shapeValue(phase) * depth * fadeGain();
 }
 
 float Lfo::advance(int numSamples)

@@ -2483,3 +2483,79 @@ TEST_CASE("Cold processor creates its editor", "[processor][e2e]")
     REQUIRE(editor->getWidth() > 0);
     REQUIRE(editor->getHeight() > 0);
 }
+
+namespace
+{
+// A mono WAV holding a constant level, so a hit's peak tells which sample played.
+juce::File writeConstantWav(double sampleRate, int numFrames, float level)
+{
+    auto file = juce::File::createTempFile(".wav");
+    juce::AudioBuffer<float> buffer(1, numFrames);
+    for (int n = 0; n < numFrames; ++n)
+        buffer.setSample(0, n, level);
+    juce::WavAudioFormat wav;
+    if (auto os = std::unique_ptr<juce::FileOutputStream>(file.createOutputStream()))
+    {
+        std::unique_ptr<juce::AudioFormatWriter> writer(
+            wav.createWriterFor(os.get(), sampleRate, 1, 16, {}, 0));
+        if (writer != nullptr)
+        {
+            os.release();
+            writer->writeFromAudioSampleBuffer(buffer, 0, numFrames);
+        }
+    }
+    return file;
+}
+} // namespace
+
+TEST_CASE("Cold LFO random sample select picks a loaded sample on every hit",
+          "[processor][e2e][lfo][sampleselect]")
+{
+    // The Digitakt "LFO -> sample slot" with a random wave in Trig mode: every hit
+    // draws a new sample. Only layers 1 and 2 of the cell are loaded; layers 3 and 4
+    // are empty and must never be picked (that used to silence the hit).
+    constexpr double sampleRate = 48000.0;
+    constexpr int blockSize = 2048;
+
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, blockSize);
+    proc.prepareToPlay(sampleRate, blockSize);
+
+    auto quiet = writeConstantWav(sampleRate, 256, 0.2f);
+    auto loud = writeConstantWav(sampleRate, 256, 0.8f);
+    REQUIRE(proc.loadSampleToLayer(0, 0, quiet));
+    REQUIRE(proc.loadSampleToLayer(0, 1, loud));
+    quiet.deleteFile();
+    loud.deleteFile();
+
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    setParam("t0_layerMode", 0.0f); // Single: one sample per hit
+    setParam("lfoShape", 5.0f);     // Random
+    setParam("lfoTrigMode", 1.0f);  // Trig: a fresh random value per hit
+    setParam("lfoRate", 0.05f);     // slow: the trig, not the cycle, draws values
+    setParam("lfoDepth", 1.0f);
+    setParam("lfoToSampleSelect", 3.0f); // can roam across all four layer slots
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    int quietHits = 0;
+    int loudHits = 0;
+    for (int hit = 0; hit < 24; ++hit)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        const float peak = buffer.getMagnitude(0, 0, blockSize);
+        INFO("hit " << hit << " peak " << peak);
+        REQUIRE(peak > 0.1f); // never a silent hit
+        (peak > 0.5f ? loudHits : quietHits) += 1;
+    }
+    REQUIRE(quietHits > 0); // both loaded samples get picked
+    REQUIRE(loudHits > 0);
+
+    proc.releaseResources();
+}

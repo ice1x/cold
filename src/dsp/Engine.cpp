@@ -297,13 +297,35 @@ void Engine::configureVoice(int voiceIndex, int sampleIndex)
 
 int Engine::selectSampleIndex() const
 {
+    const int base = std::clamp(baseSampleIndex, 0, std::max(0, sampleCount() - 1));
     if (sampleCount() <= 1 || std::abs(lfoToSampleSelect) < 1.0e-6f)
-        return std::clamp(baseSampleIndex, 0, std::max(0, sampleCount() - 1));
+        return base;
 
-    // Read the LFO at the trig and offset the base index (per-trig sample-lock).
-    const float offset = lfo.peek() * lfoToSampleSelect;
-    const int idx = baseSampleIndex + static_cast<int>(std::lround(offset));
-    return std::clamp(idx, 0, sampleCount() - 1);
+    // Read the LFO at the trig and step that many LOADED samples away from the base
+    // (Digitakt LFO -> sample slot). Empty slots are skipped, so an offset never
+    // lands on a hole and silences the hit. Two passes, no allocation (audio thread).
+    int loaded = 0;
+    int baseRank = 0; // rank of the base (or the nearest loaded slot below it)
+    for (int i = 0; i < sampleCount(); ++i)
+        if (samples[static_cast<size_t>(i)].valid())
+        {
+            if (i <= base)
+                baseRank = loaded;
+            ++loaded;
+        }
+    if (loaded == 0)
+        return base;
+
+    const int offset = static_cast<int>(std::lround(lfo.peek() * lfoToSampleSelect));
+    const int rank = std::clamp(baseRank + offset, 0, loaded - 1);
+    for (int i = 0, r = 0; i < sampleCount(); ++i)
+        if (samples[static_cast<size_t>(i)].valid())
+        {
+            if (r == rank)
+                return i;
+            ++r;
+        }
+    return base;
 }
 
 int Engine::allocateVoice()

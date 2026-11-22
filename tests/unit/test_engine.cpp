@@ -1065,3 +1065,25 @@ TEST_CASE("Engine per-track saturator shapes the summed mix", "[engine][dsp][uni
     auto restored = renderChunked(engine, 2000, 256);
     REQUIRE_THAT(windowRms(restored, 1000, 500), WithinAbs(0.5, 0.02));
 }
+
+TEST_CASE("Engine LFO sample-select skips empty slots instead of going silent",
+          "[engine][dsp][unit][sampleselect]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto c = makeConstant(64, 1.0f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    // Slot 1 is empty (an unloaded layer): an offset of +1 from slot 0 must land on
+    // the next LOADED sample (slot 2), not on the hole.
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {nullptr, 0, 0, 44100.0},
+                          {c.data(), c.numChannels(), c.numFrames(), 44100.0}});
+    engine.setBaseSampleIndex(0);
+    engine.setLfo(cold::dsp::LfoShape::Square, 1.0f, 1.0f); // phase 0 -> +1
+    engine.addModRoute(cold::dsp::ModDestination::SampleSelect, 1.0f);
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(engine.currentSampleIndex() == 2);
+    REQUIRE_THAT(render(engine, 4).front(), WithinAbs(1.0f, 1e-4)); // it sounds
+}
