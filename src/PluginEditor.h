@@ -37,7 +37,7 @@ private:
     juce::Label sampleNameLabel;
     std::unique_ptr<juce::FileChooser> chooser;
 
-    // Battery-style knob look, applied to the whole editor (children inherit it).
+    // The custom knob look, applied to the whole editor (children inherit it).
     // Must outlive the components and be cleared in the destructor.
     std::unique_ptr<juce::LookAndFeel> knobLookAndFeel;
 

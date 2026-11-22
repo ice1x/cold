@@ -1,9 +1,9 @@
 ---
-name: dt-test
+name: cold-test
 description: Run the Cold Catch2 unit/integration/e2e tests via CTest for the TDD red/green loop. Use when asked to run tests, check the suite, verify DSP behavior, or check coverage across levels.
 ---
 
-# dt-test
+# cold-test
 
 Run the Catch2 suites. Used constantly in the TDD loop: write a failing test,
 watch it go red here, implement, watch it go green.
@@ -60,4 +60,4 @@ TESTBIN=$(find build -name 'ColdIoTests' -type f | head -1)
 DSP classes are JUCE-free so unit tests need no plugin host. io / processor
 suites link JUCE.
 
-Before committing, the full suite must be green (with `dt-lint`).
+Before committing, the full suite must be green (with `cold-lint`).

@@ -15,7 +15,7 @@ namespace cold::io
 {
 
 // One slot: the decoded audio plus metadata and a playable window (start/length
-// in frames, Digitakt-style). An unloaded slot has empty data.
+// in frames). An unloaded slot has empty data.
 struct SampleSlot
 {
     SampleData data;

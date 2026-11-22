@@ -2,7 +2,7 @@
 
 // Framework-agnostic (no JUCE) waveshaping saturator / drive.
 //
-// A per-track "cell" saturator for warmth and grit (Battery-style FX). Memoryless
+// A per-track "cell" saturator for warmth and grit. Memoryless
 // tanh soft-clip: the signal is pre-gained by `drive` and shaped by tanh (so small
 // signals pass ~linearly at unity drive and larger ones round off toward +/-1,
 // adding harmonics), then blended with the dry signal by `mix`. Kept in the DSP

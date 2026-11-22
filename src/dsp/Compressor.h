@@ -2,7 +2,7 @@
 
 // Framework-agnostic (no JUCE) feed-forward dynamics compressor.
 //
-// A per-track "cell" compressor for punch/glue on drums (Battery-style). Simple,
+// A per-track "cell" compressor for punch/glue on drums. Simple,
 // robust design: a peak envelope follower with separate attack/release one-pole
 // smoothing drives a hard-knee gain computer; the same gain is applied to every
 // channel (stereo-linked) so the stereo image is preserved. Kept in the DSP layer

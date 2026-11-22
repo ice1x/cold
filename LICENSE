@@ -2,11 +2,6 @@ Cold Indie License 1.0
 
 Copyright (c) 2026 ice1x. All rights reserved except as granted below.
 
-Cold is source-available software. This license lets independent musicians,
-producers and small studios use it for free, including commercially. Larger
-businesses need a separate commercial license. It is not an OSI-approved open
-source license.
-
 1. Definitions
 
    "Software" means the Cold source code, documentation and build scripts in this
@@ -18,10 +13,8 @@ source license.
    license, together with any entity that controls, is controlled by, or is under
    common control with it ("Affiliates").
 
-   "Qualifying User" means You, if (a) the combined gross revenue of You and Your
-   Affiliates was less than USD 1,000,000 over the last twelve months, and (b) the
-   total budget of the project in which You use the Software is less than
-   USD 250,000.
+   "Qualifying User" means You, if the combined gross revenue of You and Your
+   Affiliates was less than USD 100,000 over the last twelve months.
 
 2. Free license for Qualifying Users
 

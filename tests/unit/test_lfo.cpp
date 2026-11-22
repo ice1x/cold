@@ -239,9 +239,9 @@ TEST_CASE("Lfo converts host tempo divisions to Hz", "[lfo][dsp][unit]")
     REQUIRE_THAT(Lfo::divisionToHz(60.0, 0.5), WithinAbs(2.0, 1e-9)); // eighth at 60 BPM
 }
 
-// ---- Digitakt-style LFO behaviour ------------------------------------------
+// ---- Trig re-roll, unipolar waves, direction, Half, slew, fade, tempo ------
 
-TEST_CASE("Lfo random draws a new value on every trig in Trig mode", "[lfo][dsp][unit][digitakt]")
+TEST_CASE("Lfo random draws a new value on every trig in Trig mode", "[lfo][dsp][unit]")
 {
     // A 10 s cycle: no wrap happens here, so only the trigs can change the value.
     auto lfo = makeLfo(LfoShape::Random, 0.1f);
@@ -257,7 +257,7 @@ TEST_CASE("Lfo random draws a new value on every trig in Trig mode", "[lfo][dsp]
     REQUIRE(std::abs(b - c) > 1e-6f);
 }
 
-TEST_CASE("Lfo random keeps its value across trigs in Free mode", "[lfo][dsp][unit][digitakt]")
+TEST_CASE("Lfo random keeps its value across trigs in Free mode", "[lfo][dsp][unit]")
 {
     auto lfo = makeLfo(LfoShape::Random, 0.1f);
     lfo.setTrigMode(cold::dsp::LfoTrigMode::Free);
@@ -267,7 +267,7 @@ TEST_CASE("Lfo random keeps its value across trigs in Free mode", "[lfo][dsp][un
     REQUIRE_THAT(lfo.peek(), WithinAbs(a, 1e-9)); // free-running: trigs don't redraw
 }
 
-TEST_CASE("Lfo exponential and ramp are unipolar", "[lfo][dsp][unit][digitakt]")
+TEST_CASE("Lfo exponential and ramp are unipolar", "[lfo][dsp][unit]")
 {
     SECTION("exponential falls from full to zero over the cycle")
     {
@@ -300,9 +300,9 @@ TEST_CASE("Lfo exponential and ramp are unipolar", "[lfo][dsp][unit][digitakt]")
     }
 }
 
-TEST_CASE("Lfo negative rate plays the cycle backwards", "[lfo][dsp][unit][digitakt]")
+TEST_CASE("Lfo negative rate plays the cycle backwards", "[lfo][dsp][unit]")
 {
-    auto lfo = makeLfo(LfoShape::SawUp, -10.0f); // Digitakt: negative SPD runs backward
+    auto lfo = makeLfo(LfoShape::SawUp, -10.0f); // a negative rate runs backward
     lfo.getNextSample();                         // phase 0, then wraps to the top
     float prev = lfo.getNextSample();
     for (int i = 0; i < 60; ++i)
@@ -313,7 +313,7 @@ TEST_CASE("Lfo negative rate plays the cycle backwards", "[lfo][dsp][unit][digit
     }
 }
 
-TEST_CASE("Lfo trig mode Half runs to mid-cycle then freezes", "[lfo][dsp][unit][digitakt]")
+TEST_CASE("Lfo trig mode Half runs to mid-cycle then freezes", "[lfo][dsp][unit]")
 {
     auto lfo = makeLfo(LfoShape::Triangle, 10.0f); // peak (+1) at mid-cycle
     lfo.setTrigMode(cold::dsp::LfoTrigMode::Half);
@@ -326,7 +326,7 @@ TEST_CASE("Lfo trig mode Half runs to mid-cycle then freezes", "[lfo][dsp][unit]
     REQUIRE_THAT(a, WithinAbs(b, 1e-6));     // and holds there
 }
 
-TEST_CASE("Lfo random slew glides between values", "[lfo][dsp][unit][digitakt]")
+TEST_CASE("Lfo random slew glides between values", "[lfo][dsp][unit]")
 {
     auto maxStep = [](float slew)
     {
@@ -346,7 +346,7 @@ TEST_CASE("Lfo random slew glides between values", "[lfo][dsp][unit][digitakt]")
     REQUIRE(maxStep(1.0f) < 0.05f); // full slew: a smooth glide
 }
 
-TEST_CASE("Lfo fade in and fade out shape the depth after a trig", "[lfo][dsp][unit][digitakt]")
+TEST_CASE("Lfo fade in and fade out shape the depth after a trig", "[lfo][dsp][unit]")
 {
     // Square at +1 for the first half cycle; fade spans |fade| x 4 cycles.
     SECTION("negative fade fades the modulation in")
@@ -374,11 +374,11 @@ TEST_CASE("Lfo fade in and fade out shape the depth after a trig", "[lfo][dsp][u
     }
 }
 
-TEST_CASE("Lfo Digitakt speed x multiplier follows the tempo", "[lfo][dsp][unit][digitakt]")
+TEST_CASE("Lfo speed x multiplier follows the tempo", "[lfo][dsp][unit]")
 {
     // SPD x MULT = 128 is one cycle per bar (16 steps); at 120 BPM a bar is 2 s.
-    REQUIRE_THAT(Lfo::digitaktRateHz(16.0, 8.0, 120.0), WithinAbs(0.5, 1e-9));
-    REQUIRE_THAT(Lfo::digitaktRateHz(32.0, 8.0, 120.0), WithinAbs(1.0, 1e-9));
-    REQUIRE_THAT(Lfo::digitaktRateHz(16.0, 8.0, 60.0), WithinAbs(0.25, 1e-9));
-    REQUIRE_THAT(Lfo::digitaktRateHz(-16.0, 8.0, 120.0), WithinAbs(-0.5, 1e-9)); // backward
+    REQUIRE_THAT(Lfo::tempoRateHz(16.0, 8.0, 120.0), WithinAbs(0.5, 1e-9));
+    REQUIRE_THAT(Lfo::tempoRateHz(32.0, 8.0, 120.0), WithinAbs(1.0, 1e-9));
+    REQUIRE_THAT(Lfo::tempoRateHz(16.0, 8.0, 60.0), WithinAbs(0.25, 1e-9));
+    REQUIRE_THAT(Lfo::tempoRateHz(-16.0, 8.0, 120.0), WithinAbs(-0.5, 1e-9)); // backward
 }

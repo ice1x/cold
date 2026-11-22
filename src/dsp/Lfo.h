@@ -23,11 +23,11 @@ enum class LfoShape
     Square,
     Random,      // stepped sample-and-hold, one new value per cycle (slew-able)
     Custom,      // user-drawn multi-step waveform (the LFO designer)
-    Exponential, // unipolar 0..1: falls exponentially from 1 to 0 (Digitakt EXP)
-    Ramp         // unipolar 0..1: rises linearly from 0 to 1 (Digitakt RMP)
+    Exponential, // unipolar 0..1: falls exponentially from 1 to 0
+    Ramp         // unipolar 0..1: rises linearly from 0 to 1
 };
 
-// How the LFO reacts to a note trigger (noteTrigger()), as on the Digitakt. Free
+// How the LFO reacts to a note trigger (noteTrigger()). Free
 // ignores trigs; Trig restarts its phase; Hold latches its output at each trig
 // (freezes between); OneShot runs a single cycle per trig then holds the final
 // value; Half runs to the middle of the cycle then holds. A restarting mode (Trig /
@@ -46,20 +46,18 @@ class Lfo
 public:
     void setSampleRate(double sampleRate);
     void setShape(LfoShape shape);
-    // Rate in Hz; a NEGATIVE rate plays the cycle backwards (Digitakt negative SPD).
+    // Rate in Hz; a NEGATIVE rate plays the cycle backwards.
     void setRate(float hz);
     void setDepth(float depth);       // [0, 1]
     void setPhaseOffset(float phase); // [0, 1], applied on reset/retrigger
     void setTrigMode(LfoTrigMode mode);
 
     // Random slew [0, 1]: the fraction of each step spent gliding from the previous
-    // value to the new one (0 = stepped S&H). Digitakt shows it in place of the start
-    // phase when WAVE is RND.
+    // value to the new one (0 = stepped S&H).
     void setSlew(float slew);
 
     // Fade [-1, 1] after each note trig: negative fades the modulation in, positive
-    // fades it out, 0 is off. |fade| = 1 spans four LFO cycles (Cold's reading of the
-    // Digitakt FADE parameter, whose timing the manual does not specify).
+    // fades it out, 0 is off. |fade| = 1 spans four LFO cycles.
     void setFade(float fade);
 
     // The LFO-designer waveform: `count` points in [-1, 1] sampled uniformly over
@@ -90,9 +88,9 @@ public:
     // beatsPerCycle = 1 -> one cycle per quarter note; 4 -> per whole note.
     [[nodiscard]] static double divisionToHz(double bpm, double beatsPerCycle);
 
-    // Digitakt SPD x MULT at a tempo, in Hz: SPD x MULT = 128 is one cycle per bar
+    // Speed x multiplier at a tempo, in Hz: speed x multiplier = 128 is one cycle per bar
     // (16 steps in 4/4). A negative speed gives a negative (backward) rate.
-    [[nodiscard]] static double digitaktRateHz(double speed, double multiplier, double bpm);
+    [[nodiscard]] static double tempoRateHz(double speed, double multiplier, double bpm);
 
 private:
     [[nodiscard]] float shapeValue(double p) const;

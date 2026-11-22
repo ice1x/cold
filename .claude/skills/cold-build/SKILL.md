@@ -1,9 +1,9 @@
 ---
-name: dt-build
+name: cold-build
 description: Configure and build the Cold plugin (AU / VST3 / Standalone) with CMake + Ninja on Apple Silicon. Use when asked to build, recompile, or produce plugin artifacts.
 ---
 
-# dt-build
+# cold-build
 
 Build the Cold JUCE plugin for arm64 macOS.
 
@@ -48,5 +48,5 @@ find build -name 'Cold.component' -o -name 'Cold.vst3' -o -name 'Cold.app'
 
 - If CMake cache is stale or you changed the JUCE/Catch2 pin, delete `build/` and
   reconfigure.
-- Keep DSP code JUCE-free so it also compiles into the test target (see `dt-test`).
-- Next step after a successful build is usually `dt-install` (Logic) or `dt-test`.
+- Keep DSP code JUCE-free so it also compiles into the test target (see `cold-test`).
+- Next step after a successful build is usually `cold-install` (Logic) or `cold-test`.
