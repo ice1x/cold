@@ -238,3 +238,147 @@ TEST_CASE("Lfo converts host tempo divisions to Hz", "[lfo][dsp][unit]")
     REQUIRE_THAT(Lfo::divisionToHz(120.0, 4.0), WithinAbs(0.5, 1e-9));
     REQUIRE_THAT(Lfo::divisionToHz(60.0, 0.5), WithinAbs(2.0, 1e-9)); // eighth at 60 BPM
 }
+
+// ---- Digitakt-style LFO behaviour ------------------------------------------
+
+TEST_CASE("Lfo random draws a new value on every trig in Trig mode", "[lfo][dsp][unit][digitakt]")
+{
+    // A 10 s cycle: no wrap happens here, so only the trigs can change the value.
+    auto lfo = makeLfo(LfoShape::Random, 0.1f);
+    lfo.setTrigMode(cold::dsp::LfoTrigMode::Trig);
+
+    lfo.noteTrigger();
+    const float a = lfo.peek();
+    lfo.noteTrigger();
+    const float b = lfo.peek();
+    lfo.noteTrigger();
+    const float c = lfo.peek();
+    REQUIRE(std::abs(a - b) > 1e-6f); // a fresh random value per hit
+    REQUIRE(std::abs(b - c) > 1e-6f);
+}
+
+TEST_CASE("Lfo random keeps its value across trigs in Free mode", "[lfo][dsp][unit][digitakt]")
+{
+    auto lfo = makeLfo(LfoShape::Random, 0.1f);
+    lfo.setTrigMode(cold::dsp::LfoTrigMode::Free);
+    lfo.noteTrigger();
+    const float a = lfo.peek();
+    lfo.noteTrigger();
+    REQUIRE_THAT(lfo.peek(), WithinAbs(a, 1e-9)); // free-running: trigs don't redraw
+}
+
+TEST_CASE("Lfo exponential and ramp are unipolar", "[lfo][dsp][unit][digitakt]")
+{
+    SECTION("exponential falls from full to zero over the cycle")
+    {
+        auto lfo = makeLfo(LfoShape::Exponential, 10.0f); // 100 samples / cycle
+        float prev = lfo.getNextSample();
+        REQUIRE_THAT(prev, WithinAbs(1.0f, 1e-4));
+        for (int i = 1; i < 100; ++i)
+        {
+            const float v = lfo.getNextSample();
+            REQUIRE(v >= 0.0f);
+            REQUIRE(v <= prev + 1e-6f); // never rises within the cycle
+            prev = v;
+        }
+        REQUIRE(prev < 0.05f);
+    }
+
+    SECTION("ramp rises from zero to full over the cycle")
+    {
+        auto lfo = makeLfo(LfoShape::Ramp, 10.0f);
+        float prev = lfo.getNextSample();
+        REQUIRE_THAT(prev, WithinAbs(0.0f, 1e-4));
+        for (int i = 1; i < 100; ++i)
+        {
+            const float v = lfo.getNextSample();
+            REQUIRE(v >= prev - 1e-6f);
+            REQUIRE(v <= 1.0f);
+            prev = v;
+        }
+        REQUIRE(prev > 0.95f);
+    }
+}
+
+TEST_CASE("Lfo negative rate plays the cycle backwards", "[lfo][dsp][unit][digitakt]")
+{
+    auto lfo = makeLfo(LfoShape::SawUp, -10.0f); // Digitakt: negative SPD runs backward
+    lfo.getNextSample();                         // phase 0, then wraps to the top
+    float prev = lfo.getNextSample();
+    for (int i = 0; i < 60; ++i)
+    {
+        const float v = lfo.getNextSample();
+        REQUIRE(v < prev); // a rising saw read backwards falls
+        prev = v;
+    }
+}
+
+TEST_CASE("Lfo trig mode Half runs to mid-cycle then freezes", "[lfo][dsp][unit][digitakt]")
+{
+    auto lfo = makeLfo(LfoShape::Triangle, 10.0f); // peak (+1) at mid-cycle
+    lfo.setTrigMode(cold::dsp::LfoTrigMode::Half);
+    lfo.noteTrigger();
+    for (int i = 0; i < 70; ++i)
+        lfo.getNextSample(); // past the middle
+    const float a = lfo.getNextSample();
+    const float b = lfo.getNextSample();
+    REQUIRE_THAT(a, WithinAbs(1.0f, 0.05f)); // stopped at the middle (the peak)
+    REQUIRE_THAT(a, WithinAbs(b, 1e-6));     // and holds there
+}
+
+TEST_CASE("Lfo random slew glides between values", "[lfo][dsp][unit][digitakt]")
+{
+    auto maxStep = [](float slew)
+    {
+        auto lfo = makeLfo(LfoShape::Random, 10.0f); // a new value every 100 samples
+        lfo.setSlew(slew);
+        float prev = lfo.getNextSample();
+        float biggest = 0.0f;
+        for (int i = 0; i < 500; ++i)
+        {
+            const float v = lfo.getNextSample();
+            biggest = std::max(biggest, std::abs(v - prev));
+            prev = v;
+        }
+        return biggest;
+    };
+    REQUIRE(maxStep(0.0f) > 0.2f);  // stepped: jumps at each new value
+    REQUIRE(maxStep(1.0f) < 0.05f); // full slew: a smooth glide
+}
+
+TEST_CASE("Lfo fade in and fade out shape the depth after a trig", "[lfo][dsp][unit][digitakt]")
+{
+    // Square at +1 for the first half cycle; fade spans |fade| x 4 cycles.
+    SECTION("negative fade fades the modulation in")
+    {
+        auto lfo = makeLfo(LfoShape::Square, 1.0f); // 1000 samples / cycle
+        lfo.setTrigMode(cold::dsp::LfoTrigMode::Trig);
+        lfo.setFade(-0.025f); // 0.1 cycle = 100 samples
+        lfo.noteTrigger();
+        REQUIRE(std::abs(lfo.getNextSample()) < 0.05f); // starts silent
+        for (int i = 0; i < 150; ++i)
+            lfo.getNextSample();
+        REQUIRE_THAT(lfo.getNextSample(), WithinAbs(1.0f, 1e-4)); // full after the fade
+    }
+
+    SECTION("positive fade fades the modulation out")
+    {
+        auto lfo = makeLfo(LfoShape::Square, 1.0f);
+        lfo.setTrigMode(cold::dsp::LfoTrigMode::Trig);
+        lfo.setFade(0.025f);
+        lfo.noteTrigger();
+        REQUIRE_THAT(lfo.getNextSample(), WithinAbs(1.0f, 0.02f)); // starts full
+        for (int i = 0; i < 150; ++i)
+            lfo.getNextSample();
+        REQUIRE(std::abs(lfo.getNextSample()) < 1e-4f); // gone after the fade
+    }
+}
+
+TEST_CASE("Lfo Digitakt speed x multiplier follows the tempo", "[lfo][dsp][unit][digitakt]")
+{
+    // SPD x MULT = 128 is one cycle per bar (16 steps); at 120 BPM a bar is 2 s.
+    REQUIRE_THAT(Lfo::digitaktRateHz(16.0, 8.0, 120.0), WithinAbs(0.5, 1e-9));
+    REQUIRE_THAT(Lfo::digitaktRateHz(32.0, 8.0, 120.0), WithinAbs(1.0, 1e-9));
+    REQUIRE_THAT(Lfo::digitaktRateHz(16.0, 8.0, 60.0), WithinAbs(0.25, 1e-9));
+    REQUIRE_THAT(Lfo::digitaktRateHz(-16.0, 8.0, 120.0), WithinAbs(-0.5, 1e-9)); // backward
+}
