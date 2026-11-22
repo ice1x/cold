@@ -302,7 +302,7 @@ int Engine::selectSampleIndex() const
         return base;
 
     // Read the LFO at the trig and step that many LOADED samples away from the base
-    // (Digitakt LFO -> sample slot). Empty slots are skipped, so an offset never
+    // (LFO -> sample slot). Empty slots are skipped, so an offset never
     // lands on a hole and silences the hit. Two passes, no allocation (audio thread).
     int loaded = 0;
     int baseRank = 0; // rank of the base (or the nearest loaded slot below it)

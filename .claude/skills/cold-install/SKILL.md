@@ -1,9 +1,9 @@
 ---
-name: dt-install
+name: cold-install
 description: Install the built Cold AU/VST3 into the macOS plug-ins folders, validate the AU with auval, and clear the AU cache so Logic Pro re-scans. Use when asked to install the plugin or get it into Logic.
 ---
 
-# dt-install
+# cold-install
 
 Get a freshly built Cold into Logic Pro. **Logic only loads AU**, so the AU
 validation step is the gate.
@@ -55,4 +55,4 @@ Then relaunch Logic Pro; it re-scans AUs on startup.
 
 - Cold is an **instrument** (`aumu`) — add it on a software-instrument track.
 - If `auval` fails, fix the plugin before touching Logic — don't debug in the DAW.
-- Follow with `dt-logic-smoke` for the manual in-DAW verification.
+- Follow with `cold-logic-smoke` for the manual in-DAW verification.

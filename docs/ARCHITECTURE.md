@@ -1,6 +1,6 @@
 # Architecture
 
-Cold is a polyphonic, Digitakt-inspired sampler plugin. This document describes
+Cold is a polyphonic, layering sampler plugin. This document describes
 the signal flow and the engine design.
 
 ## Layering
@@ -38,10 +38,10 @@ sample read ──▶ amp envelope ──▶ morph filter ──▶ voice out �
 
 ## Voices & polyphony
 
-Unlike the real Digitakt (mono per track), **each track is polyphonic**: a track
+**Each track is polyphonic**: a track
 owns a pool of `SampleVoice`s and an allocator that assigns an idle/stolen voice to
 each incoming note. This lets you play chords with a single sample. Polyphony count
-is a per-track parameter (1 = Digitakt-style mono behavior as a special case).
+is a per-track parameter (1 = mono as a special case).
 
 ### SampleVoice
 
@@ -55,7 +55,7 @@ Responsibilities:
   - (Future) *Time-stretch / fixed*: pitch independent of speed.
 - **Looping**: one-shot, forward loop, or ping-pong, with `loopStart`/`loopEnd`
   points. In repitch mode the loop speed follows pitch.
-- **Sample window**: `start` / `length` like Digitakt.
+- **Sample window**: `start` / `length`.
 - **Envelope**: amp ADSR applied to its output.
 - **Filter**: a per-voice `MorphFilter` instance.
 
@@ -73,7 +73,7 @@ character itself. See [DSP_NOTES.md](DSP_NOTES.md).
 
 `Engine` owns N `Track`s. A track = sample + playback config + amp env + morph
 filter + LFO + voice pool. MIDI routing maps note/channel to a track
-(Digitakt-style channel-per-track) — implemented in M5.
+(one MIDI channel per track) — implemented in M5.
 
 ## Parameters
 

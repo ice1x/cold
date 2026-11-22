@@ -1,8 +1,8 @@
 # Cold — project instructions for Claude
 
-A Digitakt-style sampler plugin (AU / VST3 / Standalone) in C++ / JUCE, targeting
-Apple Silicon macOS + Logic Pro. The owner is the first user — optimize for getting
-a usable plugin into Logic early, then iterate.
+A layering sampler plugin (AU / VST3 / Standalone) in C++ / JUCE, targeting
+Apple Silicon macOS + Logic Pro. Optimize for getting a usable plugin into Logic
+early, then iterate.
 
 Read [TASKS.md](TASKS.md) for the live roadmap. Always work the next unchecked
 task and tick its checkbox when done.
@@ -25,14 +25,13 @@ target. Signal flow: sample → amp env → morph filter → out, with the LFO/m
 matrix able to target both filter cutoff **and** filter type. Details in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Intentional deviations from the real Digitakt
+## Design choices
 
-- **Polyphony**: each track is **polyphonic** (play chords with samples). The real
-  Digitakt is mono-per-track; Cold is not. `dsp/Engine` allocates multiple voices.
-- **Playback modes**: support Digitakt-style **looping** (loop points) **and** a
-  classic **repitch / varispeed** mode where pitch changes playback speed (old
-  sampler behavior, including loop speed following pitch). Selectable per track.
-- Otherwise, default to Digitakt behavior unless a deviation is explicitly requested.
+- **Polyphony**: each track is **polyphonic** (play chords with samples).
+  `dsp/Engine` allocates multiple voices.
+- **Playback modes**: **looping** (loop points) **and** a classic **repitch /
+  varispeed** mode where pitch changes playback speed (including loop speed
+  following pitch). Selectable per track.
 
 ## MCP control surface
 
@@ -67,12 +66,12 @@ auval -a | grep -i cold
 
 Use these instead of re-deriving the commands:
 
-- `dt-build` — configure/build the JUCE targets.
-- `dt-install` — install AU/VST3, run `auval`, clear the AU cache for Logic.
-- `dt-test` — run the Catch2 suite (TDD red/green).
-- `dt-lint` — clang-format / clang-tidy gate.
-- `dt-logic-smoke` — manual Logic Pro verification checklist.
-- `dt-feature` — the end-to-end TDD workflow for adding a feature.
+- `cold-build` — configure/build the JUCE targets.
+- `cold-install` — install AU/VST3, run `auval`, clear the AU cache for Logic.
+- `cold-test` — run the Catch2 suite (TDD red/green).
+- `cold-lint` — clang-format / clang-tidy gate.
+- `cold-logic-smoke` — manual Logic Pro verification checklist.
+- `cold-feature` — the end-to-end TDD workflow for adding a feature.
 
 ## Logic Pro / AU specifics
 

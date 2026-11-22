@@ -3,11 +3,6 @@
 A **layering drum sampler** plugin for macOS — **AU / VST3 / Standalone**, written
 in C++20 with [JUCE](https://juce.com/). Built for **Logic Pro on Apple Silicon**.
 
-Cold takes its sound-design ideas from the Elektron Digitakt (per-trig sample
-modulation, a morphing filter, a flexible LFO) and its workflow from NI Battery
-(a grid of cells, each a stack of layered samples). It is not affiliated with
-either — see [Trademarks](#trademarks).
-
 > **Status:** in active development. The engine is feature-rich and covered by
 > tests; the editor UI is being redesigned for clarity. See [TASKS.md](TASKS.md)
 > for the roadmap.
@@ -93,36 +88,25 @@ notes live in [`docs/`](docs/):
 
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — signal flow and engine design.
 - [DSP_NOTES.md](docs/DSP_NOTES.md) — filter, envelope and LFO math.
-- [DIGITAKT_REFERENCE.md](docs/DIGITAKT_REFERENCE.md) and
-  [OCTATRACK_REFERENCE.md](docs/OCTATRACK_REFERENCE.md) — feature references.
 
 ## License
 
-Cold is **source-available** under the [Cold Indie License 1.0](LICENSE) — not an
-OSI open-source license. In short:
+Cold is source-available under the [Cold Indie License 1.0](LICENSE):
 
-- **Free** for independent musicians, producers and small studios — anyone whose
-  annual revenue is under USD 1,000,000, on projects with a budget under USD 250,000 —
-  including commercial work.
-- **Your music is yours.** No rights are claimed in audio you make with Cold.
-- **Forks are welcome as source code**, free of charge and under the same license.
-  Selling Cold, distributing compiled builds of it, or bundling it in another product
-  needs written permission.
-- Larger companies need a **commercial license** — open an
-  [issue](https://github.com/ice1x/cold/issues) to ask.
-- Contributions are licensed to the maintainer so they can be included in commercial
-  licenses (see section 8 of the license).
-
-The [LICENSE](LICENSE) file is the binding text; this summary is for convenience.
+- **Free**, including commercial work, if your annual revenue is under USD 100,000.
+- **No rights are claimed in audio you make with Cold.**
+- **Forks** may be shared as source code, free of charge, under the same license.
+  Selling Cold, distributing compiled builds of it, or bundling it in another
+  product needs written permission.
+- Everyone else needs a **commercial license** — open an
+  [issue](https://github.com/ice1x/cold/issues).
+- Contributions are licensed to the maintainer (section 8 of the license).
 
 Cold is built on **JUCE**, which is licensed separately (see
-[juce.com/legal](https://juce.com/legal/)); building or distributing Cold also means
-complying with JUCE's terms.
+[juce.com/legal](https://juce.com/legal/)).
 
 ## Trademarks
 
-Digitakt, Octatrack and Elektron are trademarks of Elektron Music Machines. Battery
-and Native Instruments are trademarks of Native Instruments. Logic Pro is a trademark
-of Apple Inc. Cold is an independent project and is not affiliated with, endorsed by,
-or sponsored by any of them; the names are used only to describe features and file
-compatibility.
+Battery and Native Instruments are trademarks of Native Instruments. Logic Pro is a
+trademark of Apple Inc. Cold is not affiliated with either; the names are used only
+to describe file and host compatibility.

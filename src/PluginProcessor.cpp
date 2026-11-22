@@ -343,7 +343,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
 
         // Choke / mute group (0 = off, 1..8). Cells sharing a non-zero group cut each
         // other off: firing one releases every voice in the group (classic hi-hat
-        // choke). Battery-style "MuteGroup".
+        // choke).
         layout.add(std::make_unique<AudioParameterInt>(
             juce::ParameterID{trackParamId(t, "chokeGroup"), 1}, tp + "Choke Group", 0, 8, 0));
 
@@ -418,7 +418,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             juce::ParameterID{trackParamId(t, kPitchEnvDecayId), 1}, tp + "Pitch Env Decay",
             timeRange(5.0f), 0.05f));
 
-        // Per-track velocity -> pitch (Battery-style): semitones at full velocity.
+        // Per-track velocity -> pitch: semitones at full velocity.
         layout.add(std::make_unique<AudioParameterFloat>(
             juce::ParameterID{trackParamId(t, kVelToPitchId), 1}, tp + "Velocity to Pitch",
             juce::NormalisableRange<float>(-48.0f, 48.0f, 0.01f), 0.0f));
@@ -956,7 +956,7 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     const int rootNote = static_cast<int>(rootNoteParam->load());
 
     // Render in segments split on MIDI event boundaries for sample-accurate trigs.
-    // Notes route to a track either by MIDI channel (Digitakt-style: channel N ->
+    // Notes route to a track either by MIDI channel (channel N ->
     // track N-1) or, in Note Map mode, by note number like a GM drum map.
     const bool noteMap = midiAddressParam->load() > 0.5f;
 

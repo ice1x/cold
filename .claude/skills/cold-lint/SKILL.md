@@ -1,9 +1,9 @@
 ---
-name: dt-lint
+name: cold-lint
 description: Run clang-format and clang-tidy on the Cold sources as the pre-commit quality gate. Use before committing or when asked to lint/format the code.
 ---
 
-# dt-lint
+# cold-lint
 
 The formatting + static-analysis gate. Must pass before every commit/push (the
 project's analog of `cargo fmt --check` + `cargo clippy`).
