@@ -1,18 +1,18 @@
 ---
-name: dt-logic-smoke
+name: cold-logic-smoke
 description: Manual checklist for verifying a Cold feature inside Logic Pro on the M1 Mac. Use for the milestone in-DAW smoke-test tasks, since DAW behavior cannot be automated.
 ---
 
-# dt-logic-smoke
+# cold-logic-smoke
 
 DAW behavior can't be auto-tested, so each milestone has a **manual** Logic Pro
-verification step. Run `dt-build` + `dt-install` first (AU must pass `auval`).
+verification step. Run `cold-build` + `cold-install` first (AU must pass `auval`).
 Report the actual observed result — never claim a Logic test passed without
 running it.
 
 ## Setup (once per build)
 
-1. Relaunch Logic Pro so it re-scans the AU (`dt-install` clears the cache).
+1. Relaunch Logic Pro so it re-scans the AU (`cold-install` clears the cache).
 2. New project → Software Instrument track → insert **Cold** (AU instrument).
 3. Confirm the plugin window opens without errors.
 
@@ -39,4 +39,4 @@ running it.
 ## On failure
 
 Capture: what you did, what you heard/saw vs. expected, any Logic error. Fix at
-the DSP/processor level with a regression test in `dt-test`, not in the DAW.
+the DSP/processor level with a regression test in `cold-test`, not in the DAW.

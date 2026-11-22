@@ -131,8 +131,7 @@ TEST_CASE("MultiEngine tracks have independent voice pools", "[multiengine][dsp]
     REQUIRE(e.activeVoiceCount() == 2);
 }
 
-TEST_CASE("MultiEngine maps MIDI channels to tracks Digitakt-style",
-          "[multiengine][dsp][unit][routing]")
+TEST_CASE("MultiEngine maps MIDI channels to tracks", "[multiengine][dsp][unit][routing]")
 {
     REQUIRE(MultiEngine::trackForChannel(1) == 0);
     REQUIRE(MultiEngine::trackForChannel(8) == 7);

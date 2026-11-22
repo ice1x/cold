@@ -27,7 +27,7 @@ juce::String u8(const char* s)
 const std::array<juce::Colour, 4> kLayerColours{juce::Colour(0xff58b0f0), juce::Colour(0xff5fd08a),
                                                 juce::Colour(0xffef8f4f), juce::Colour(0xffc77dff)};
 
-// Battery-style knob: a dark background track arc, a bright value arc, a solid
+// Knob: a dark background track arc, a bright value arc, a solid
 // knob body and a clear pointer — far more legible than JUCE's default dot. Only
 // the rotary drawing is overridden; combos/toggles keep the LookAndFeel_V4 look.
 class ColdKnobLookAndFeel : public juce::LookAndFeel_V4
@@ -169,7 +169,7 @@ public:
     }
 };
 
-// Battery-style waveform view of the selected cell's sample (И5c). Draws a
+// Waveform view of the selected cell's sample (И5c). Draws a
 // min/max peak envelope (from dsp::computeWaveformPeaks, fetched by Content) and
 // the playable start/end window as vertical markers with the outside dimmed.
 // Purely a painter: it holds no processor reference, so Content owns the fetch.
@@ -1306,7 +1306,7 @@ private:
             gKnob(s, "gain", "Gain",
                   "Output gain in dB, applied to the mix of all " + nTracks + " cells.");
             gKnob(s, "polyphony", "Poly",
-                  "Voices per track. 1 = mono (Digitakt-style); higher lets notes overlap "
+                  "Voices per track. 1 = mono; higher lets notes overlap "
                   "and chords ring.");
             gKnob(s, "rootNote", "Root",
                   "MIDI note that plays a sample at its natural pitch. Other notes repitch "
@@ -1592,7 +1592,7 @@ public:
     std::function<void()> onBankChanged; // editor hook: refresh the top-bar name
 
 private:
-    // Battery-style cell grid: one pad per track, click to pick the edited cell.
+    // Cell grid: one pad per track, click to pick the edited cell.
     // Replaces a track-selector knob; the pads drive the "track" param + setTrack().
     void buildCellGrid()
     {
@@ -2041,7 +2041,7 @@ private:
 ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     : AudioProcessorEditor(&p), processorRef(p)
 {
-    // Battery-style knobs across the whole editor (descendants inherit this).
+    // The custom knob look across the whole editor (descendants inherit this).
     knobLookAndFeel = std::make_unique<ColdKnobLookAndFeel>();
     setLookAndFeel(knobLookAndFeel.get());
 

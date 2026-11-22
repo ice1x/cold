@@ -30,7 +30,7 @@ hp = x - k*v1 - v2
 notch = x - k*v1            // = lp + hp
 ```
 
-### Continuous type morph (Ableton-style)
+### Continuous type morph
 
 Expose a single `filterType` parameter in `[0, 1]` that **blends** between the
 outputs along a path, e.g. `LP → BP → HP → Notch`. Map the parameter onto adjacent
@@ -52,8 +52,7 @@ avoid zipper noise when modulated.
 
 ## Amp envelope (`dsp/AmpEnvelope`)
 
-ADSR (Digitakt amp env is closer to AHD/AD with hold + decay; start with ADSR and
-allow A=0 / S=1 to emulate). Sample-accurate stage transitions; retrigger resets to
+ADSR (allow A=0 / S=1 for an AHD/AD-style hold + decay). Sample-accurate stage transitions; retrigger resets to
 attack. Keep it allocation-free and branch-light for the audio thread.
 
 ## LFO (`dsp/Lfo`)
@@ -69,6 +68,6 @@ can scale it per destination.
 - **Repitch / varispeed mode** (default): advance the read position by `ratio`
   each output sample; loops play faster/slower with pitch (classic sampler).
 - **Looping**: `OneShot`, `Forward` (wrap `loopStart..loopEnd`), `PingPong`.
-- **Window**: `start` and `length` clamp the playable region (Digitakt-style).
+- **Window**: `start` and `length` clamp the playable region.
 - **Interpolation**: linear for the PoC; upgrade to Hermite/sinc later.
 - Mix the voice through its amp env then its morph filter before summing.

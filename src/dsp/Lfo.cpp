@@ -121,9 +121,9 @@ double Lfo::divisionToHz(double bpm, double beatsPerCycle)
     return (bpm / 60.0) / beatsPerCycle;
 }
 
-double Lfo::digitaktRateHz(double speed, double multiplier, double bpm)
+double Lfo::tempoRateHz(double speed, double multiplier, double bpm)
 {
-    // SPD x MULT = 128 -> one cycle per bar; a 4/4 bar lasts 240 / bpm seconds.
+    // speed x multiplier = 128 -> one cycle per bar; a 4/4 bar lasts 240 / bpm seconds.
     if (bpm <= 0.0)
         return 0.0;
     return speed * multiplier / 128.0 * (bpm / 240.0);

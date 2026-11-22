@@ -1,9 +1,9 @@
 ---
-name: dt-mcp
+name: cold-mcp
 description: Build, run, and test the Cold MCP server and the in-plugin control bridge that lets LLM/voice tools control the plugin and recommend tuning. Use when working on M7 / MCP control tasks.
 ---
 
-# dt-mcp
+# cold-mcp
 
 Work on the MCP control surface (see [docs/MCP.md](../../../docs/MCP.md)). Two
 parts: the **in-plugin control server** (JUCE, in `src/`) and the **MCP server**
@@ -14,7 +14,7 @@ parts: the **in-plugin control server** (JUCE, in `src/`) and the **MCP server**
 - Localhost-only OSC (`juce::OSCReceiver/Sender`) or a small WebSocket.
 - Reads/writes the APVTS and forwards note triggers to `Engine`.
 - **Never block the audio thread**: cross thread boundaries with atomics / a
-  lock-free FIFO. Test the message handling via `dt-test` (no audio host needed).
+  lock-free FIFO. Test the message handling via `cold-test` (no audio host needed).
 
 ## MCP server (`mcp/`)
 

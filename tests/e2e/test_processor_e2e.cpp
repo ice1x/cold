@@ -2511,7 +2511,7 @@ juce::File writeConstantWav(double sampleRate, int numFrames, float level)
 TEST_CASE("Cold LFO random sample select picks a loaded sample on every hit",
           "[processor][e2e][lfo][sampleselect]")
 {
-    // The Digitakt "LFO -> sample slot" with a random wave in Trig mode: every hit
+    // "LFO -> sample slot" with a random wave in Trig mode: every hit
     // draws a new sample. Only layers 1 and 2 of the cell are loaded; layers 3 and 4
     // are empty and must never be picked (that used to silence the hit).
     constexpr double sampleRate = 48000.0;

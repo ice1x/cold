@@ -29,7 +29,7 @@ public:
     // Host sample rate; propagated to every voice.
     void prepare(double hostSampleRate);
 
-    // Resize the voice pool. Clamped to at least 1 (1 = Digitakt-style mono).
+    // Resize the voice pool. Clamped to at least 1 (1 = mono).
     void setPolyphony(int numVoices);
 
     // A non-owning reference to one decoded sample (channels/data must outlive
