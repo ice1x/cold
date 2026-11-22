@@ -177,7 +177,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     // modulation amounts — to cutoff (octaves) and, distinctively, to filter type.
     layout.add(std::make_unique<AudioParameterChoice>(
         juce::ParameterID{kLfoShapeId, 1}, "LFO Shape",
-        juce::StringArray{"Sine", "Triangle", "Saw Up", "Saw Down", "Square", "Random", "Custom"},
+        juce::StringArray{"Sine", "Triangle", "Saw Up", "Saw Down", "Square", "Random", "Custom",
+                          "Exponential", "Ramp"},
         0));
     juce::NormalisableRange<float> rateRange(0.01f, 40.0f, 0.01f);
     rateRange.setSkewForCentre(2.0f);
@@ -194,7 +195,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     // (latch its value at the trig), One-Shot (one cycle per note, then freeze).
     layout.add(std::make_unique<AudioParameterChoice>(
         juce::ParameterID{kLfoTrigModeId, 1}, "LFO Trig Mode",
-        juce::StringArray{"Free", "Trig", "Hold", "One-Shot"}, 0));
+        juce::StringArray{"Free", "Trig", "Hold", "One-Shot", "Half"}, 0));
     // The LFO designer: eight step levels forming the Custom waveform (used when
     // LFO Shape = Custom). Defaults sample one sine cycle so Custom starts musical.
     constexpr std::array<float, kNumCustomSteps> kStepDefaults{0.0f, 0.707f,  1.0f,  0.707f,

@@ -1,43 +1,64 @@
 name: CI
 
-# Runs on the owner's local self-hosted macOS (Apple Silicon) runner — the same
-# machine the plugin targets (Logic Pro / M-series). Cloud macOS minutes are
-# avoided and the JUCE/Catch2 dependency tree stays warm between runs.
+# Builds and tests on a GitHub-hosted Apple Silicon runner (macos-15, arm64) —
+# the platform the plugin targets (Logic Pro on M-series Macs). No self-hosted
+# runner: safe for a public repo, where fork PRs must never run on a personal
+# machine.
 "on":
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
-# A newer push to the same branch cancels the older, still-running job.
+# Read-only token: CI only checks out code and runs the build/tests.
+permissions:
+  contents: read
+
+# A newer push to the same branch / PR cancels the older, still-running job.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-test:
-    runs-on: [self-hosted, macOS]
+    runs-on: macos-15
+    timeout-minutes: 60
     steps:
-      # clean: false keeps the gitignored build/ dir so JUCE + the object files
-      # persist across runs (incremental builds instead of a full rebuild).
       - uses: actions/checkout@v4
-        with:
-          clean: false
 
-      # launchd's default PATH omits Homebrew; expose the local toolchain.
-      - name: Set up toolchain PATH
+      # clang-format is pinned to the version the code is formatted with locally,
+      # so the format gate can't fail on formatter-version drift.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
         run: |
-          echo "/usr/local/bin" >> "$GITHUB_PATH"
-          echo "/usr/local/opt/llvm/bin" >> "$GITHUB_PATH"
+          brew install ninja ccache
+          python -m pip install clang-format==21.1.8
 
       - name: Tool versions
         run: |
           cmake --version | head -1
           ninja --version
+          ccache --version | head -1
           clang-format --version
 
+      # ccache keeps compiled objects between runs (JUCE dominates the build).
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: ccache-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: >
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache
+          -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache
 
       - name: Build
         run: cmake --build build

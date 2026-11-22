@@ -21,19 +21,24 @@ enum class LfoShape
     SawUp,
     SawDown,
     Square,
-    Random, // stepped sample-and-hold, one new value per cycle
-    Custom  // user-drawn multi-step waveform (the LFO designer)
+    Random,      // stepped sample-and-hold, one new value per cycle (slew-able)
+    Custom,      // user-drawn multi-step waveform (the LFO designer)
+    Exponential, // unipolar 0..1: falls exponentially from 1 to 0 (Digitakt EXP)
+    Ramp         // unipolar 0..1: rises linearly from 0 to 1 (Digitakt RMP)
 };
 
-// How the LFO reacts to a note trigger (noteTrigger()). Free ignores trigs; Trig
-// restarts its phase; Hold latches its output at each trig (freezes between);
-// OneShot runs a single cycle per trig then holds the final value.
+// How the LFO reacts to a note trigger (noteTrigger()), as on the Digitakt. Free
+// ignores trigs; Trig restarts its phase; Hold latches its output at each trig
+// (freezes between); OneShot runs a single cycle per trig then holds the final
+// value; Half runs to the middle of the cycle then holds. A restarting mode (Trig /
+// OneShot / Half) also draws a fresh Random value, so random is new on every hit.
 enum class LfoTrigMode
 {
     Free,
     Trig,
     Hold,
-    OneShot
+    OneShot,
+    Half
 };
 
 class Lfo
@@ -41,10 +46,21 @@ class Lfo
 public:
     void setSampleRate(double sampleRate);
     void setShape(LfoShape shape);
+    // Rate in Hz; a NEGATIVE rate plays the cycle backwards (Digitakt negative SPD).
     void setRate(float hz);
     void setDepth(float depth);       // [0, 1]
     void setPhaseOffset(float phase); // [0, 1], applied on reset/retrigger
     void setTrigMode(LfoTrigMode mode);
+
+    // Random slew [0, 1]: the fraction of each step spent gliding from the previous
+    // value to the new one (0 = stepped S&H). Digitakt shows it in place of the start
+    // phase when WAVE is RND.
+    void setSlew(float slew);
+
+    // Fade [-1, 1] after each note trig: negative fades the modulation in, positive
+    // fades it out, 0 is off. |fade| = 1 spans four LFO cycles (Cold's reading of the
+    // Digitakt FADE parameter, whose timing the manual does not specify).
+    void setFade(float fade);
 
     // The LFO-designer waveform: `count` points in [-1, 1] sampled uniformly over
     // one cycle, linearly interpolated (and wrapping). Selects the Custom shape.
@@ -74,9 +90,15 @@ public:
     // beatsPerCycle = 1 -> one cycle per quarter note; 4 -> per whole note.
     [[nodiscard]] static double divisionToHz(double bpm, double beatsPerCycle);
 
+    // Digitakt SPD x MULT at a tempo, in Hz: SPD x MULT = 128 is one cycle per bar
+    // (16 steps in 4/4). A negative speed gives a negative (backward) rate.
+    [[nodiscard]] static double digitaktRateHz(double speed, double multiplier, double bpm);
+
 private:
     [[nodiscard]] float shapeValue(double p) const;
+    [[nodiscard]] float fadeGain() const; // the fade envelope's current level
     float nextRandom();
+    void stepRandom(); // move to the next Random value (the old one becomes the glide start)
     void advancePhase();
 
     double sampleRate = 44100.0;
@@ -89,11 +111,15 @@ private:
     double phase = 0.0;
     double phaseInc = 0.0;
     float heldRandom = 0.0f;
+    float prevRandom = 0.0f; // the value Random glides away from (slew)
+    float slew = 0.0f;
+    float fade = 0.0f;
+    double fadeCounter = 0.0; // samples since the last trig (drives the fade)
     std::uint32_t rngState = 0x1234567u;
 
     std::vector<float> customPoints;
     float latched = 0.0f; // Hold output / OneShot final value
-    bool running = true;  // OneShot: whether a cycle is in progress
+    bool running = true;  // OneShot / Half: whether the run is still in progress
 };
 
 } // namespace cold::dsp
