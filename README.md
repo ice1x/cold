@@ -1,43 +1,55 @@
 # Cold
 
-A software clone of the **Elektron Digitakt**, built as an audio plugin
-(**AU / VST3 / Standalone**) in C++ with [JUCE](https://juce.com/).
+A **layering drum sampler** plugin for macOS — **AU / VST3 / Standalone**, written
+in C++20 with [JUCE](https://juce.com/). Built for **Logic Pro on Apple Silicon**.
 
-The primary target is an **Apple Silicon (M1) MacBook running Logic Pro**.
-Development is incremental: the goal is a usable plugin as early as possible,
-then iterative growth toward Digitakt feature parity.
+Cold takes its sound-design ideas from the Elektron Digitakt (per-trig sample
+modulation, a morphing filter, a flexible LFO) and its workflow from NI Battery
+(a grid of cells, each a stack of layered samples). It is not affiliated with
+either — see [Trademarks](#trademarks).
 
-> Status: **early scaffold / PoC**. See [TASKS.md](TASKS.md) for the live roadmap.
+> **Status:** in active development. The engine is feature-rich and covered by
+> tests; the editor UI is being redesigned for clarity. See [TASKS.md](TASKS.md)
+> for the roadmap.
 
-## What it is (and the plan)
+## Features
 
-A sampler in the spirit of the Digitakt:
+**Cells and layers**
+- 16 cells (a 4×4 pad grid), each holding up to **4 layered samples**.
+- Layer modes per cell: **Single**, **Stack** (all layers on one hit),
+  **Round-Robin** (cycle layers hit to hit) and **Velocity** (layer by how hard you play).
+- Per layer: gain, tune, pan, reverse, mute / solo, its **own amp envelope**, its own
+  filter, and dedicated low-cut / high-cut.
+- Every layer is shown at once as a strip with its waveform, envelope mask and
+  draggable start / end.
+- Choke (mute) groups, MIDI-channel or **Note Map** addressing, click-to-audition pads.
 
-- Load a bank of samples (`wav`, `aiff`, `mp3`).
-- Trigger them via MIDI — **polyphonically** (play chords with samples, unlike
-  the mono-per-track Digitakt).
-- Sample playback with **looping** (Digitakt-style loop points) and a classic
-  **repitch / varispeed** mode where pitch changes playback speed (old-sampler
-  behavior).
-- Shape each with an **amp envelope** and a **multimode filter**.
-- The filter type **morphs continuously** between low-pass / band-pass /
-  high-pass / notch (Ableton-style), and the **filter type is itself a
-  modulation destination** for the LFO.
-- **LLM/voice control via MCP**: an MCP server lets AI tools control parameters,
-  load samples, and recommend tuning by voice.
-- Grow toward 8 tracks, a step sequencer with parameter locks, and the rest of
-  the Digitakt feature set.
+**Sound shaping (per cell)**
+- **Morphing filter** that blends continuously LP → BP → HP → Notch.
+- Curved DAHDSR amp envelope, pitch envelope (drum "blip"), mod envelope → filter.
+- LFO (sine / triangle / saw / square / random / **custom-drawn**, free / trig /
+  hold / one-shot, tempo sync) → cutoff, **filter type**, pitch, **sample select**.
+- Velocity → pitch / cutoff, humanize (random pitch and level per hit).
+- Insert FX: lo-fi (bit / rate reduction), saturation, compressor; level and pan.
 
-Start small, ship often. The full milestone breakdown lives in
-[TASKS.md](TASKS.md).
+**Mix**
+- Delay and reverb sends (tempo-synced delay).
+- Master bus: tilt EQ, glue compressor, stereo width, brickwall limiter.
+- MIDI pitch bend and mod wheel → cutoff.
+
+**Import**
+- Loads `wav` / `aiff` / `mp3`, a whole folder at once, or an **NI Battery 3 `.kit`**
+  (samples plus per-cell envelope, tune, pan and key mapping).
+
+Planned: a step sequencer with parameter locks, slice grids, and an MCP control
+surface for LLM / voice control (see [docs/MCP.md](docs/MCP.md)).
 
 ## Requirements
 
 - macOS on Apple Silicon (arm64).
-- Xcode command-line tools (`clang`, `clang-format`, `clang-tidy`).
+- Xcode command-line tools.
 - [CMake](https://cmake.org/) ≥ 3.22 and [Ninja](https://ninja-build.org/).
-- Logic Pro (for the in-DAW smoke tests; **AU is the only format Logic loads**).
-- JUCE and Catch2 are fetched automatically by CMake — no manual install.
+- JUCE and Catch2 are fetched automatically by CMake — nothing to install by hand.
 
 ## Build
 
@@ -46,19 +58,21 @@ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-This produces the AU (`.component`), VST3 (`.vst3`) and Standalone (`.app`)
-artifacts under `build/`.
+This produces the AU (`.component`), VST3 (`.vst3`) and Standalone (`.app`) under
+`build/src/Cold_artefacts/Release/`.
 
-## Install (into Logic)
+## Install (Logic Pro)
 
-Copy the AU into the user plug-ins folder and let macOS re-scan it:
+Logic only loads the AU. Copy it into your user plug-ins folder, re-sign it (copying
+invalidates the ad-hoc signature) and validate:
 
 ```sh
-cp -R build/**/Cold_artefacts/**/Cold.component ~/Library/Audio/Plug-Ins/Components/
-auval -a | grep -i cold        # confirm it's registered
+cp -R build/src/Cold_artefacts/Release/AU/Cold.component ~/Library/Audio/Plug-Ins/Components/
+codesign --force --deep -s - ~/Library/Audio/Plug-Ins/Components/Cold.component
+auval -v aumu Cld1 Ice1
 ```
 
-Then launch Logic Pro and add **Cold** as an instrument on a track.
+Then add **Cold** as an instrument on a software-instrument track.
 
 ## Test
 
@@ -66,19 +80,33 @@ Then launch Logic Pro and add **Cold** as an instrument on a track.
 ctest --test-dir build --output-on-failure
 ```
 
-## Development workflow
+The DSP core (`src/dsp/`) is framework-agnostic and unit-tested with plain buffers;
+the processor and editor are covered by end-to-end tests. CI builds and tests every
+pull request on a GitHub-hosted Apple Silicon runner and enforces `clang-format`.
 
-This project follows **TDD**: write failing Catch2 tests first, implement the
-minimum to pass, then verify in Logic. Pure-DSP classes are kept
-framework-agnostic so they can be tested without a plugin host.
+## Contributing
 
-See [CLAUDE.md](CLAUDE.md) for the full workflow, and `docs/` for design notes:
+Work is test-driven: add a failing Catch2 test, make it pass, then verify in a DAW.
+Keep DSP classes free of JUCE so they stay testable without a plugin host. Design
+notes live in [`docs/`](docs/):
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — signal flow & engine design.
-- [docs/DIGITAKT_REFERENCE.md](docs/DIGITAKT_REFERENCE.md) — Digitakt features mapped to milestones.
-- [docs/DSP_NOTES.md](docs/DSP_NOTES.md) — filter / envelope / LFO math.
-- [docs/MCP.md](docs/MCP.md) — MCP control surface for LLM/voice control & tuning.
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — signal flow and engine design.
+- [DSP_NOTES.md](docs/DSP_NOTES.md) — filter, envelope and LFO math.
+- [DIGITAKT_REFERENCE.md](docs/DIGITAKT_REFERENCE.md) and
+  [OCTATRACK_REFERENCE.md](docs/OCTATRACK_REFERENCE.md) — feature references.
 
 ## License
 
-See [LICENSE](LICENSE).
+Cold's own source code is licensed under the [Apache License 2.0](LICENSE).
+
+Cold is built on **JUCE**, which is licensed separately (AGPLv3 or a commercial JUCE
+licence — see [juce.com/legal](https://juce.com/legal/)). If you distribute builds of
+Cold, you must also comply with JUCE's terms.
+
+## Trademarks
+
+Digitakt, Octatrack and Elektron are trademarks of Elektron Music Machines. Battery
+and Native Instruments are trademarks of Native Instruments. Logic Pro is a trademark
+of Apple Inc. Cold is an independent project and is not affiliated with, endorsed by,
+or sponsored by any of them; the names are used only to describe features and file
+compatibility.
