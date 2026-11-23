@@ -2663,6 +2663,74 @@ TEST_CASE("Cold LFO speed x multiplier follows the tempo", "[processor][e2e][lfo
     REQUIRE(rig.hit(0) < 0.5f);     // -1 -> back on the quiet base layer
 }
 
+TEST_CASE("Cold LFO destinations: LFO 1 has 9 targets, LFO 2 also drives LFO 1",
+          "[processor][e2e][lfo][percell]")
+{
+    ColdAudioProcessor proc;
+    auto names = [&proc](const char* id)
+    {
+        auto* c = dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter(id));
+        REQUIRE(c != nullptr);
+        return c->choices;
+    };
+    const juce::StringArray lfo1{"Off",  "Sample", "Pitch", "Cutoff",     "Filter Type",
+                                 "Reso", "Level",  "Pan",   "Delay Send", "Reverb Send"};
+    REQUIRE(names("t0_lfo1_dest") == lfo1);
+    auto lfo2 = lfo1;
+    lfo2.add("LFO1 Speed");
+    lfo2.add("LFO1 Depth");
+    REQUIRE(names("t7_lfo2_dest") == lfo2);
+}
+
+TEST_CASE("Cold LFO level destination turns a cell down", "[processor][e2e][lfo][percell]")
+{
+    TwoLayerRig rig;
+    const float base = rig.hit(0);    // layer 1 (0.2)
+    rig.set("t0_lfo1_wave", 4.0f);    // Square: +1 for the first half bar
+    rig.set("t0_lfo1_dest", 6.0f);    // Level
+    rig.set("t0_lfo1_depth", -16.0f); // 24 dB x -16/64 = -6 dB
+    rig.idle(1);
+    const float modded = rig.hit(0);
+    REQUIRE(modded > 0.0f);
+    REQUIRE_THAT(20.0f * std::log10(modded / base), WithinAbs(-6.0, 0.5));
+}
+
+TEST_CASE("Cold LFO delay send echoes a cell with its send at 0", "[processor][e2e][lfo][delay]")
+{
+    constexpr double sampleRate = 44100.0;
+    constexpr int frames = 4096;
+    ColdAudioProcessor proc;
+    proc.setPlayConfigDetails(0, 2, sampleRate, frames);
+    proc.prepareToPlay(sampleRate, frames);
+    auto wav = writeTempWav(sampleRate, 1, 256);
+    REQUIRE(proc.loadSampleToTrack(0, wav));
+    wav.deleteFile();
+    auto setParam = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    setParam("delayTime", 20.0f);
+    setParam("delayFeedback", 0.0f);
+    setParam("delayReturn", 1.0f);
+    setParam("t0_delaySend", 0.0f);
+    setParam("t0_lfo1_wave", 4.0f);  // Square: +1 for the first half cycle
+    setParam("t0_lfo1_speed", 1.0f); // slow
+    setParam("t0_lfo1_mult", 0.0f);
+    setParam("t0_lfo1_dest", 8.0f); // Delay Send
+    setParam("t0_lfo1_depth", 63.0f);
+
+    juce::AudioBuffer<float> buffer(2, frames);
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+    renderBlock(proc, buffer, midi);
+    float echo = 0.0f;
+    for (int n = 900; n < 1300; ++n)
+        echo = std::max(echo, std::abs(buffer.getSample(0, n)));
+    REQUIRE(echo > 0.05f);
+    proc.releaseResources();
+}
+
 TEST_CASE("Cold moves the old global LFO settings into every cell",
           "[processor][e2e][lfo][migration]")
 {

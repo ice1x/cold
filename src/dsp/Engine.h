@@ -227,6 +227,13 @@ public:
     }
     void clearModRoutes();
 
+    // The LFO modulation of send `sendIndex` (0 = delay, 1 = reverb) in the block
+    // just rendered, added by MultiEngine to the track's send gain.
+    [[nodiscard]] float sendModulation(int sendIndex) const noexcept
+    {
+        return sendIndex >= 0 && sendIndex < 2 ? modSend[static_cast<size_t>(sendIndex)] : 0.0f;
+    }
+
     // Trigger / release notes. rootNote is the MIDI note of native pitch.
     void noteOn(int midiNote, float velocity = 1.0f, int rootNote = 60);
     void noteOff(int midiNote);
@@ -271,6 +278,12 @@ private:
     std::vector<Layer> layers;                       // active layers in Stack / RoundRobin mode
     int roundRobinCursor = 0;                        // next layer index for RoundRobin trigs
     std::array<float, kNumLfos> lfoToSampleSelect{}; // SampleSelect amount per LFO, for note-time
+    std::array<float, kNumLfos> lfoBaseRate{};       // rate set by setLfo (LFO 2 may scale LFO 1's)
+    float lfo1DepthScale = 1.0f;                     // LFO 2 -> LFO 1 depth, also used at note time
+    // Per-block LFO modulation of the track output and sends (read by MultiEngine).
+    float modLevelDb = 0.0f;
+    float modPan = 0.0f;
+    std::array<float, 2> modSend{};
     SampleVoice::LoopMode loopMode = SampleVoice::LoopMode::OneShot;
     bool reversePlayback = false;
     int loopStartFrame = 0;

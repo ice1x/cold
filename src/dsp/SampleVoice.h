@@ -103,7 +103,7 @@ public:
     // filter: cutoff in octaves, type as a linear offset. Unlike setFilter it does
     // not touch the base, so stacked layers keep independent base filters under a
     // shared LFO. Composes additively with the per-sample mod envelope.
-    void setFilterLfoMod(float cutoffOctaves, float typeOffset);
+    void setFilterLfoMod(float cutoffOctaves, float typeOffset, float resonanceOffset = 0.0f);
 
     // Pitch modulation in semitones (from an LFO / mod source), applied on top of
     // the note's base playback ratio. Takes effect immediately for the next
@@ -261,7 +261,9 @@ private:
     // Block-rate LFO filter modulation (relative deltas around the base).
     float lfoCutoffOct = 0.0f;
     float lfoTypeOff = 0.0f;
+    float lfoResonanceOff = 0.0f;
     bool hasLfoFilterMod = false;
+    float baseResonance = 0.707f; // resonance captured from setFilter
 };
 
 } // namespace cold::dsp

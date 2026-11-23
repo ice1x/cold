@@ -141,12 +141,21 @@ struct LfoDestination
     dsp::ModDestination destination;
     float fullScale;
 };
-constexpr std::array<LfoDestination, 4> kLfoDestinations{{
-    {"Sample", dsp::ModDestination::SampleSelect, 8.0f},   // slots
-    {"Pitch", dsp::ModDestination::Pitch, 24.0f},          // semitones
-    {"Cutoff", dsp::ModDestination::FilterCutoff, 4.0f},   // octaves
-    {"Filter Type", dsp::ModDestination::FilterType, 1.0f} // morph offset
+constexpr std::array<LfoDestination, 11> kLfoDestinations{{
+    {"Sample", dsp::ModDestination::SampleSelect, 8.0f},    // slots
+    {"Pitch", dsp::ModDestination::Pitch, 24.0f},           // semitones
+    {"Cutoff", dsp::ModDestination::FilterCutoff, 4.0f},    // octaves
+    {"Filter Type", dsp::ModDestination::FilterType, 1.0f}, // morph offset
+    {"Reso", dsp::ModDestination::Resonance, 4.0f},         // Q
+    {"Level", dsp::ModDestination::Level, 24.0f},           // dB
+    {"Pan", dsp::ModDestination::Pan, 1.0f},                // full left / right
+    {"Delay Send", dsp::ModDestination::DelaySend, 1.0f},   // send gain
+    {"Reverb Send", dsp::ModDestination::ReverbSend, 1.0f}, // send gain
+    {"LFO1 Speed", dsp::ModDestination::LfoSpeed, 2.0f},    // octaves of LFO 1 rate
+    {"LFO1 Depth", dsp::ModDestination::LfoDepth, 1.0f}     // added to LFO 1 depth
 }};
+// LFO 1 offers every destination except the last two, which modulate LFO 1 itself.
+constexpr size_t kLfo1DestCount = kLfoDestinations.size() - 2;
 constexpr float kLfoDepthScale = 64.0f; // DEP is -64..63
 
 // Per-cell LFO parameter base ids, e.g. lfoParamBase(0, "wave") -> "lfo1_wave".
@@ -457,8 +466,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
                 juce::ParameterID{id("fade"), 1}, lp + "Fade",
                 juce::NormalisableRange<float>(-64.0f, 63.0f, 1.0f), 0.0f));
             juce::StringArray dests{"Off"};
-            for (const auto& d : kLfoDestinations)
-                dests.add(d.name);
+            const size_t destCount = l == 0 ? kLfo1DestCount : kLfoDestinations.size();
+            for (size_t d = 0; d < destCount; ++d)
+                dests.add(kLfoDestinations[d].name);
             layout.add(std::make_unique<AudioParameterChoice>(juce::ParameterID{id("dest"), 1},
                                                               lp + "Destination", dests, 0));
             layout.add(std::make_unique<AudioParameterFloat>(
@@ -814,7 +824,6 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     e.setFilter(filterCutoffParam[tt]->load(), filterResonanceParam[tt]->load(),
                 filterTypeParam[tt]->load());
 
-    // LFO: free rate in Hz, or host-tempo synced via the selected division.
     // The cell's two LFOs: rate from speed x multiplier (host tempo, or a fixed 120
     // BPM for the "(120)" multipliers), one destination each, depth DEP -64..63.
     e.clearModRoutes();
@@ -986,6 +995,19 @@ void ColdAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         const auto tt = static_cast<size_t>(t);
         if (delaySendParam[tt]->load() > 0.0f || reverbSendParam[tt]->load() > 0.0f)
             anySend = true;
+        // An LFO on a send can open it even when the send knob is at 0.
+        for (int l = 0; l < kNumCellLfos && !anySend; ++l)
+        {
+            const auto& lp = cellLfoParams[static_cast<size_t>(l)];
+            const int dest = static_cast<int>(lp.dest[tt]->load());
+            const bool sendDest = dest >= 1 && dest <= static_cast<int>(kLfoDestinations.size()) &&
+                                  (kLfoDestinations[static_cast<size_t>(dest - 1)].destination ==
+                                       dsp::ModDestination::DelaySend ||
+                                   kLfoDestinations[static_cast<size_t>(dest - 1)].destination ==
+                                       dsp::ModDestination::ReverbSend);
+            if (sendDest && std::abs(lp.depth[tt]->load()) > 1.0e-4f)
+                anySend = true;
+        }
     }
 
     // Send buses for the delay + reverb: cleared per block, filled (scaled by each

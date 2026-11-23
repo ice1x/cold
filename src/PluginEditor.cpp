@@ -1464,7 +1464,8 @@ private:
                   "out, 0 = off.");
             tCombo(s, lfo + "dest", "Dest",
                    "What this LFO modulates: Sample (which layer plays on each hit), Pitch, "
-                   "Cutoff or Filter Type.");
+                   "Cutoff, Filter Type, Reso, Level, Pan or a send. LFO 2 can also change "
+                   "LFO 1's speed or depth.");
             tKnob(s, lfo + "phase", "Phase",
                   "Start phase of the wave (0-127; 64 = half way). With the Random wave this "
                   "is the slew: how smoothly it glides to each new value.");
@@ -1474,7 +1475,8 @@ private:
                    "half a cycle per note.");
             tKnob(s, lfo + "depth", "Depth",
                   "Modulation depth and direction (-64..63). At 64: Sample = 8 layers, Pitch "
-                  "= 24 semitones, Cutoff = 4 octaves, Filter Type = full sweep.");
+                  "= 24 semitones, Cutoff = 4 octaves, Filter Type = full sweep, Level = 24 "
+                  "dB, Pan = full side, sends = full, LFO1 Speed = 2 octaves.");
         }
         {
             auto& s = newSection("Loop", kGlobalTab);
