@@ -1178,3 +1178,93 @@ TEST_CASE("Engine retriggers the second LFO on every note", "[engine][dsp][unit]
     e.noteOn(kRootNote, 1.0f, kRootNote);
     REQUIRE(e.currentSampleIndex() == 2); // the trig reset LFO 1 to its start (+1)
 }
+
+// ---- more LFO destinations -------------------------------------------------------
+
+namespace
+{
+// Render a stereo block from the engine.
+std::array<std::vector<float>, 2> renderStereo(Engine& engine, int numSamples)
+{
+    std::array<std::vector<float>, 2> out{std::vector<float>(static_cast<size_t>(numSamples)),
+                                          std::vector<float>(static_cast<size_t>(numSamples))};
+    float* ptrs[2] = {out[0].data(), out[1].data()};
+    engine.renderNextBlock(ptrs, 2, 0, numSamples);
+    return out;
+}
+} // namespace
+
+TEST_CASE("Engine LFO modulates the cell level and pan", "[engine][dsp][unit][lfodest]")
+{
+    auto s = makeConstant(256, 0.5f);
+    SECTION("+6 dB doubles the level")
+    {
+        auto e = makeEngine(s, 4);
+        e.setLfo(0, cold::dsp::LfoShape::Square, 0.01f, 1.0f); // stays at +1
+        e.addModRoute(0, cold::dsp::ModDestination::Level, 6.0206f);
+        e.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE_THAT(render(e, 32)[16], WithinAbs(1.0f, 1e-3));
+    }
+    SECTION("full pan to the right silences the left channel")
+    {
+        auto e = makeEngine(s, 4);
+        e.setLfo(0, cold::dsp::LfoShape::Square, 0.01f, 1.0f);
+        e.addModRoute(0, cold::dsp::ModDestination::Pan, 1.0f);
+        e.noteOn(kRootNote, 1.0f, kRootNote);
+        auto out = renderStereo(e, 32);
+        REQUIRE_THAT(out[0][16], WithinAbs(0.0f, 1e-4));
+        REQUIRE_THAT(out[1][16], WithinAbs(0.5f, 1e-4));
+    }
+}
+
+TEST_CASE("Engine LFO 2 scales LFO 1 depth", "[engine][dsp][unit][lfodest]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.5f);
+    Engine e;
+    e.prepare(44100.0);
+    e.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                     {b.data(), b.numChannels(), b.numFrames(), 44100.0}});
+    e.setBaseSampleIndex(0);
+    e.setLfo(0, cold::dsp::LfoShape::Square, 0.01f, 1.0f); // +1 -> one slot up
+    e.addModRoute(0, cold::dsp::ModDestination::SampleSelect, 1.0f);
+    e.setLfo(1, cold::dsp::LfoShape::Square, 0.01f, 1.0f);        // +1 ...
+    e.addModRoute(1, cold::dsp::ModDestination::LfoDepth, -1.0f); // ... silences LFO 1
+    render(e, 16); // one block so the LFO 2 reading takes effect
+    e.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(e.currentSampleIndex() == 0); // LFO 1 had no effect
+}
+
+TEST_CASE("Engine LFO 2 speeds up LFO 1", "[engine][dsp][unit][lfodest]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.5f);
+    auto c = makeConstant(64, 1.0f);
+    auto build = [&](Engine& e, bool speedUp)
+    {
+        e.prepare(44100.0);
+        e.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                         {b.data(), b.numChannels(), b.numFrames(), 44100.0},
+                         {c.data(), c.numChannels(), c.numFrames(), 44100.0}});
+        e.setBaseSampleIndex(1);
+        // Half a cycle = 1000 samples: +1 for the first 1000, -1 after.
+        e.setLfo(0, cold::dsp::LfoShape::Square, 22.05f, 1.0f);
+        e.addModRoute(0, cold::dsp::ModDestination::SampleSelect, 1.0f);
+        if (speedUp)
+        {
+            e.setLfo(1, cold::dsp::LfoShape::Square, 0.01f, 1.0f);
+            e.addModRoute(1, cold::dsp::ModDestination::LfoSpeed, 1.0f); // +1 octave
+        }
+    };
+    Engine normal;
+    build(normal, false);
+    render(normal, 700); // phase 0.35: still +1
+    normal.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(normal.currentSampleIndex() == 2);
+
+    Engine fast;
+    build(fast, true);
+    render(fast, 700); // twice as fast: phase 0.7, already -1
+    fast.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(fast.currentSampleIndex() == 0);
+}

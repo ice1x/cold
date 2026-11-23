@@ -118,8 +118,12 @@ void MultiEngine::renderNextBlock(float* const* out, float* const* send0, float*
         tracks[static_cast<size_t>(ti)].renderNextBlock(scratchPtrs.data(), numOutChannels, 0,
                                                         numSamples);
 
-        const float g0 = sendGain[0][static_cast<size_t>(ti)];
-        const float g1 = sendGain[1][static_cast<size_t>(ti)];
+        // Static send gain plus the cell's LFO send modulation for this block.
+        const auto& track = tracks[static_cast<size_t>(ti)];
+        const float g0 =
+            std::clamp(sendGain[0][static_cast<size_t>(ti)] + track.sendModulation(0), 0.0f, 1.0f);
+        const float g1 =
+            std::clamp(sendGain[1][static_cast<size_t>(ti)] + track.sendModulation(1), 0.0f, 1.0f);
         for (int c = 0; c < numOutChannels; ++c)
         {
             const float* src = scratchPtrs[static_cast<size_t>(c)];
