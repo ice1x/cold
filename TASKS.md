@@ -111,8 +111,8 @@ Goals:
 
 ## M9 — Dual LFO + LFO designer
 
-- [ ] 000059 — Tests: second LFO per track + trig modes (free / trig / hold / one-shot)
-- [ ] 000060 — Implement a 2nd `dsp/Lfo` instance per track wired into the mod matrix
+- [x] 000059 — Tests: second LFO per track + trig modes (free / trig / hold / one-shot)
+- [x] 000060 — Implement a 2nd `dsp/Lfo` instance per track wired into the mod matrix
 - [ ] 000061 — Tests: custom multi-step LFO shape (designer model + interpolation between steps)
 - [ ] 000062 — Implement **LFO designer** (user-drawn multi-step waveform as an LFO source)
 - [ ] 000063 — Dual-LFO + designer UI; Logic smoke test of two independent routings
