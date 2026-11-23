@@ -360,6 +360,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
             juce::ParameterID{trackParamId(t, "layerMode"), 1}, tp + "Layer Mode",
             juce::StringArray{"Single", "Stack", "Round-Robin", "Velocity"}, 0));
 
+        // Sample source: the cell's own layers, or one slot of the shared sample pool
+        // (LFO -> Sample then walks the pool from that slot).
+        layout.add(std::make_unique<AudioParameterChoice>(
+            juce::ParameterID{trackParamId(t, "source"), 1}, tp + "Source",
+            juce::StringArray{"Layers", "Pool"}, 0));
+        layout.add(std::make_unique<AudioParameterInt>(
+            juce::ParameterID{trackParamId(t, "poolSlot"), 1}, tp + "Pool Slot", 1, kPoolSize, 1));
+
         // Choke / mute group (0 = off, 1..8). Cells sharing a non-zero group cut each
         // other off: firing one releases every voice in the group (classic hi-hat
         // choke).
@@ -614,7 +622,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
 
 ColdAudioProcessor::ColdAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts(*this, nullptr, "PARAMS", createParameterLayout()), bank(kNumSlots)
+      apvts(*this, nullptr, "PARAMS", createParameterLayout()), bank(kNumSlots),
+      pool(std::make_unique<io::SampleBank>(kPoolSize))
 {
     gainParam = apvts.getRawParameterValue(kGainId);
     polyphonyParam = apvts.getRawParameterValue(kPolyphonyId);
@@ -668,6 +677,8 @@ ColdAudioProcessor::ColdAudioProcessor()
     {
         const auto tt = static_cast<size_t>(t);
         layerModeParam[tt] = apvts.getRawParameterValue(trackParamId(t, "layerMode"));
+        sourceParam[tt] = apvts.getRawParameterValue(trackParamId(t, "source"));
+        poolSlotParam[tt] = apvts.getRawParameterValue(trackParamId(t, "poolSlot"));
         chokeGroupParam[tt] = apvts.getRawParameterValue(trackParamId(t, "chokeGroup"));
         levelParam[tt] = apvts.getRawParameterValue(trackParamId(t, "level"));
         panParam[tt] = apvts.getRawParameterValue(trackParamId(t, "pan"));
@@ -826,6 +837,8 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
 
     // The cell's two LFOs: rate from speed x multiplier (host tempo, or a fixed 120
     // BPM for the "(120)" multipliers), one destination each, depth DEP -64..63.
+    // Pool cells: the sample list's pool part, with LFO -> Sample depth in slots.
+    const bool poolMode = sourceParam[tt]->load() > 0.5f;
     e.clearModRoutes();
     for (int l = 0; l < kNumCellLfos; ++l)
     {
@@ -862,7 +875,8 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
             std::abs(depth) > 1.0e-4f)
         {
             const auto& d = kLfoDestinations[static_cast<size_t>(dest - 1)];
-            e.addModRoute(l, d.destination, depth * d.fullScale);
+            const bool poolSample = poolMode && d.destination == dsp::ModDestination::SampleSelect;
+            e.addModRoute(l, d.destination, depth * (poolSample ? kLfoDepthScale : d.fullScale));
         }
     }
 
@@ -872,6 +886,21 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
     // Each layer plays its own dedicated slot, so `sampleIndex` is the LOCAL index l
     // into the track's per-cell sample list built by rebuildTrackSamples. A layer with
     // no sample loaded contributes nothing.
+    if (poolMode)
+    {
+        // One pool sample per note: Pool Slot (clamped to the loaded pool), moved by
+        // LFO -> Sample inside the pool only. The layer modes do not apply.
+        const int loaded = pool->loadedCount();
+        const int slot =
+            std::clamp(static_cast<int>(poolSlotParam[tt]->load()), 1, std::max(1, loaded));
+        e.setSelectRange(kNumLayers, kPoolSize);
+        e.setBaseSampleIndex(kNumLayers + slot - 1);
+        e.setLayerMode(dsp::Engine::LayerMode::Select);
+        return;
+    }
+    e.setSelectRange(0, kNumLayers);
+    e.setBaseSampleIndex(0);
+
     const auto layerMode =
         static_cast<dsp::Engine::LayerMode>(static_cast<int>(layerModeParam[tt]->load()));
     e.setLayerMode(layerMode);
@@ -1207,9 +1236,27 @@ void ColdAudioProcessor::rebuildTrackSamples()
     // LOCAL sample index l is layer l. Base index 0 is layer 0 (what Single plays);
     // an LFO->sample-select roams the cell's loaded layers (round-robin). Each slot
     // carries its own [start, length) window; empty layers are invalid refs.
+    // The pool follows the layers in every cell's list (indices kNumLayers..), shared
+    // by all cells; a Pool cell's select range covers just that part.
+    std::vector<dsp::Engine::SampleRef> poolRefs(static_cast<size_t>(kPoolSize));
+    poolPtrs.resize(static_cast<size_t>(kPoolSize));
+    for (int i = 0; i < kPoolSize; ++i)
+    {
+        const auto& s = pool->slot(i);
+        auto& ptrs = poolPtrs[static_cast<size_t>(i)];
+        ptrs.clear();
+        if (!s.isLoaded())
+            continue;
+        for (const auto& ch : s.data.channels)
+            ptrs.push_back(ch.data() + s.effectiveStart());
+        poolRefs[static_cast<size_t>(i)] = {ptrs.data(), s.data.numChannels(), s.effectiveLength(),
+                                            s.data.sampleRate};
+    }
+
     for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
     {
         std::vector<dsp::Engine::SampleRef> refs(static_cast<size_t>(kNumLayers));
+        refs.reserve(static_cast<size_t>(kNumLayers) + static_cast<size_t>(kPoolSize));
         for (int l = 0; l < kNumLayers; ++l)
         {
             const int k = slotForLayer(t, l);
@@ -1232,6 +1279,8 @@ void ColdAudioProcessor::rebuildTrackSamples()
             refs[static_cast<size_t>(l)] = {ptrs.data(), s.data.numChannels(), length,
                                             s.data.sampleRate};
         }
+
+        refs.insert(refs.end(), poolRefs.begin(), poolRefs.end());
 
         auto& e = multi.track(t);
         e.setSampleList(refs);
@@ -1284,6 +1333,51 @@ int ColdAudioProcessor::loadFolder(const juce::File& directory)
             ++loaded;
     }
     return loaded;
+}
+
+int ColdAudioProcessor::setPoolFiles(const juce::Array<juce::File>& files)
+{
+    // Decode into a fresh pool first so the audio thread only waits for the swap.
+    auto fresh = std::make_unique<io::SampleBank>(kPoolSize);
+    int loaded = 0;
+    for (const auto& file : files)
+    {
+        if (loaded >= kPoolSize)
+            break;
+        if (fresh->loadSlot(loaded, file))
+            ++loaded;
+    }
+    {
+        const juce::ScopedLock sl(engineLock);
+        std::swap(pool, fresh);
+        rebuildTrackSamples();
+    }
+    return loaded;
+}
+
+int ColdAudioProcessor::loadPoolFolder(const juce::File& directory)
+{
+    if (!directory.isDirectory())
+        return 0;
+    auto files = directory.findChildFiles(juce::File::findFiles, false, "*.wav;*.aiff;*.aif;*.mp3");
+    files.sort();
+    return setPoolFiles(files);
+}
+
+void ColdAudioProcessor::clearPool()
+{
+    setPoolFiles({});
+}
+
+int ColdAudioProcessor::poolSize() const
+{
+    return pool->loadedCount();
+}
+
+juce::String ColdAudioProcessor::poolSampleName(int index) const
+{
+    const auto& s = pool->slot(index);
+    return s.isLoaded() ? s.name : juce::String();
 }
 
 int ColdAudioProcessor::importBatteryKit(const juce::File& kitFile, const juce::File& sampleFolder)
@@ -1399,6 +1493,15 @@ int ColdAudioProcessor::numSlots() const
 
 juce::String ColdAudioProcessor::loadedSampleName() const
 {
+    const auto tt = static_cast<size_t>(selectedTrack());
+    if (sourceParam[tt]->load() > 0.5f) // a Pool cell: its pool slot
+    {
+        const int slot =
+            std::clamp(static_cast<int>(poolSlotParam[tt]->load()), 1, std::max(1, poolSize()));
+        const auto name = poolSampleName(slot - 1);
+        return "Pool " + juce::String(slot) + ": " +
+               (name.isNotEmpty() ? name : juce::String("(empty pool)"));
+    }
     const auto& s = bank.slot(slotForLayer(selectedTrack(), 0)); // the cell's primary sample
     return s.isLoaded() ? s.name : juce::String("(no sample)");
 }
@@ -1484,6 +1587,18 @@ void ColdAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
         bankTree.appendChild(slotTree, nullptr);
     }
     root.appendChild(bankTree, nullptr);
+
+    juce::ValueTree poolTree("pool");
+    for (int i = 0; i < kPoolSize; ++i)
+    {
+        const auto& s = pool->slot(i);
+        if (!s.isLoaded() || s.path.isEmpty())
+            continue;
+        juce::ValueTree sampleTree("sample");
+        sampleTree.setProperty("path", s.path, nullptr);
+        poolTree.appendChild(sampleTree, nullptr);
+    }
+    root.appendChild(poolTree, nullptr);
 
     if (auto xml = root.createXml())
         copyXmlToBinary(*xml, destData);
@@ -1611,9 +1726,16 @@ void ColdAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
         }
     }
 
-    // Rebuild every track's sample-select list from the restored bank.
-    const juce::ScopedLock sl(engineLock);
-    rebuildTrackSamples();
+    // The pool, in its saved order (setPoolFiles rebuilds the sample lists).
+    juce::Array<juce::File> poolFiles;
+    if (auto poolTree = root.getChildWithName("pool"); poolTree.isValid())
+        for (int c = 0; c < poolTree.getNumChildren(); ++c)
+        {
+            const juce::String path = poolTree.getChild(c).getProperty("path", "").toString();
+            if (path.isNotEmpty())
+                poolFiles.add(juce::File(path));
+        }
+    setPoolFiles(poolFiles);
 }
 
 } // namespace cold
