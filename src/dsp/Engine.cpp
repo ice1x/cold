@@ -16,7 +16,8 @@ void Engine::prepare(double newHostSampleRate)
     if (newHostSampleRate > 0.0)
         hostSampleRate = newHostSampleRate;
 
-    lfo.setSampleRate(hostSampleRate);
+    for (auto& l : lfos)
+        l.setSampleRate(hostSampleRate);
     bitCrusher.prepare(hostSampleRate);
     saturator.prepare(hostSampleRate);
     compressor.prepare(hostSampleRate);
@@ -139,34 +140,68 @@ void Engine::setFilter(float cutoffHz, float resonance, float type)
         voices[static_cast<size_t>(i)].setFilter(cutoffHz, resonance, type);
 }
 
-void Engine::setLfo(LfoShape shape, float rateHz, float depth)
+namespace
 {
-    lfo.setShape(shape);
-    lfo.setRate(rateHz);
-    lfo.setDepth(depth);
+[[nodiscard]] bool validLfo(int index)
+{
+    return index >= 0 && index < Engine::kNumLfos;
+}
+} // namespace
+
+void Engine::setLfo(int index, LfoShape shape, float rateHz, float depth)
+{
+    if (!validLfo(index))
+        return;
+    auto& l = lfos[static_cast<size_t>(index)];
+    l.setShape(shape);
+    l.setRate(rateHz);
+    l.setDepth(depth);
 }
 
-void Engine::setLfoTrigMode(LfoTrigMode mode)
+void Engine::setLfoTrigMode(int index, LfoTrigMode mode)
 {
-    lfo.setTrigMode(mode);
+    if (validLfo(index))
+        lfos[static_cast<size_t>(index)].setTrigMode(mode);
 }
 
-void Engine::setLfoCustomShape(const float* points, int count)
+void Engine::setLfoCustomShape(int index, const float* points, int count)
 {
-    lfo.setCustomShape(points, count);
+    if (validLfo(index))
+        lfos[static_cast<size_t>(index)].setCustomShape(points, count);
 }
 
-void Engine::addModRoute(ModDestination destination, float amount)
+void Engine::setLfoPhase(int index, float phase)
 {
-    modMatrix.addRoute(destination, amount);
+    if (validLfo(index))
+        lfos[static_cast<size_t>(index)].setPhaseOffset(phase);
+}
+
+void Engine::setLfoSlew(int index, float slew)
+{
+    if (validLfo(index))
+        lfos[static_cast<size_t>(index)].setSlew(slew);
+}
+
+void Engine::setLfoFade(int index, float fade)
+{
+    if (validLfo(index))
+        lfos[static_cast<size_t>(index)].setFade(fade);
+}
+
+void Engine::addModRoute(int index, ModDestination destination, float amount)
+{
+    if (!validLfo(index))
+        return;
+    modMatrices[static_cast<size_t>(index)].addRoute(destination, amount);
     if (destination == ModDestination::SampleSelect)
-        lfoToSampleSelect = amount; // cached for note-time sample selection
+        lfoToSampleSelect[static_cast<size_t>(index)] = amount; // read at note time
 }
 
 void Engine::clearModRoutes()
 {
-    modMatrix.clearRoutes();
-    lfoToSampleSelect = 0.0f;
+    for (auto& m : modMatrices)
+        m.clearRoutes();
+    lfoToSampleSelect.fill(0.0f);
 }
 
 void Engine::setModEnvelope(float attackSeconds, float decaySeconds, float sustainLevel,
@@ -298,7 +333,18 @@ void Engine::configureVoice(int voiceIndex, int sampleIndex)
 int Engine::selectSampleIndex() const
 {
     const int base = std::clamp(baseSampleIndex, 0, std::max(0, sampleCount() - 1));
-    if (sampleCount() <= 1 || std::abs(lfoToSampleSelect) < 1.0e-6f)
+    // Sum of every LFO's sample-select offset at this note.
+    float offsetSum = 0.0f;
+    bool routed = false;
+    for (int i = 0; i < kNumLfos; ++i)
+    {
+        const float amount = lfoToSampleSelect[static_cast<size_t>(i)];
+        if (std::abs(amount) < 1.0e-6f)
+            continue;
+        routed = true;
+        offsetSum += lfos[static_cast<size_t>(i)].peek() * amount;
+    }
+    if (sampleCount() <= 1 || !routed)
         return base;
 
     // Read the LFO at the trig and step that many LOADED samples away from the base
@@ -316,7 +362,7 @@ int Engine::selectSampleIndex() const
     if (loaded == 0)
         return base;
 
-    const int offset = static_cast<int>(std::lround(lfo.peek() * lfoToSampleSelect));
+    const int offset = static_cast<int>(std::lround(offsetSum));
     const int rank = std::clamp(baseRank + offset, 0, loaded - 1);
     for (int i = 0, r = 0; i < sampleCount(); ++i)
         if (samples[static_cast<size_t>(i)].valid())
@@ -350,7 +396,8 @@ void Engine::noteOn(int midiNote, float velocity, int rootNote)
 
     // Apply the LFO's trig-mode reaction to this note before anything reads it, so
     // Trig/Hold/OneShot affect the sample-select peek and the block modulation.
-    lfo.noteTrigger();
+    for (auto& l : lfos)
+        l.noteTrigger();
 
     if (layerStackMode == LayerMode::Stack && !layers.empty())
     {
@@ -510,22 +557,35 @@ void Engine::reset()
 
 void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSample, int numSamples)
 {
-    // Advance the LFO whenever anything is routed (so sample-select's note-time
-    // peek keeps moving), then steer the per-voice pitch (always) and filters
-    // (when the filter is on) from the same modulation reading.
-    if (modMatrix.hasRoutes())
+    // Advance every LFO that has routes (so sample-select's note-time peek keeps
+    // moving), sum their pitch and filter modulation, then steer the per-voice pitch
+    // (always) and filters (when the filter is on).
+    bool anyRoutes = false;
+    float pitchSemitones = 0.0f;
+    float cutoffOctaves = 0.0f;
+    float typeOffset = 0.0f;
+    for (int l = 0; l < kNumLfos; ++l)
     {
-        const float source = lfo.advance(numSamples);
-        const auto mod = modMatrix.apply(filterCutoff, filterType, source);
-        const auto fmod = modMatrix.filterMod(source); // relative filter deltas
+        const auto& matrix = modMatrices[static_cast<size_t>(l)];
+        if (!matrix.hasRoutes())
+            continue;
+        anyRoutes = true;
+        const float source = lfos[static_cast<size_t>(l)].advance(numSamples);
+        pitchSemitones += matrix.apply(filterCutoff, filterType, source).pitchSemitones;
+        const auto fmod = matrix.filterMod(source); // relative filter deltas
+        cutoffOctaves += fmod.cutoffOctaves;
+        typeOffset += fmod.typeOffset;
+    }
+    if (anyRoutes)
+    {
         for (int i = 0; i < polyphony(); ++i)
         {
             auto& voice = voices[static_cast<size_t>(i)];
-            voice.setPitchModSemitones(mod.pitchSemitones);
+            voice.setPitchModSemitones(pitchSemitones);
             // Modulate each voice around its OWN base filter, so stacked layers with
-            // independent filters stay independent under the shared track LFO.
+            // independent filters stay independent under the shared track LFOs.
             if (filterEnabled)
-                voice.setFilterLfoMod(fmod.cutoffOctaves, fmod.typeOffset);
+                voice.setFilterLfoMod(cutoffOctaves, typeOffset);
         }
     }
 

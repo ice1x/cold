@@ -15,6 +15,7 @@
 #include "dsp/SampleVoice.h"
 #include "dsp/Saturator.h"
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -193,21 +194,37 @@ public:
     // in [0, 1]). Enables the filter on the whole pool.
     void setFilter(float cutoffHz, float resonance, float type);
 
-    // LFO modulation source shared by the pool (shape, rate Hz, depth in [0,1]).
-    void setLfo(LfoShape shape, float rateHz, float depth);
+    // Two LFOs per track, each with its own routes; their modulation is summed.
+    static constexpr int kNumLfos = 2;
 
-    // How the LFO reacts to a note trig (Free/Trig/Hold/OneShot). The engine calls
-    // the LFO's noteTrigger() on every note-on, so this selects the retrig behavior.
-    void setLfoTrigMode(LfoTrigMode mode);
+    // LFO `index` (0 or 1): shape, rate in Hz (negative plays backwards) and depth
+    // in [0, 1]. The overloads without an index address LFO 0.
+    void setLfo(int index, LfoShape shape, float rateHz, float depth);
+    void setLfo(LfoShape shape, float rateHz, float depth) { setLfo(0, shape, rateHz, depth); }
+
+    // How LFO `index` reacts to a note trig (Free/Trig/Hold/OneShot/Half). The
+    // engine calls every LFO's noteTrigger() on each note-on.
+    void setLfoTrigMode(int index, LfoTrigMode mode);
+    void setLfoTrigMode(LfoTrigMode mode) { setLfoTrigMode(0, mode); }
 
     // The LFO-designer waveform: `count` points in [-1, 1] over one cycle. Selects
     // the Custom shape (call after setLfo when the chosen shape is Custom).
-    void setLfoCustomShape(const float* points, int count);
+    void setLfoCustomShape(int index, const float* points, int count);
+    void setLfoCustomShape(const float* points, int count) { setLfoCustomShape(0, points, count); }
 
-    // Modulation routes. Destinations include the filter morph type, so an LFO
-    // can sweep the filter character (the distinctive M3 feature). Modulation is
-    // applied block-rate to the (smoothed) per-voice filters when the filter is on.
-    void addModRoute(ModDestination destination, float amount);
+    // Start phase [0, 1], random slew [0, 1] and fade [-1, 1] of LFO `index`.
+    void setLfoPhase(int index, float phase);
+    void setLfoSlew(int index, float slew);
+    void setLfoFade(int index, float fade);
+
+    // Modulation routes of LFO `index`. Destinations include the filter morph type.
+    // Modulation is applied block-rate to the per-voice filters / pitch; sample
+    // select is read at each note. clearModRoutes() clears both LFOs.
+    void addModRoute(int index, ModDestination destination, float amount);
+    void addModRoute(ModDestination destination, float amount)
+    {
+        addModRoute(0, destination, amount);
+    }
     void clearModRoutes();
 
     // Trigger / release notes. rootNote is the MIDI note of native pitch.
@@ -250,10 +267,10 @@ private:
     std::vector<SampleRef> samples; // sample-select set; index 0 is the primary
     int baseSampleIndex = 0;
     int currentIndex = 0;
-    LayerMode layerStackMode = LayerMode::Select; // Select (one) / Stack (all) / RoundRobin
-    std::vector<Layer> layers;                    // active layers in Stack / RoundRobin mode
-    int roundRobinCursor = 0;                     // next layer index for RoundRobin trigs
-    float lfoToSampleSelect = 0.0f;               // SampleSelect route amount, cached for note-time
+    LayerMode layerStackMode = LayerMode::Select;    // Select (one) / Stack (all) / RoundRobin
+    std::vector<Layer> layers;                       // active layers in Stack / RoundRobin mode
+    int roundRobinCursor = 0;                        // next layer index for RoundRobin trigs
+    std::array<float, kNumLfos> lfoToSampleSelect{}; // SampleSelect amount per LFO, for note-time
     SampleVoice::LoopMode loopMode = SampleVoice::LoopMode::OneShot;
     bool reversePlayback = false;
     int loopStartFrame = 0;
@@ -296,8 +313,8 @@ private:
     float filterResonance = 0.707f;
     float filterType = 0.0f;
 
-    Lfo lfo;
-    ModMatrix modMatrix;
+    std::array<Lfo, kNumLfos> lfos;
+    std::array<ModMatrix, kNumLfos> modMatrices;
 
     BitCrusher bitCrusher;                      // per-track lo-fi, applied first in the FX chain
     Saturator saturator;                        // per-track drive, applied pre-compressor

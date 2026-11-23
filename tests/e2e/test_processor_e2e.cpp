@@ -413,8 +413,9 @@ TEST_CASE("Cold LFO->sample-select roams the bank for layering", "[processor][e2
 
     SECTION("LFO->sample-select shifts the track onto the long neighbour slot")
     {
-        setParam("lfoShape", 4.0f);          // Square -> reads +1 at phase 0
-        setParam("lfoToSampleSelect", 1.0f); // +1 slot offset at the trig
+        setParam("t0_lfo1_wave", 4.0f);  // Square -> reads +1 at phase 0
+        setParam("t0_lfo1_dest", 1.0f);  // Sample
+        setParam("t0_lfo1_depth", 8.0f); // +1 slot at the trig (full depth 64 = 8 slots)
         buffer.clear();
         juce::MidiBuffer midi;
         midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0); // channel 1 -> track 0
@@ -461,8 +462,9 @@ TEST_CASE("Cold LFO Custom designer shape drives sample-select", "[processor][e2
         return peak;
     };
 
-    setParam("lfoShape", 6.0f);          // Custom
-    setParam("lfoToSampleSelect", 1.0f); // +1 slot per +1 of shape
+    setParam("t0_lfo1_wave", 6.0f);  // Custom
+    setParam("t0_lfo1_dest", 1.0f);  // Sample
+    setParam("t0_lfo1_depth", 8.0f); // +1 slot per +1 of shape
     juce::AudioBuffer<float> buffer(2, blockSize);
 
     SECTION("designer steps at +1 shift the track onto the long neighbour")
@@ -1592,13 +1594,15 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "loopStart",
                            "loopEnd",
                            "rootNote",
-                           "lfoShape",
-                           "lfoRate",
-                           "lfoDepth",
-                           "lfoSync",
-                           "lfoDivision",
-                           "lfoToCutoff",
-                           "lfoToType",
+                           "t0_lfo1_wave",
+                           "t0_lfo1_speed",
+                           "t0_lfo1_mult",
+                           "t0_lfo1_fade",
+                           "t0_lfo1_dest",
+                           "t0_lfo1_phase",
+                           "t0_lfo1_mode",
+                           "t0_lfo1_depth",
+                           "t15_lfo2_depth",
                            "track",
                            "modAttack",
                            "modDecay",
@@ -1606,9 +1610,6 @@ TEST_CASE("Cold processor exposes its M1 parameters", "[processor][e2e]")
                            "modRelease",
                            "modToCutoff",
                            "modToType",
-                           "lfoToPitch",
-                           "lfoToSampleSelect",
-                           "lfoTrigMode",
                            "lfoStep1",
                            "lfoStep4",
                            "lfoStep8",
@@ -2533,12 +2534,13 @@ TEST_CASE("Cold LFO random sample select picks a loaded sample on every hit",
         auto* p = proc.apvts.getParameter(id);
         p->setValueNotifyingHost(p->convertTo0to1(value));
     };
-    setParam("t0_layerMode", 0.0f); // Single: one sample per hit
-    setParam("lfoShape", 5.0f);     // Random
-    setParam("lfoTrigMode", 1.0f);  // Trig: a fresh random value per hit
-    setParam("lfoRate", 0.05f);     // slow: the trig, not the cycle, draws values
-    setParam("lfoDepth", 1.0f);
-    setParam("lfoToSampleSelect", 3.0f); // can roam across all four layer slots
+    setParam("t0_layerMode", 0.0f);  // Single: one sample per hit
+    setParam("t0_lfo1_wave", 5.0f);  // Random
+    setParam("t0_lfo1_mode", 1.0f);  // Trig: a fresh random value per hit
+    setParam("t0_lfo1_speed", 1.0f); // speed 1 x mult 1: very slow, the trig draws values
+    setParam("t0_lfo1_mult", 0.0f);
+    setParam("t0_lfo1_dest", 1.0f);   // Sample
+    setParam("t0_lfo1_depth", 24.0f); // can roam three slots: all four layers
 
     juce::AudioBuffer<float> buffer(2, blockSize);
     int quietHits = 0;
@@ -2558,4 +2560,160 @@ TEST_CASE("Cold LFO random sample select picks a loaded sample on every hit",
     REQUIRE(loudHits > 0);
 
     proc.releaseResources();
+}
+
+// ---- per-cell LFOs ------------------------------------------------------------
+
+namespace
+{
+// A processor with cells 0 and 1 each holding a quiet (0.2) layer 1 and a loud
+// (0.8) layer 2, so a hit's peak tells which layer the cell played.
+struct TwoLayerRig
+{
+    static constexpr double kRate = 48000.0;
+    static constexpr int kBlock = 2048;
+    ColdAudioProcessor proc;
+    juce::AudioBuffer<float> buffer{2, kBlock};
+
+    TwoLayerRig()
+    {
+        proc.setPlayConfigDetails(0, 2, kRate, kBlock);
+        proc.prepareToPlay(kRate, kBlock);
+        for (int cell = 0; cell < 2; ++cell)
+        {
+            auto quiet = writeConstantWav(kRate, 256, 0.2f);
+            auto loud = writeConstantWav(kRate, 256, 0.8f);
+            REQUIRE(proc.loadSampleToLayer(cell, 0, quiet));
+            REQUIRE(proc.loadSampleToLayer(cell, 1, loud));
+            quiet.deleteFile();
+            loud.deleteFile();
+        }
+    }
+    void set(const juce::String& id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        REQUIRE(p != nullptr);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    }
+    // Hit `cell` (MIDI channel cell+1) and return the block's peak.
+    float hit(int cell)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(cell + 1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        return buffer.getMagnitude(0, 0, kBlock);
+    }
+    void idle(int blocks)
+    {
+        for (int i = 0; i < blocks; ++i)
+        {
+            buffer.clear();
+            juce::MidiBuffer none;
+            renderBlock(proc, buffer, none);
+        }
+    }
+};
+} // namespace
+
+TEST_CASE("Cold cells have their own LFOs", "[processor][e2e][lfo][percell]")
+{
+    TwoLayerRig rig;
+    // Cell 1: random sample on every hit. Cell 2: LFOs untouched.
+    rig.set("t0_lfo1_wave", 5.0f);  // Random
+    rig.set("t0_lfo1_mode", 1.0f);  // Trig
+    rig.set("t0_lfo1_speed", 1.0f); // very slow: the trig draws the values
+    rig.set("t0_lfo1_mult", 0.0f);
+    rig.set("t0_lfo1_dest", 1.0f);   // Sample
+    rig.set("t0_lfo1_depth", 24.0f); // three slots
+
+    int cell0Loud = 0, cell0Quiet = 0, cell1Loud = 0;
+    for (int i = 0; i < 24; ++i)
+    {
+        (rig.hit(0) > 0.5f ? cell0Loud : cell0Quiet) += 1;
+        if (rig.hit(1) > 0.5f)
+            ++cell1Loud;
+    }
+    REQUIRE(cell0Loud > 0); // cell 1 roams both layers
+    REQUIRE(cell0Quiet > 0);
+    REQUIRE(cell1Loud == 0); // cell 2 keeps its base layer: its LFO is its own
+}
+
+TEST_CASE("Cold LFO 2 of a cell selects samples too", "[processor][e2e][lfo][percell]")
+{
+    TwoLayerRig rig;
+    rig.set("t0_lfo2_wave", 4.0f);  // Square: +1 at phase 0
+    rig.set("t0_lfo2_dest", 1.0f);  // Sample
+    rig.set("t0_lfo2_depth", 8.0f); // +1 slot
+    REQUIRE(rig.hit(0) > 0.5f);     // layer 2 (loud)
+}
+
+TEST_CASE("Cold LFO speed x multiplier follows the tempo", "[processor][e2e][lfo][percell]")
+{
+    // Speed 16 x multiplier 8 = one cycle per bar: 2 s at the default 120 BPM. A
+    // free-running square reads +1 for the first half (loud layer), -1 after it.
+    TwoLayerRig rig;
+    rig.set("t0_lfo1_wave", 4.0f); // Square
+    rig.set("t0_lfo1_speed", 16.0f);
+    rig.set("t0_lfo1_mult", 3.0f);  // x8, tempo-synced
+    rig.set("t0_lfo1_dest", 1.0f);  // Sample
+    rig.set("t0_lfo1_depth", 8.0f); // +-1 slot
+    REQUIRE(rig.hit(0) > 0.5f);     // t = 0: +1 -> loud
+    rig.idle(26);                   // ~1.1 s more: into the second half of the bar
+    REQUIRE(rig.hit(0) < 0.5f);     // -1 -> back on the quiet base layer
+}
+
+TEST_CASE("Cold moves the old global LFO settings into every cell",
+          "[processor][e2e][lfo][migration]")
+{
+    // A project saved with the single global LFO: random wave in Trig mode routed
+    // to sample select (3 slots) and pitch (12 st) at 2 Hz.
+    juce::MemoryBlock legacy;
+    {
+        ColdAudioProcessor source;
+        source.getStateInformation(legacy);
+    }
+    auto xml = juce::AudioProcessor::getXmlFromBinary(legacy.getData(),
+                                                      static_cast<int>(legacy.getSize()));
+    REQUIRE(xml != nullptr);
+    auto root = juce::ValueTree::fromXml(*xml);
+    ColdAudioProcessor proc;
+    auto params = root.getChildWithName(proc.apvts.state.getType());
+    REQUIRE(params.isValid());
+    auto addParam = [&](const char* id, float value)
+    {
+        juce::ValueTree p("PARAM");
+        p.setProperty("id", id, nullptr);
+        p.setProperty("value", value, nullptr);
+        params.appendChild(p, nullptr);
+    };
+    addParam("lfoShape", 5.0f);
+    addParam("lfoTrigMode", 1.0f);
+    addParam("lfoRate", 2.0f);
+    addParam("lfoSync", 0.0f);
+    addParam("lfoDepth", 1.0f);
+    addParam("lfoToSampleSelect", 3.0f);
+    addParam("lfoToPitch", 12.0f);
+    juce::MemoryBlock patched;
+    juce::AudioProcessor::copyXmlToBinary(*root.createXml(), patched);
+
+    proc.setStateInformation(patched.getData(), static_cast<int>(patched.getSize()));
+
+    auto value = [&](const juce::String& id)
+    { return proc.apvts.getRawParameterValue(id)->load(); };
+    for (int cell : {0, 15})
+    {
+        const auto t = "t" + juce::String(cell) + "_";
+        INFO("cell " << cell);
+        REQUIRE(value(t + "lfo1_wave") == 5.0f);
+        REQUIRE(value(t + "lfo1_mode") == 1.0f);
+        REQUIRE(value(t + "lfo1_dest") == 1.0f);                        // Sample
+        REQUIRE_THAT(value(t + "lfo1_depth"), WithinAbs(24.0f, 0.01f)); // 3 of 8 slots
+        REQUIRE(value(t + "lfo2_dest") == 2.0f);                        // Pitch
+        REQUIRE_THAT(value(t + "lfo2_depth"), WithinAbs(32.0f, 0.01f)); // 12 of 24 st
+        // 2 Hz at the fixed 120 BPM: speed 32 x multiplier 16.
+        REQUIRE_THAT(value(t + "lfo1_speed"), WithinAbs(32.0f, 0.01f));
+        REQUIRE(value(t + "lfo1_mult") == 16.0f); // "16 (120)"
+    }
+    REQUIRE(proc.apvts.getParameter("lfoShape") == nullptr); // the globals are gone
 }
