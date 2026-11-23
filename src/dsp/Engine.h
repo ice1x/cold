@@ -56,6 +56,11 @@ public:
     // index. Index 0 is the default; the LFO/mod offset shifts around baseIndex.
     void setSampleList(const std::vector<SampleRef>& sampleList);
     void setBaseSampleIndex(int index);
+    // The part of the sample list a note picks from: the base index and every
+    // LFO -> sample offset stay inside [first, first + count). Default: the whole
+    // list. Lets a cell switch between its own layers and a sample pool held in
+    // the same list without rebuilding it (real-time safe).
+    void setSelectRange(int first, int count) noexcept;
 
     // How a note maps to the sample list.
     //   Select     — pick ONE sample per trig (LFO/mod -> sample-select; default).
@@ -273,6 +278,8 @@ private:
     double hostSampleRate = 44100.0;
     std::vector<SampleRef> samples; // sample-select set; index 0 is the primary
     int baseSampleIndex = 0;
+    int selectFirst = 0;
+    int selectCount = -1; // -1 = to the end of the list
     int currentIndex = 0;
     LayerMode layerStackMode = LayerMode::Select;    // Select (one) / Stack (all) / RoundRobin
     std::vector<Layer> layers;                       // active layers in Stack / RoundRobin mode
