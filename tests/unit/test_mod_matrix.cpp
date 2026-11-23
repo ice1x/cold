@@ -101,3 +101,14 @@ TEST_CASE("ModMatrix clearRoutes removes all modulation", "[modmatrix][dsp][unit
     REQUIRE_FALSE(m.hasRoutes());
     REQUIRE_THAT(m.apply(1000.0f, 0.3f, 1.0f).cutoffHz, WithinAbs(1000.0f, 1e-3));
 }
+
+TEST_CASE("ModMatrix sums the routes of one destination", "[modmatrix][dsp][unit]")
+{
+    ModMatrix m;
+    m.addRoute(ModDestination::Level, 6.0f);
+    m.addRoute(ModDestination::Level, 2.0f);
+    m.addRoute(ModDestination::Pan, 0.5f);
+    REQUIRE_THAT(m.sum(ModDestination::Level, 0.5f), WithinAbs(4.0f, 1e-6));
+    REQUIRE_THAT(m.sum(ModDestination::Pan, -1.0f), WithinAbs(-0.5f, 1e-6));
+    REQUIRE_THAT(m.sum(ModDestination::Resonance, 1.0f), WithinAbs(0.0f, 1e-6));
+}
