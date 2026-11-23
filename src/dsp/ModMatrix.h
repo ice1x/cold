@@ -21,7 +21,14 @@ enum class ModDestination
     FilterCutoff, // amount is in octaves at full-scale source
     FilterType,   // amount is a linear offset added to the [0,1] morph type
     Pitch,        // amount is in semitones at full-scale source
-    SampleSelect  // amount is a (fractional) slot/layer offset at full-scale source
+    SampleSelect, // amount is a (fractional) slot/layer offset at full-scale source
+    Resonance,    // amount is added to the filter resonance (Q)
+    Level,        // amount is in dB on the track's output level
+    Pan,          // amount is added to the track's pan (-1..1)
+    DelaySend,    // amount is added to the track's delay send (0..1)
+    ReverbSend,   // amount is added to the track's reverb send (0..1)
+    LfoSpeed,     // (LFO 2 only) octaves on LFO 1's rate
+    LfoDepth      // (LFO 2 only) added to LFO 1's depth scale (1 = unchanged)
 };
 
 class ModMatrix
@@ -59,6 +66,9 @@ public:
     [[nodiscard]] bool hasRoutes() const noexcept { return !routes.empty(); }
 
     [[nodiscard]] FilterMod filterMod(float sourceValue) const;
+
+    // Sum of every route to `destination`, scaled by `sourceValue` (0 if none).
+    [[nodiscard]] float sum(ModDestination destination, float sourceValue) const;
 
     // Transform the base parameters by every route, given `sourceValue` (typically
     // an LFO or envelope output). cutoff is exponential (octaves) and kept

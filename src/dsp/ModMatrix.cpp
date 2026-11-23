@@ -30,6 +30,15 @@ ModMatrix::FilterMod ModMatrix::filterMod(float sourceValue) const
     return {cutoffOctaves, typeOffset};
 }
 
+float ModMatrix::sum(ModDestination destination, float sourceValue) const
+{
+    float total = 0.0f;
+    for (const auto& route : routes)
+        if (route.destination == destination)
+            total += route.amount * sourceValue;
+    return total;
+}
+
 ModMatrix::ModValues ModMatrix::apply(float baseCutoffHz, float baseType, float sourceValue) const
 {
     float cutoff = baseCutoffHz;
@@ -54,6 +63,14 @@ ModMatrix::ModValues ModMatrix::apply(float baseCutoffHz, float baseType, float 
         case ModDestination::SampleSelect:
             sampleOffset += mod; // additive slot/layer offset
             break;
+        case ModDestination::Resonance:
+        case ModDestination::Level:
+        case ModDestination::Pan:
+        case ModDestination::DelaySend:
+        case ModDestination::ReverbSend:
+        case ModDestination::LfoSpeed:
+        case ModDestination::LfoDepth:
+            break; // read by the engine through sum()
         }
     }
 

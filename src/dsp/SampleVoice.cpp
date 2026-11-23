@@ -164,6 +164,7 @@ void SampleVoice::updateStep()
 void SampleVoice::setFilter(float cutoffHz, float resonance, float type)
 {
     baseCutoff = cutoffHz;
+    baseResonance = resonance;
     baseType = type;
     for (auto& f : filters)
     {
@@ -195,11 +196,13 @@ void SampleVoice::setHighCut(bool enabled, float cutoffHz)
             f.setCutoff(cutoffHz);
 }
 
-void SampleVoice::setFilterLfoMod(float cutoffOctaves, float typeOffset)
+void SampleVoice::setFilterLfoMod(float cutoffOctaves, float typeOffset, float resonanceOffset)
 {
     lfoCutoffOct = cutoffOctaves;
     lfoTypeOff = typeOffset;
-    hasLfoFilterMod = std::abs(cutoffOctaves) > 1.0e-6f || std::abs(typeOffset) > 1.0e-6f;
+    lfoResonanceOff = resonanceOffset;
+    hasLfoFilterMod = std::abs(cutoffOctaves) > 1.0e-6f || std::abs(typeOffset) > 1.0e-6f ||
+                      std::abs(resonanceOffset) > 1.0e-6f;
 }
 
 void SampleVoice::setSample(const float* const* channels, int numChannels, int numFrames,
@@ -368,11 +371,21 @@ void SampleVoice::renderNextBlock(float* const* out, int numOutChannels, int sta
         const float cutoff =
             baseCutoff * std::pow(2.0f, lfoCutoffOct + velCutoffMod + wheelCutoffOct);
         const float type = std::clamp(baseType + lfoTypeOff, 0.0f, 1.0f);
+        const float resonance = std::clamp(baseResonance + lfoResonanceOff, 0.1f, 20.0f);
         for (auto& f : filters)
         {
             f.setCutoff(cutoff);
             f.setFilterType(type);
+            f.setResonance(resonance);
         }
+    }
+    else if (useFilter && useModEnv)
+    {
+        // The mod envelope steers cutoff / type per sample below; the LFO resonance
+        // offset only needs setting once per block.
+        const float resonance = std::clamp(baseResonance + lfoResonanceOff, 0.1f, 20.0f);
+        for (auto& f : filters)
+            f.setResonance(resonance);
     }
 
     for (int n = 0; n < numSamples; ++n)

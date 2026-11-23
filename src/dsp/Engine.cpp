@@ -156,6 +156,7 @@ void Engine::setLfo(int index, LfoShape shape, float rateHz, float depth)
     l.setShape(shape);
     l.setRate(rateHz);
     l.setDepth(depth);
+    lfoBaseRate[static_cast<size_t>(index)] = rateHz;
 }
 
 void Engine::setLfoTrigMode(int index, LfoTrigMode mode)
@@ -342,7 +343,8 @@ int Engine::selectSampleIndex() const
         if (std::abs(amount) < 1.0e-6f)
             continue;
         routed = true;
-        offsetSum += lfos[static_cast<size_t>(i)].peek() * amount;
+        const float scale = i == 0 ? lfo1DepthScale : 1.0f;
+        offsetSum += lfos[static_cast<size_t>(i)].peek() * scale * amount;
     }
     if (sampleCount() <= 1 || !routed)
         return base;
@@ -558,24 +560,53 @@ void Engine::reset()
 void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSample, int numSamples)
 {
     // Advance every LFO that has routes (so sample-select's note-time peek keeps
-    // moving), sum their pitch and filter modulation, then steer the per-voice pitch
-    // (always) and filters (when the filter is on).
+    // moving) and sum their modulation. LFO 2 is read first because it can change
+    // LFO 1's speed and depth for this block.
     bool anyRoutes = false;
     float pitchSemitones = 0.0f;
     float cutoffOctaves = 0.0f;
     float typeOffset = 0.0f;
-    for (int l = 0; l < kNumLfos; ++l)
+    float resonanceOffset = 0.0f;
+    float levelDb = 0.0f;
+    float pan = 0.0f;
+    std::array<float, 2> send{};
+    float lfo1SpeedOctaves = 0.0f;
+    float lfo1DepthOffset = 0.0f;
+    for (int l = kNumLfos - 1; l >= 0; --l)
     {
         const auto& matrix = modMatrices[static_cast<size_t>(l)];
         if (!matrix.hasRoutes())
             continue;
         anyRoutes = true;
-        const float source = lfos[static_cast<size_t>(l)].advance(numSamples);
+        auto& lfo = lfos[static_cast<size_t>(l)];
+        float source = 0.0f;
+        if (l == 0)
+        {
+            lfo.setRate(lfoBaseRate[0] * std::pow(2.0f, lfo1SpeedOctaves));
+            lfo1DepthScale = std::clamp(1.0f + lfo1DepthOffset, 0.0f, 2.0f);
+            source = lfo.advance(numSamples) * lfo1DepthScale;
+        }
+        else
+        {
+            source = lfo.advance(numSamples);
+            lfo1SpeedOctaves += matrix.sum(ModDestination::LfoSpeed, source);
+            lfo1DepthOffset += matrix.sum(ModDestination::LfoDepth, source);
+        }
         pitchSemitones += matrix.apply(filterCutoff, filterType, source).pitchSemitones;
         const auto fmod = matrix.filterMod(source); // relative filter deltas
         cutoffOctaves += fmod.cutoffOctaves;
         typeOffset += fmod.typeOffset;
+        resonanceOffset += matrix.sum(ModDestination::Resonance, source);
+        levelDb += matrix.sum(ModDestination::Level, source);
+        pan += matrix.sum(ModDestination::Pan, source);
+        send[0] += matrix.sum(ModDestination::DelaySend, source);
+        send[1] += matrix.sum(ModDestination::ReverbSend, source);
     }
+    if (!modMatrices[1].hasRoutes())
+        lfo1DepthScale = 1.0f;
+    modLevelDb = levelDb;
+    modPan = pan;
+    modSend = send;
     if (anyRoutes)
     {
         for (int i = 0; i < polyphony(); ++i)
@@ -585,11 +616,14 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
             // Modulate each voice around its OWN base filter, so stacked layers with
             // independent filters stay independent under the shared track LFOs.
             if (filterEnabled)
-                voice.setFilterLfoMod(cutoffOctaves, typeOffset);
+                voice.setFilterLfoMod(cutoffOctaves, typeOffset, resonanceOffset);
         }
     }
 
-    const bool outputTrim = outGain != 1.0f || outPan != 0.0f;
+    // The output level / pan this block, including any LFO modulation.
+    const float gainNow = outGain * std::pow(10.0f, modLevelDb / 20.0f);
+    const float panNow = std::clamp(outPan + modPan, -1.0f, 1.0f);
+    const bool outputTrim = gainNow != 1.0f || panNow != 0.0f;
     if (!compressor.enabled() && !saturator.enabled() && !bitCrusher.enabled() && !outputTrim)
     {
         // Fast path: voices sum straight into the output, no scratch buffer.
@@ -623,11 +657,11 @@ void Engine::renderNextBlock(float* const* out, int numOutChannels, int startSam
 
     // Sum into the output, applying the per-track output level + balance (same law as
     // the per-voice pan: centre keeps both sides at unity).
-    const float panL = outPan > 0.0f ? 1.0f - outPan : 1.0f;
-    const float panR = outPan < 0.0f ? 1.0f + outPan : 1.0f;
+    const float panL = panNow > 0.0f ? 1.0f - panNow : 1.0f;
+    const float panR = panNow < 0.0f ? 1.0f + panNow : 1.0f;
     for (int c = 0; c < numOutChannels; ++c)
     {
-        const float g = outGain * (c == 0 ? panL : (c == 1 ? panR : 1.0f));
+        const float g = gainNow * (c == 0 ? panL : (c == 1 ? panR : 1.0f));
         for (int n = 0; n < numSamples; ++n)
             out[c][startSample + n] += compPtrs[static_cast<size_t>(c)][n] * g;
     }

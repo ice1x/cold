@@ -952,3 +952,23 @@ TEST_CASE("SampleVoice velocity scales output gain", "[samplevoice][dsp][unit]")
     for (int n = 0; n < frames; ++n)
         REQUIRE_THAT(out[static_cast<size_t>(n)], WithinAbs(0.5f * static_cast<float>(n), 1e-4));
 }
+
+TEST_CASE("SampleVoice LFO resonance offset emphasises the cutoff",
+          "[samplevoice][dsp][unit][filter]")
+{
+    // A 1 kHz tone through a low-pass at 1 kHz: more resonance lifts the level there.
+    constexpr double sr = 48000.0;
+    constexpr int frames = 8000;
+    auto tone = makeSine(frames, 1000.0, sr);
+    auto play = [&](float resonanceOffset)
+    {
+        SampleVoice v;
+        v.prepare(sr);
+        v.setSample(tone.data(), tone.numChannels(), tone.numFrames(), sr);
+        v.setFilter(1000.0f, 0.707f, 0.0f);
+        v.setFilterLfoMod(0.0f, 0.0f, resonanceOffset);
+        v.startNote(kRootNote, 1.0f, kRootNote);
+        return tailPeak(render(v, frames), 2000);
+    };
+    REQUIRE(play(4.0f) > play(0.0f) * 2.0f);
+}
