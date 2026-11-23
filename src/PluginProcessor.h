@@ -160,16 +160,6 @@ private:
     std::atomic<float>* rootNoteParam = nullptr;
     std::atomic<float>* pitchBendRangeParam = nullptr;
     std::atomic<float>* modWheelToCutoffParam = nullptr;
-    std::atomic<float>* lfoShapeParam = nullptr;
-    std::atomic<float>* lfoRateParam = nullptr;
-    std::atomic<float>* lfoDepthParam = nullptr;
-    std::atomic<float>* lfoSyncParam = nullptr;
-    std::atomic<float>* lfoDivisionParam = nullptr;
-    std::atomic<float>* lfoToCutoffParam = nullptr;
-    std::atomic<float>* lfoToTypeParam = nullptr;
-    std::atomic<float>* lfoToPitchParam = nullptr;
-    std::atomic<float>* lfoToSampleParam = nullptr;
-    std::atomic<float>* lfoTrigModeParam = nullptr;
     // The LFO designer: kNumCustomSteps step levels forming the Custom waveform.
     static constexpr int kNumCustomSteps = 8;
     std::array<std::atomic<float>*, kNumCustomSteps> lfoStepParams{};
@@ -245,6 +235,13 @@ private:
     TrackFloats pitchEnvDecayParam{};
     TrackFloats velToPitchParam{};
     TrackFloats velToCutoffParam{};
+    // Each cell's two LFOs (wave, speed, multiplier, fade, destination, phase / slew,
+    // trig mode, depth), cached per cell.
+    struct CellLfoParams
+    {
+        TrackFloats wave{}, speed{}, mult{}, fade{}, dest{}, phase{}, mode{}, depth{};
+    };
+    std::array<CellLfoParams, 2> cellLfoParams{};
     TrackFloats humanizePitchParam{};
     TrackFloats humanizeLevelParam{};
     TrackFloats mapNoteParam{}; // per-cell Note Map key (MIDI note)

@@ -566,14 +566,15 @@ void formatSlider(juce::Slider& s, const juce::String& base)
                                             "humanizeLevel"};
     static const juce::StringArray percent{
         "ampSustain",  "modSustain", "delaySend",  "reverbSend",   "delayFeedback", "delayTone",
-        "delayReturn", "reverbRoom", "reverbDamp", "reverbReturn", "satMix",        "lfoDepth"};
-    static const juce::StringArray semitones{"tune", "pitchEnvAmount", "velToPitch", "lfoToPitch"};
-    static const juce::StringArray octaves{"velToCutoff", "modToCutoff", "lfoToCutoff",
-                                           "modWheelToCutoff"};
+        "delayReturn", "reverbRoom", "reverbDamp", "reverbReturn", "satMix"};
+    static const juce::StringArray semitones{"tune", "pitchEnvAmount", "velToPitch"};
+    static const juce::StringArray octaves{"velToCutoff", "modToCutoff", "modWheelToCutoff"};
     static const juce::StringArray plain{
-        "ampAttackCurve",    "ampDecayCurve", "ampReleaseCurve", "modToType", "lfoToType",
-        "lfoToSampleSelect", "ampVelocity",   "filterType",      "ftype",     "filterResonance",
-        "loopStart",         "loopEnd",       "masterWidth"};
+        "ampAttackCurve", "ampDecayCurve", "ampReleaseCurve", "modToType",  "ampVelocity",
+        "filterType",     "ftype",         "filterResonance", "loopStart",  "loopEnd",
+        "masterWidth",    "lfo1_speed",    "lfo2_speed",      "lfo1_depth", "lfo2_depth"};
+    // Whole-number LFO knobs: fade (-64..63) and start phase (0..127).
+    static const juce::StringArray whole{"lfo1_fade", "lfo2_fade", "lfo1_phase", "lfo2_phase"};
 
     if (seconds.contains(base))
         formatSeconds(s);
@@ -595,9 +596,9 @@ void formatSlider(juce::Slider& s, const juce::String& base)
         setFormat(
             s, [](double v) { return juce::String(v, 1) + ":1"; },
             [](const juce::String& t) { return t.getDoubleValue(); });
-    else if (base == "lfoRate")
+    else if (whole.contains(base))
         setFormat(
-            s, [](double v) { return juce::String(v, 2) + " Hz"; },
+            s, [](double v) { return juce::String(juce::roundToInt(v)); },
             [](const juce::String& t) { return t.getDoubleValue(); });
     else if (base == "humanizePitch")
         setFormat(
@@ -1287,6 +1288,17 @@ private:
     }
 
     // Per-track toggle: like tKnob, its attachment is rebuilt in setTrack().
+    // Per-track combo: like tKnob, its attachment is rebuilt in setTrack(). Items come
+    // from cell 1's parameter (every cell has the same choices).
+    void tCombo(Section& s, const juce::String& base, const juce::String& name,
+                const juce::String& tip = {})
+    {
+        auto* cb = makeCombo(trackId(0, base));
+        cb->setComponentID(base);
+        perTrackCombos.push_back({cb, base});
+        place(s, name, tip);
+    }
+
     void tToggle(Section& s, const juce::String& base, const juce::String& name,
                  const juce::String& tip = {})
     {
@@ -1343,21 +1355,6 @@ private:
                   "follows how hard you hit the key.");
         }
         {
-            auto& s = newSection("Mod Envelope", kModTab);
-            gKnob(s, "modAttack", "Attack",
-                  "Second envelope that shapes the FILTER over each note. Attack time in "
-                  "seconds.");
-            gKnob(s, "modDecay", "Decay", "Mod envelope decay time, in seconds.");
-            gKnob(s, "modSustain", "Sustain", "Mod envelope sustain level (0..1).");
-            gKnob(s, "modRelease", "Release", "Mod envelope release time, in seconds.");
-            gKnob(s, "modToCutoff", u8("→Cutoff"),
-                  "How far the mod envelope opens the filter cutoff, in octaves at full "
-                  "envelope. Negative closes it.");
-            gKnob(s, "modToType", u8("→Type"),
-                  "How far the mod envelope shifts the filter morph type "
-                  "(LP→BP→HP→Notch) over the note.");
-        }
-        {
             auto& s = newSection("Filter", kToneTab);
             tKnob(s, "filterCutoff", "Cutoff", "This cell's filter cutoff frequency, in Hz.");
             tKnob(s, "filterResonance", "Reso",
@@ -1393,6 +1390,21 @@ private:
             tKnob(s, "humanizeLevel", "Level",
                   "Random level variation per hit, in dB (+/-). Loosens up machine-gun "
                   "repeats. 0 = off.");
+        }
+        {
+            auto& s = newSection("Mod Envelope", kToneTab);
+            gKnob(s, "modAttack", "Attack",
+                  "Second envelope that shapes the FILTER over each note. Attack time in "
+                  "seconds.");
+            gKnob(s, "modDecay", "Decay", "Mod envelope decay time, in seconds.");
+            gKnob(s, "modSustain", "Sustain", "Mod envelope sustain level (0..1).");
+            gKnob(s, "modRelease", "Release", "Mod envelope release time, in seconds.");
+            gKnob(s, "modToCutoff", u8("→Cutoff"),
+                  "How far the mod envelope opens the filter cutoff, in octaves at full "
+                  "envelope. Negative closes it.");
+            gKnob(s, "modToType", u8("→Type"),
+                  "How far the mod envelope shifts the filter morph type "
+                  "(LP→BP→HP→Notch) over the note.");
         }
         {
             auto& s = newSection("Compressor", kFxTab);
@@ -1433,35 +1445,36 @@ private:
                   "Sample-rate divider (1-64): hold every Nth sample. Higher = darker, "
                   "grittier, more aliased (down-sampled).");
         }
+        for (int l = 0; l < 2; ++l)
         {
-            auto& s = newSection("LFO", kModTab);
-            gCombo(s, "lfoShape", "Shape",
-                   "LFO waveform. Random = stepped sample & hold; Custom = the "
-                   "multi-step designer shape.");
-            gKnob(s, "lfoRate", "Rate", "LFO speed in Hz (used when Sync is off).");
-            gKnob(s, "lfoDepth", "Depth",
-                  "LFO intensity (0..1). Scales every →destination below; 0 turns the "
-                  "LFO off.");
-            gToggle(s, "lfoSync", "Sync",
-                    "Lock the LFO to the host tempo: the Division below replaces Rate.");
-            gCombo(s, "lfoDivision", "Division",
-                   "LFO cycle length in musical time (bars/beats) when Sync is on.");
-            gCombo(s, "lfoTrigMode", "Trig",
-                   "How notes affect the LFO. Free: runs continuously. Trig: restarts "
-                   "on every note. Hold: freezes its value at each note. One-Shot: runs "
-                   "a single cycle per note.");
-            gKnob(s, "lfoToCutoff", u8("→Cutoff"),
-                  "Assign the LFO to filter cutoff: depth in octaves. 0 = not assigned "
-                  "(this is how LFO routing works here — turn a →knob instead of "
-                  "picking a destination).");
-            gKnob(s, "lfoToType", u8("→Type"),
-                  "Assign the LFO to the filter morph type (sweeps LP→BP→HP→Notch).");
-            gKnob(s, "lfoToPitch", u8("→Pitch"),
-                  "Assign the LFO to pitch: depth in semitones (vibrato / sirens).");
-            gKnob(s, "lfoToSampleSelect", u8("→Sample"),
-                  "Assign the LFO to sample-select: at each note the LFO offsets which "
-                  "bank slot plays (per-trig sample-lock). Depth = how many slots away "
-                  "it can roam.");
+            const juce::String lfo = "lfo" + juce::String(l + 1) + "_";
+            auto& s = newSection("LFO " + juce::String(l + 1), kModTab);
+            tCombo(s, lfo + "wave", "Wave",
+                   "LFO waveform. Random draws a new value each cycle (and on every trig in "
+                   "Trig / One-Shot / Half); Custom is the designer shape; Exponential and Ramp "
+                   "are one-sided.");
+            tKnob(s, lfo + "speed", "Speed",
+                  "LFO speed. Speed x multiplier = 128 is one cycle per bar; negative values "
+                  "run the wave backwards.");
+            tCombo(s, lfo + "mult", "Mult",
+                   "Multiplier for the speed: follows the host tempo, or a fixed 120 BPM for "
+                   "the (120) entries.");
+            tKnob(s, lfo + "fade", "Fade",
+                  "Fade after each note: negative fades the modulation in, positive fades it "
+                  "out, 0 = off.");
+            tCombo(s, lfo + "dest", "Dest",
+                   "What this LFO modulates: Sample (which layer plays on each hit), Pitch, "
+                   "Cutoff or Filter Type.");
+            tKnob(s, lfo + "phase", "Phase",
+                  "Start phase of the wave (0-127; 64 = half way). With the Random wave this "
+                  "is the slew: how smoothly it glides to each new value.");
+            tCombo(s, lfo + "mode", "Mode",
+                   "How notes affect the LFO. Free: runs on. Trig: restarts on every note. "
+                   "Hold: freezes its value at each note. One-Shot: one cycle per note. Half: "
+                   "half a cycle per note.");
+            tKnob(s, lfo + "depth", "Depth",
+                  "Modulation depth and direction (-64..63). At 64: Sample = 8 layers, Pitch "
+                  "= 24 semitones, Cutoff = 4 octaves, Filter Type = full sweep.");
         }
         {
             auto& s = newSection("Loop", kGlobalTab);
@@ -1900,6 +1913,10 @@ private:
             formatSlider(*k.ctl, k.base);
         }
 
+        for (const auto& cb : perTrackCombos)
+            trackAtt.combo.push_back(std::make_unique<APVTS::ComboBoxAttachment>(
+                proc.apvts, trackId(track, cb.base), *cb.ctl));
+
         for (const auto& tg : perTrackToggles)
             trackAtt.button.push_back(std::make_unique<APVTS::ButtonAttachment>(
                 proc.apvts, trackId(track, tg.base), *tg.ctl));
@@ -2020,6 +2037,14 @@ private:
         juce::String base;
     };
     std::vector<PerTrackToggle> perTrackToggles;
+
+    // Per-track combos whose attachment is rebuilt for the selected track.
+    struct PerTrackCombo
+    {
+        juce::ComboBox* ctl = nullptr;
+        juce::String base{};
+    };
+    std::vector<PerTrackCombo> perTrackCombos;
 
     std::vector<juce::TextButton*> cellPads;   // one per track, owned via `owned`
     std::vector<juce::TextButton*> tabButtons; // Main/FX/Mod/Logs, owned via `owned`

@@ -1087,3 +1087,94 @@ TEST_CASE("Engine LFO sample-select skips empty slots instead of going silent",
     REQUIRE(engine.currentSampleIndex() == 2);
     REQUIRE_THAT(render(engine, 4).front(), WithinAbs(1.0f, 1e-4)); // it sounds
 }
+
+// ---- two LFOs per engine ----------------------------------------------------
+
+TEST_CASE("Engine second LFO drives sample select on its own", "[engine][dsp][unit][lfo2]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.5f);
+    auto c = makeConstant(64, 1.0f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0},
+                          {c.data(), c.numChannels(), c.numFrames(), 44100.0}});
+    engine.setBaseSampleIndex(0);
+    // LFO 1 (index 1) alone: square reads +1 at phase 0 -> one slot up.
+    engine.setLfo(1, cold::dsp::LfoShape::Square, 1.0f, 1.0f);
+    engine.addModRoute(1, cold::dsp::ModDestination::SampleSelect, 1.0f);
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(engine.currentSampleIndex() == 1);
+}
+
+TEST_CASE("Engine sums both LFOs on the same destination", "[engine][dsp][unit][lfo2]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.5f);
+    auto c = makeConstant(64, 1.0f);
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0},
+                          {c.data(), c.numChannels(), c.numFrames(), 44100.0}});
+    engine.setBaseSampleIndex(0);
+    engine.setLfo(0, cold::dsp::LfoShape::Square, 1.0f, 1.0f);
+    engine.addModRoute(0, cold::dsp::ModDestination::SampleSelect, 1.0f);
+    engine.setLfo(1, cold::dsp::LfoShape::Square, 1.0f, 1.0f);
+    engine.addModRoute(1, cold::dsp::ModDestination::SampleSelect, 1.0f);
+
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(engine.currentSampleIndex() == 2); // +1 from each LFO
+}
+
+TEST_CASE("Engine second LFO modulates pitch while the first selects samples",
+          "[engine][dsp][unit][lfo2]")
+{
+    // A ramp sample so the read speed (pitch) shows in the output values.
+    SourceSample ramp;
+    ramp.channels.assign(1, std::vector<float>(4096));
+    for (int n = 0; n < 4096; ++n)
+        ramp.channels[0][static_cast<size_t>(n)] = static_cast<float>(n);
+    ramp.rebuild();
+
+    auto play = [&](bool withPitchLfo)
+    {
+        Engine engine;
+        engine.prepare(44100.0);
+        engine.setSample(ramp.data(), ramp.numChannels(), ramp.numFrames(), 44100.0);
+        if (withPitchLfo)
+        {
+            engine.setLfo(1, cold::dsp::LfoShape::Square, 0.01f, 1.0f); // stays at +1
+            engine.addModRoute(1, cold::dsp::ModDestination::Pitch, 12.0f);
+        }
+        engine.noteOn(kRootNote, 1.0f, kRootNote);
+        return render(engine, 64)[50];
+    };
+    const float plain = play(false);
+    const float raised = play(true);
+    REQUIRE_THAT(raised, WithinAbs(plain * 2.0f, plain * 0.05f)); // +12 st = twice as fast
+}
+
+TEST_CASE("Engine retriggers the second LFO on every note", "[engine][dsp][unit][lfo2]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.5f);
+    auto c = makeConstant(64, 1.0f);
+
+    Engine e;
+    e.prepare(44100.0);
+    e.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                     {b.data(), b.numChannels(), b.numFrames(), 44100.0},
+                     {c.data(), c.numChannels(), c.numFrames(), 44100.0}});
+    e.setBaseSampleIndex(1);
+    e.setLfo(1, cold::dsp::LfoShape::Square, 264.6f, 1.0f); // flips sign every ~83 samples
+    e.setLfoTrigMode(1, cold::dsp::LfoTrigMode::Trig);
+    e.addModRoute(1, cold::dsp::ModDestination::SampleSelect, 1.0f);
+    render(e, 100); // free-running phase now past 0.5 (-1)
+    e.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(e.currentSampleIndex() == 2); // the trig reset LFO 1 to its start (+1)
+}

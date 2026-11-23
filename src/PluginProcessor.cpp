@@ -30,16 +30,18 @@ constexpr auto kReleaseId = "ampRelease";
 constexpr auto kFilterCutoffId = "filterCutoff";
 constexpr auto kFilterResonanceId = "filterResonance";
 constexpr auto kFilterTypeId = "filterType";
-constexpr auto kLfoShapeId = "lfoShape";
-constexpr auto kLfoRateId = "lfoRate";
-constexpr auto kLfoDepthId = "lfoDepth";
-constexpr auto kLfoSyncId = "lfoSync";
-constexpr auto kLfoDivisionId = "lfoDivision";
-constexpr auto kLfoToCutoffId = "lfoToCutoff";
-constexpr auto kLfoToTypeId = "lfoToType";
-constexpr auto kLfoToPitchId = "lfoToPitch";
-constexpr auto kLfoToSampleId = "lfoToSampleSelect";
-constexpr auto kLfoTrigModeId = "lfoTrigMode";
+// The single global LFO of older projects; only read to migrate them into the
+// per-cell LFOs (migrateLegacyLfo).
+constexpr auto kLegacyLfoShapeId = "lfoShape";
+constexpr auto kLegacyLfoRateId = "lfoRate";
+constexpr auto kLegacyLfoDepthId = "lfoDepth";
+constexpr auto kLegacyLfoSyncId = "lfoSync";
+constexpr auto kLegacyLfoDivisionId = "lfoDivision";
+constexpr auto kLegacyLfoToCutoffId = "lfoToCutoff";
+constexpr auto kLegacyLfoToTypeId = "lfoToType";
+constexpr auto kLegacyLfoToPitchId = "lfoToPitch";
+constexpr auto kLegacyLfoToSampleId = "lfoToSampleSelect";
+constexpr auto kLegacyLfoTrigModeId = "lfoTrigMode";
 constexpr auto kTrackId = "track";
 constexpr auto kAmpDelayId = "ampDelay";
 constexpr auto kAmpHoldId = "ampHold";
@@ -112,6 +114,47 @@ constexpr int slotForLayer(int track, int layer)
 // beats per LFO cycle: "1/16" = 0.25 beats ... "4 bars" = 16 beats.
 constexpr std::array<double, 7> kDivisionBeats{16.0, 8.0, 4.0, 2.0, 1.0, 0.5, 0.25};
 
+// ---- per-cell LFOs: two per cell, eight parameters each -----------------------
+constexpr int kNumCellLfos = 2;
+
+// Speed x multiplier sets the rate (speed x multiplier = 128 is one cycle per bar).
+// Choices 0..11 follow the host tempo; 12..23 are the same multipliers at a fixed
+// 120 BPM.
+constexpr std::array<double, 12> kLfoMultValues{1.0,  2.0,   4.0,   8.0,   16.0,   32.0,
+                                                64.0, 128.0, 256.0, 512.0, 1024.0, 2048.0};
+constexpr int kLfoFixedMultOffset = 12;
+
+juce::StringArray lfoMultChoices()
+{
+    const juce::StringArray tempo{"1",  "2",   "4",   "8",   "16", "32",
+                                  "64", "128", "256", "512", "1k", "2k"};
+    juce::StringArray all(tempo);
+    for (const auto& m : tempo)
+        all.add(m + " (120)");
+    return all;
+}
+
+// What an LFO modulates (DEST) and the amount its full depth (DEP 64) reaches.
+struct LfoDestination
+{
+    const char* name;
+    dsp::ModDestination destination;
+    float fullScale;
+};
+constexpr std::array<LfoDestination, 4> kLfoDestinations{{
+    {"Sample", dsp::ModDestination::SampleSelect, 8.0f},   // slots
+    {"Pitch", dsp::ModDestination::Pitch, 24.0f},          // semitones
+    {"Cutoff", dsp::ModDestination::FilterCutoff, 4.0f},   // octaves
+    {"Filter Type", dsp::ModDestination::FilterType, 1.0f} // morph offset
+}};
+constexpr float kLfoDepthScale = 64.0f; // DEP is -64..63
+
+// Per-cell LFO parameter base ids, e.g. lfoParamBase(0, "wave") -> "lfo1_wave".
+juce::String lfoParamBase(int lfo, const char* name)
+{
+    return "lfo" + juce::String(lfo + 1) + "_" + name;
+}
+
 // A time range in seconds with a perceptual skew (more resolution near zero).
 juce::NormalisableRange<float> timeRange(float maxSeconds)
 {
@@ -122,6 +165,10 @@ juce::NormalisableRange<float> timeRange(float maxSeconds)
 
 // Per-track / per-layer parameter IDs: "t{track}_{base}" and "t{track}_lyr{layer}_{base}".
 juce::String trackParamId(int track, const char* base)
+{
+    return "t" + juce::String(track) + "_" + base;
+}
+juce::String trackParamId(int track, const juce::String& base)
 {
     return "t" + juce::String(track) + "_" + base;
 }
@@ -173,51 +220,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
     // Amp envelope and the morph filter (cutoff/resonance/type) are PER-TRACK (each
     // track/cell is an independent sound) — created in the per-track loop below.
 
-    // LFO: shape, free rate (Hz) or host-tempo sync + division, depth, and the two
-    // modulation amounts — to cutoff (octaves) and, distinctively, to filter type.
-    layout.add(std::make_unique<AudioParameterChoice>(
-        juce::ParameterID{kLfoShapeId, 1}, "LFO Shape",
-        juce::StringArray{"Sine", "Triangle", "Saw Up", "Saw Down", "Square", "Random", "Custom",
-                          "Exponential", "Ramp"},
-        0));
-    juce::NormalisableRange<float> rateRange(0.01f, 40.0f, 0.01f);
-    rateRange.setSkewForCentre(2.0f);
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kLfoRateId, 1}, "LFO Rate",
-                                                     rateRange, 2.0f));
-    layout.add(std::make_unique<AudioParameterFloat>(juce::ParameterID{kLfoDepthId, 1}, "LFO Depth",
-                                                     0.0f, 1.0f, 1.0f));
-    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{kLfoSyncId, 1},
-                                                          "LFO Sync", false));
-    layout.add(std::make_unique<AudioParameterChoice>(
-        juce::ParameterID{kLfoDivisionId, 1}, "LFO Division",
-        juce::StringArray{"4 bars", "2 bars", "1 bar", "1/2", "1/4", "1/8", "1/16"}, 4));
-    // How the LFO reacts to each note: Free (ignore), Trig (restart phase), Hold
-    // (latch its value at the trig), One-Shot (one cycle per note, then freeze).
-    layout.add(std::make_unique<AudioParameterChoice>(
-        juce::ParameterID{kLfoTrigModeId, 1}, "LFO Trig Mode",
-        juce::StringArray{"Free", "Trig", "Hold", "One-Shot", "Half"}, 0));
-    // The LFO designer: eight step levels forming the Custom waveform (used when
-    // LFO Shape = Custom). Defaults sample one sine cycle so Custom starts musical.
+    // The LFO designer: eight step levels forming the Custom waveform (shared by every
+    // LFO whose wave is Custom). Defaults sample one sine cycle so Custom starts musical.
     constexpr std::array<float, kNumCustomSteps> kStepDefaults{0.0f, 0.707f,  1.0f,  0.707f,
                                                                0.0f, -0.707f, -1.0f, -0.707f};
     for (int i = 0; i < kNumCustomSteps; ++i)
         layout.add(std::make_unique<AudioParameterFloat>(
             juce::ParameterID{"lfoStep" + juce::String(i + 1), 1},
             "LFO Step " + juce::String(i + 1), -1.0f, 1.0f, kStepDefaults[static_cast<size_t>(i)]));
-    layout.add(std::make_unique<AudioParameterFloat>(
-        juce::ParameterID{kLfoToCutoffId, 1}, "LFO -> Cutoff",
-        juce::NormalisableRange<float>(-4.0f, 4.0f, 0.01f), 0.0f));
-    layout.add(std::make_unique<AudioParameterFloat>(
-        juce::ParameterID{kLfoToTypeId, 1}, "LFO -> Filter Type",
-        juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
-    layout.add(std::make_unique<AudioParameterFloat>(
-        juce::ParameterID{kLfoToPitchId, 1}, "LFO -> Pitch",
-        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.01f), 0.0f));
-    // LFO/mod -> sample-select: a signed slot/layer offset applied at the trig.
-    // Each track is fed the whole bank, so this roams across the loaded slots.
-    layout.add(std::make_unique<AudioParameterFloat>(
-        juce::ParameterID{kLfoToSampleId, 1}, "LFO -> Sample Select",
-        juce::NormalisableRange<float>(-8.0f, 8.0f, 0.01f), 0.0f));
 
     // Shared delay send/return: time (ms), feedback, tone (feedback damping) and the
     // return level mixed back into the master. Each cell's send amount is per-track.
@@ -426,6 +436,41 @@ juce::AudioProcessorValueTreeState::ParameterLayout ColdAudioProcessor::createPa
         layout.add(std::make_unique<AudioParameterFloat>(
             juce::ParameterID{trackParamId(t, kVelToCutoffId), 1}, tp + "Velocity to Cutoff",
             juce::NormalisableRange<float>(-6.0f, 6.0f, 0.01f), 0.0f));
+
+        // Two LFOs per cell. Wave, speed x multiplier (tempo or fixed 120 BPM), fade,
+        // destination + depth, start phase (slew for Random) and trig mode.
+        for (int l = 0; l < kNumCellLfos; ++l)
+        {
+            const auto lp = tp + "LFO " + juce::String(l + 1) + " ";
+            auto id = [&](const char* name) { return trackParamId(t, lfoParamBase(l, name)); };
+            layout.add(std::make_unique<AudioParameterChoice>(
+                juce::ParameterID{id("wave"), 1}, lp + "Wave",
+                juce::StringArray{"Sine", "Triangle", "Saw Up", "Saw Down", "Square", "Random",
+                                  "Custom", "Exponential", "Ramp"},
+                0));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{id("speed"), 1}, lp + "Speed",
+                juce::NormalisableRange<float>(-64.0f, 63.0f, 0.01f), 16.0f));
+            layout.add(std::make_unique<AudioParameterChoice>(
+                juce::ParameterID{id("mult"), 1}, lp + "Multiplier", lfoMultChoices(), 3));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{id("fade"), 1}, lp + "Fade",
+                juce::NormalisableRange<float>(-64.0f, 63.0f, 1.0f), 0.0f));
+            juce::StringArray dests{"Off"};
+            for (const auto& d : kLfoDestinations)
+                dests.add(d.name);
+            layout.add(std::make_unique<AudioParameterChoice>(juce::ParameterID{id("dest"), 1},
+                                                              lp + "Destination", dests, 0));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{id("phase"), 1}, lp + "Phase",
+                juce::NormalisableRange<float>(0.0f, 127.0f, 1.0f), 0.0f));
+            layout.add(std::make_unique<AudioParameterChoice>(
+                juce::ParameterID{id("mode"), 1}, lp + "Trig Mode",
+                juce::StringArray{"Free", "Trig", "Hold", "One-Shot", "Half"}, 0));
+            layout.add(std::make_unique<AudioParameterFloat>(
+                juce::ParameterID{id("depth"), 1}, lp + "Depth",
+                juce::NormalisableRange<float>(-64.0f, 63.0f, 0.01f), 0.0f));
+        }
         // Per-cell humanize: a random pitch (cents) and level (dB) offset per hit so
         // repeated triggers vary slightly. 0 = off (deterministic).
         layout.add(std::make_unique<AudioParameterFloat>(
@@ -569,16 +614,6 @@ ColdAudioProcessor::ColdAudioProcessor()
     rootNoteParam = apvts.getRawParameterValue(kRootNoteId);
     pitchBendRangeParam = apvts.getRawParameterValue(kPitchBendRangeId);
     modWheelToCutoffParam = apvts.getRawParameterValue(kModWheelToCutoffId);
-    lfoShapeParam = apvts.getRawParameterValue(kLfoShapeId);
-    lfoRateParam = apvts.getRawParameterValue(kLfoRateId);
-    lfoDepthParam = apvts.getRawParameterValue(kLfoDepthId);
-    lfoSyncParam = apvts.getRawParameterValue(kLfoSyncId);
-    lfoDivisionParam = apvts.getRawParameterValue(kLfoDivisionId);
-    lfoToCutoffParam = apvts.getRawParameterValue(kLfoToCutoffId);
-    lfoToTypeParam = apvts.getRawParameterValue(kLfoToTypeId);
-    lfoToPitchParam = apvts.getRawParameterValue(kLfoToPitchId);
-    lfoToSampleParam = apvts.getRawParameterValue(kLfoToSampleId);
-    lfoTrigModeParam = apvts.getRawParameterValue(kLfoTrigModeId);
     for (int i = 0; i < kNumCustomSteps; ++i)
         lfoStepParams[static_cast<size_t>(i)] =
             apvts.getRawParameterValue("lfoStep" + juce::String(i + 1));
@@ -645,6 +680,20 @@ ColdAudioProcessor::ColdAudioProcessor()
         pitchEnvDecayParam[tt] = apvts.getRawParameterValue(trackParamId(t, kPitchEnvDecayId));
         velToPitchParam[tt] = apvts.getRawParameterValue(trackParamId(t, kVelToPitchId));
         velToCutoffParam[tt] = apvts.getRawParameterValue(trackParamId(t, kVelToCutoffId));
+        for (int l = 0; l < kNumCellLfos; ++l)
+        {
+            auto& lp = cellLfoParams[static_cast<size_t>(l)];
+            auto raw = [&](const char* name)
+            { return apvts.getRawParameterValue(trackParamId(t, lfoParamBase(l, name))); };
+            lp.wave[tt] = raw("wave");
+            lp.speed[tt] = raw("speed");
+            lp.mult[tt] = raw("mult");
+            lp.fade[tt] = raw("fade");
+            lp.dest[tt] = raw("dest");
+            lp.phase[tt] = raw("phase");
+            lp.mode[tt] = raw("mode");
+            lp.depth[tt] = raw("depth");
+        }
         humanizePitchParam[tt] = apvts.getRawParameterValue(trackParamId(t, kHumanizePitchId));
         humanizeLevelParam[tt] = apvts.getRawParameterValue(trackParamId(t, kHumanizeLevelId));
         mapNoteParam[tt] = apvts.getRawParameterValue(trackParamId(t, kMapNoteId));
@@ -766,35 +815,47 @@ void ColdAudioProcessor::applySharedParamsToTrack(int track, bool polyChanged)
                 filterTypeParam[tt]->load());
 
     // LFO: free rate in Hz, or host-tempo synced via the selected division.
-    const auto shape = static_cast<dsp::LfoShape>(static_cast<int>(lfoShapeParam->load()));
-    float rateHz = lfoRateParam->load();
-    if (lfoSyncParam->load() > 0.5f)
-    {
-        const auto idx =
-            static_cast<size_t>(std::clamp(static_cast<int>(lfoDivisionParam->load()), 0,
-                                           static_cast<int>(kDivisionBeats.size()) - 1));
-        rateHz = static_cast<float>(dsp::Lfo::divisionToHz(hostBpm, kDivisionBeats[idx]));
-    }
-    e.setLfo(shape, rateHz, lfoDepthParam->load());
-    e.setLfoTrigMode(static_cast<dsp::LfoTrigMode>(static_cast<int>(lfoTrigModeParam->load())));
-    // The Custom shape is driven by the designer's step levels.
-    if (shape == dsp::LfoShape::Custom)
-    {
-        std::array<float, kNumCustomSteps> steps{};
-        for (int i = 0; i < kNumCustomSteps; ++i)
-            steps[static_cast<size_t>(i)] = lfoStepParams[static_cast<size_t>(i)]->load();
-        e.setLfoCustomShape(steps.data(), kNumCustomSteps);
-    }
-
+    // The cell's two LFOs: rate from speed x multiplier (host tempo, or a fixed 120
+    // BPM for the "(120)" multipliers), one destination each, depth DEP -64..63.
     e.clearModRoutes();
-    if (std::abs(lfoToCutoffParam->load()) > 1.0e-4f)
-        e.addModRoute(dsp::ModDestination::FilterCutoff, lfoToCutoffParam->load());
-    if (std::abs(lfoToTypeParam->load()) > 1.0e-4f)
-        e.addModRoute(dsp::ModDestination::FilterType, lfoToTypeParam->load());
-    if (std::abs(lfoToPitchParam->load()) > 1.0e-4f)
-        e.addModRoute(dsp::ModDestination::Pitch, lfoToPitchParam->load());
-    if (std::abs(lfoToSampleParam->load()) > 1.0e-4f)
-        e.addModRoute(dsp::ModDestination::SampleSelect, lfoToSampleParam->load());
+    for (int l = 0; l < kNumCellLfos; ++l)
+    {
+        const auto& lp = cellLfoParams[static_cast<size_t>(l)];
+        const auto wave = static_cast<dsp::LfoShape>(static_cast<int>(lp.wave[tt]->load()));
+        const int multChoice =
+            std::clamp(static_cast<int>(lp.mult[tt]->load()), 0, kLfoFixedMultOffset * 2 - 1);
+        const double multiplier =
+            kLfoMultValues[static_cast<size_t>(multChoice % kLfoFixedMultOffset)];
+        const double bpm = multChoice < kLfoFixedMultOffset ? hostBpm : 120.0;
+        const auto rateHz =
+            static_cast<float>(dsp::Lfo::tempoRateHz(lp.speed[tt]->load(), multiplier, bpm));
+
+        e.setLfo(l, wave, rateHz, 1.0f);
+        e.setLfoTrigMode(l, static_cast<dsp::LfoTrigMode>(static_cast<int>(lp.mode[tt]->load())));
+        e.setLfoFade(l, lp.fade[tt]->load() / kLfoDepthScale);
+        // The phase knob is the start phase, or the slew when the wave is Random.
+        const float phase = lp.phase[tt]->load();
+        const bool random = wave == dsp::LfoShape::Random;
+        e.setLfoPhase(l, random ? 0.0f : phase / 128.0f);
+        e.setLfoSlew(l, random ? phase / 127.0f : 0.0f);
+        // The Custom wave is the designer's step levels.
+        if (wave == dsp::LfoShape::Custom)
+        {
+            std::array<float, kNumCustomSteps> steps{};
+            for (int i = 0; i < kNumCustomSteps; ++i)
+                steps[static_cast<size_t>(i)] = lfoStepParams[static_cast<size_t>(i)]->load();
+            e.setLfoCustomShape(l, steps.data(), kNumCustomSteps);
+        }
+
+        const int dest = static_cast<int>(lp.dest[tt]->load()); // 0 = Off
+        const float depth = lp.depth[tt]->load() / kLfoDepthScale;
+        if (dest >= 1 && dest <= static_cast<int>(kLfoDestinations.size()) &&
+            std::abs(depth) > 1.0e-4f)
+        {
+            const auto& d = kLfoDestinations[static_cast<size_t>(dest - 1)];
+            e.addModRoute(l, d.destination, depth * d.fullScale);
+        }
+    }
 
     // Multilayer: Single (one sample per trig — layer 0, or LFO->sample roaming the
     // cell's loaded layers), Stack (all loaded layers at once), RoundRobin (one loaded
@@ -1406,6 +1467,95 @@ void ColdAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
         copyXmlToBinary(*xml, destData);
 }
 
+namespace
+{
+// Older projects stored ONE global LFO (wave, rate in Hz or a tempo division, depth,
+// trig mode and four "->" depth knobs). Move it onto every cell: the first two
+// non-zero routes (in the order sample, pitch, cutoff, filter type) become LFO 1 and
+// LFO 2, so a saved project keeps its modulation. No-op for newer projects.
+void migrateLegacyLfo(juce::ValueTree& params)
+{
+    auto legacy = [&params](const char* id, float fallback)
+    {
+        const auto node = params.getChildWithProperty("id", id);
+        return node.isValid() ? static_cast<float>(node.getProperty("value")) : fallback;
+    };
+    if (!params.getChildWithProperty("id", kLegacyLfoShapeId).isValid())
+        return; // saved by a version with per-cell LFOs
+
+    struct Route
+    {
+        int dest; // index into the destination choices (1 = Sample ...)
+        float amount;
+    };
+    std::vector<Route> routes;
+    const float legacyDepth = legacy(kLegacyLfoDepthId, 1.0f);
+    const std::array<std::pair<const char*, int>, 4> order{{{kLegacyLfoToSampleId, 1},
+                                                            {kLegacyLfoToPitchId, 2},
+                                                            {kLegacyLfoToCutoffId, 3},
+                                                            {kLegacyLfoToTypeId, 4}}};
+    for (const auto& [id, dest] : order)
+        if (const float amount = legacy(id, 0.0f) * legacyDepth; std::abs(amount) > 1.0e-4f)
+            routes.push_back({dest, amount});
+    if (routes.empty())
+        return;
+
+    // Rate -> speed x multiplier: a tempo division keeps following the tempo; a free
+    // rate in Hz maps onto the fixed-120-BPM multipliers. Pick the smallest
+    // multiplier that keeps the speed within its 63 limit.
+    double product = 0.0;
+    int multOffset = 0;
+    if (legacy(kLegacyLfoSyncId, 0.0f) > 0.5f)
+    {
+        const int div = std::clamp(static_cast<int>(legacy(kLegacyLfoDivisionId, 4.0f)), 0,
+                                   static_cast<int>(kDivisionBeats.size()) - 1);
+        product = 512.0 / kDivisionBeats[static_cast<size_t>(div)]; // 128 = one cycle per bar
+    }
+    else
+    {
+        product = static_cast<double>(legacy(kLegacyLfoRateId, 2.0f)) * 256.0; // Hz at 120 BPM
+        multOffset = kLfoFixedMultOffset;
+    }
+    int multIndex = static_cast<int>(kLfoMultValues.size()) - 1;
+    for (int i = 0; i < static_cast<int>(kLfoMultValues.size()); ++i)
+        if (product / kLfoMultValues[static_cast<size_t>(i)] <= 63.0)
+        {
+            multIndex = i;
+            break;
+        }
+    const auto speed = static_cast<float>(
+        std::clamp(product / kLfoMultValues[static_cast<size_t>(multIndex)], -64.0, 63.0));
+
+    auto set = [&params](const juce::String& id, float value)
+    {
+        auto node = params.getChildWithProperty("id", id);
+        if (!node.isValid())
+        {
+            node = juce::ValueTree("PARAM");
+            node.setProperty("id", id, nullptr);
+            params.appendChild(node, nullptr);
+        }
+        node.setProperty("value", value, nullptr);
+    };
+    const float wave = legacy(kLegacyLfoShapeId, 0.0f);
+    const float mode = legacy(kLegacyLfoTrigModeId, 0.0f);
+    for (int t = 0; t < dsp::MultiEngine::kNumTracks; ++t)
+        for (int l = 0; l < kNumCellLfos && l < static_cast<int>(routes.size()); ++l)
+        {
+            const auto& r = routes[static_cast<size_t>(l)];
+            const float fullScale = kLfoDestinations[static_cast<size_t>(r.dest - 1)].fullScale;
+            auto id = [&](const char* name) { return trackParamId(t, lfoParamBase(l, name)); };
+            set(id("wave"), wave);
+            set(id("mode"), mode);
+            set(id("speed"), speed);
+            set(id("mult"), static_cast<float>(multIndex + multOffset));
+            set(id("dest"), static_cast<float>(r.dest));
+            set(id("depth"),
+                std::clamp(r.amount / fullScale * kLfoDepthScale, -kLfoDepthScale, 63.0f));
+        }
+}
+} // namespace
+
 void ColdAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     auto xml = getXmlFromBinary(data, sizeInBytes);
@@ -1417,7 +1567,10 @@ void ColdAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
         return;
 
     if (auto params = root.getChildWithName(apvts.state.getType()); params.isValid())
+    {
+        migrateLegacyLfo(params);
         apvts.replaceState(params);
+    }
 
     if (auto bankTree = root.getChildWithName("bank"); bankTree.isValid())
     {
