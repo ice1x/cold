@@ -71,6 +71,17 @@ public:
     // cell's primary sample). Returns how many were loaded.
     int loadFolder(const juce::File& directory);
 
+    // The sample pool: up to kPoolSize samples shared by every cell. A cell whose
+    // Source is Pool plays pool slot "Pool Slot", and LFO -> Sample steps through
+    // the pool from there (depth = number of slots). loadPoolFolder replaces the
+    // pool with the folder's audio files (sorted by name, not recursive) and returns
+    // how many were loaded; files past kPoolSize are ignored.
+    static constexpr int kPoolSize = 127;
+    int loadPoolFolder(const juce::File& directory);
+    void clearPool();
+    [[nodiscard]] int poolSize() const;
+    [[nodiscard]] juce::String poolSampleName(int index) const; // "" past the end
+
     // Import an NI Battery 3 ".kit": load its samples (resolved by filename under
     // `sampleFolder`, recursively) into the bank and apply each cell's settings to
     // the matching track — amp AHDSR (per track), tune/pan/volume (layer 0), and a
@@ -138,6 +149,10 @@ private:
     dsp::StereoWidth stereoWidth; // master stereo-width (mid/side) on the output (pre limiter)
     dsp::Limiter limiter;         // master brickwall limiter on the final output (post gain)
     io::SampleBank bank;
+    std::unique_ptr<io::SampleBank> pool;            // the shared sample pool
+    std::vector<std::vector<const float*>> poolPtrs; // channel views into the pool
+    // Replace the pool with these files (decoded outside the engine lock).
+    int setPoolFiles(const juce::Array<juce::File>& files);
 
     // Send buses (per block) feeding the delay + reverb, and their pointer views.
     std::vector<std::vector<float>> delayBuffer;
@@ -242,6 +257,8 @@ private:
         TrackFloats wave{}, speed{}, mult{}, fade{}, dest{}, phase{}, mode{}, depth{};
     };
     std::array<CellLfoParams, 2> cellLfoParams{};
+    TrackFloats sourceParam{};   // 0 = the cell's layers, 1 = the sample pool
+    TrackFloats poolSlotParam{}; // the pool slot a Pool cell plays (1-based)
     TrackFloats humanizePitchParam{};
     TrackFloats humanizeLevelParam{};
     TrackFloats mapNoteParam{}; // per-cell Note Map key (MIDI note)

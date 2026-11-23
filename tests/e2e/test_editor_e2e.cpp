@@ -276,7 +276,8 @@ TEST_CASE("The cell bar stays visible on every tab", "[editor][e2e][onescreen]")
     for (auto* id : kTabIds)
     {
         clickTab(editor.get(), id);
-        for (auto* ctl : {"layerMode", "mapNote", "chokeGroup", "level", "delaySend", "reverbSend"})
+        for (auto* ctl : {"layerMode", "source", "poolSlot", "mapNote", "chokeGroup", "level",
+                          "delaySend", "reverbSend"})
         {
             INFO("tab " << id << ", control " << ctl);
             REQUIRE(shownWithin(findById(editor.get(), ctl), editor.get()));
@@ -412,4 +413,63 @@ TEST_CASE("LFO controls follow the selected cell", "[editor][e2e][lfo]")
     REQUIRE_THAT(param(proc, "t3_lfo2_depth"), WithinAbs(24.0, 1e-3));
     REQUIRE(param(proc, "t3_lfo2_dest") == 1.0f);
     REQUIRE_THAT(param(proc, "t0_lfo2_depth"), WithinAbs(0.0, 1e-3)); // cell 1 untouched
+}
+
+TEST_CASE("The header has a Load Pool button", "[editor][e2e][pool]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    ColdAudioProcessor proc;
+    std::unique_ptr<juce::AudioProcessorEditor> editor(proc.createEditor());
+    auto* button = dynamic_cast<juce::Button*>(findById(editor.get(), "loadPoolButton"));
+    REQUIRE(button != nullptr);
+    REQUIRE(shownWithin(button, editor.get()));
+}
+
+TEST_CASE("A pool cell's pad names its pool sample", "[editor][e2e][pool]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                   .getNonexistentChildFile("cold-editor-pool", "", false);
+    REQUIRE(dir.createDirectory());
+    REQUIRE(writeTempWav().moveFileTo(dir.getChildFile("alpha.wav")));
+    REQUIRE(writeTempWav().moveFileTo(dir.getChildFile("beta.wav")));
+
+    ColdAudioProcessor proc;
+    REQUIRE(proc.loadPoolFolder(dir) == 2);
+    std::unique_ptr<juce::AudioProcessorEditor> editor(proc.createEditor());
+
+    auto set = [&proc](const char* id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    };
+    set("t0_source", 1.0f); // Pool
+    set("t0_poolSlot", 2.0f);
+    auto* pad = dynamic_cast<juce::Button*>(findById(editor.get(), "cellPad0"));
+    REQUIRE(pad != nullptr);
+    pad->onClick(); // re-labels the pads
+    REQUIRE(pad->getButtonText().contains("P2"));
+    REQUIRE(pad->getButtonText().contains("beta"));
+    // The layer strips do not play in a Pool cell: they are dimmed.
+    REQUIRE(findById(editor.get(), "layerStrip0")->getAlpha() < 1.0f);
+    set("t0_source", 0.0f);
+    pad->onClick();
+    REQUIRE(findById(editor.get(), "layerStrip0")->getAlpha() == 1.0f);
+    dir.deleteRecursively();
+}
+
+TEST_CASE("Every cell bar control fits inside the editor", "[editor][e2e][onescreen]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    ColdAudioProcessor proc;
+    std::unique_ptr<juce::AudioProcessorEditor> editor(proc.createEditor());
+    for (auto* ctl : {"layerMode", "source", "poolSlot", "mapNote", "chokeGroup", "level", "pan",
+                      "delaySend", "reverbSend"})
+    {
+        INFO("control " << ctl);
+        auto* c = findById(editor.get(), ctl);
+        REQUIRE(c != nullptr);
+        const auto inEditor = editor->getLocalArea(c, c->getLocalBounds());
+        REQUIRE(editor->getLocalBounds().contains(inEditor));
+    }
 }
