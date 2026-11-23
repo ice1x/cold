@@ -7,6 +7,7 @@
 
 #include "PluginProcessor.h"
 #include "support/SignalFixtures.h"
+#include "ui/Palette.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -472,4 +473,57 @@ TEST_CASE("Every cell bar control fits inside the editor", "[editor][e2e][onescr
         const auto inEditor = editor->getLocalArea(c, c->getLocalBounds());
         REQUIRE(editor->getLocalBounds().contains(inEditor));
     }
+}
+
+// ---- visual identity ----------------------------------------------------------
+
+namespace
+{
+// Blue / cyan hues (the generic JUCE dark look) are not part of Cold's palette.
+bool isBlueOrCyan(juce::Colour c)
+{
+    return c.getSaturation() > 0.2f && c.getHue() > 0.42f && c.getHue() < 0.72f;
+}
+} // namespace
+
+TEST_CASE("Cold's palette has no blue or cyan accents", "[editor][e2e][identity]")
+{
+    namespace p = cold::ui::palette;
+    for (auto c : {p::background(), p::surface(), p::raised(), p::edge(), p::text(), p::textMuted(),
+                   p::accent(), p::loadedPad(), p::header()})
+        REQUIRE_FALSE(isBlueOrCyan(c));
+    for (int l = 0; l < 4; ++l)
+        REQUIRE_FALSE(isBlueOrCyan(p::layer(l)));
+}
+
+TEST_CASE("The editor is drawn in Cold's palette", "[editor][e2e][identity]")
+{
+    namespace p = cold::ui::palette;
+    juce::ScopedJuceInitialiser_GUI gui;
+    ColdAudioProcessor proc;
+    std::unique_ptr<juce::AudioProcessorEditor> editor(proc.createEditor());
+
+    // Background.
+    juce::Image img(juce::Image::ARGB, editor->getWidth(), editor->getHeight(), true);
+    {
+        juce::Graphics g(img);
+        editor->paintEntireComponent(g, true);
+    }
+    REQUIRE(img.getPixelAt(editor->getWidth() - 2, editor->getHeight() - 2) == p::background());
+
+    // The selected pad and the active tab carry the accent.
+    auto* pad = dynamic_cast<juce::Button*>(findById(editor.get(), "cellPad0"));
+    REQUIRE(pad != nullptr);
+    REQUIRE(pad->findColour(juce::TextButton::buttonColourId) == p::accent());
+    auto* tab = dynamic_cast<juce::Button*>(findById(editor.get(), "tabLayer"));
+    REQUIRE(tab != nullptr);
+    REQUIRE(tab->findColour(juce::TextButton::buttonColourId) == p::accent());
+
+    // Combos, popup menus and knobs come from the palette too, not JUCE's scheme.
+    auto& lf = editor->getLookAndFeel();
+    REQUIRE(lf.findColour(juce::ComboBox::backgroundColourId) == p::raised());
+    REQUIRE(lf.findColour(juce::PopupMenu::backgroundColourId) == p::surface());
+    REQUIRE(lf.findColour(juce::PopupMenu::highlightedBackgroundColourId) == p::accent());
+    REQUIRE(lf.findColour(juce::Slider::rotarySliderFillColourId) == p::accent());
+    REQUIRE(lf.findColour(juce::TooltipWindow::backgroundColourId) == p::surface());
 }

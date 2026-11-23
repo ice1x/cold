@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "ui/Palette.h"
 
 #include "dsp/Logger.h"
 
@@ -11,6 +12,7 @@ namespace cold
 {
 
 using APVTS = juce::AudioProcessorValueTreeState;
+namespace palette = ui::palette;
 
 namespace
 {
@@ -24,8 +26,8 @@ juce::String u8(const char* s)
 
 // One distinct colour per layer (1..4), used for the base waveform of the selected
 // layer and the "Show" comparison overlays of the others.
-const std::array<juce::Colour, 4> kLayerColours{juce::Colour(0xff58b0f0), juce::Colour(0xff5fd08a),
-                                                juce::Colour(0xffef8f4f), juce::Colour(0xffc77dff)};
+const std::array<juce::Colour, 4> kLayerColours{palette::layer(0), palette::layer(1),
+                                                palette::layer(2), palette::layer(3)};
 
 // Knob: a dark background track arc, a bright value arc, a solid
 // knob body and a clear pointer — far more legible than JUCE's default dot. Only
@@ -33,8 +35,40 @@ const std::array<juce::Colour, 4> kLayerColours{juce::Colour(0xff58b0f0), juce::
 class ColdKnobLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
+    // Cold's palette for every stock widget (combos, menus, buttons, tooltips,
+    // scrollbars) instead of JUCE's default dark scheme.
+    ColdKnobLookAndFeel()
+    {
+        // window, widget, menu, outline, text, fill, highlighted text / fill, menu text
+        setColourScheme({palette::background(), palette::raised(), palette::surface(),
+                         palette::edge(), palette::text(), palette::accent(), palette::onAccent(),
+                         palette::accent(), palette::text()});
+        setColour(juce::ResizableWindow::backgroundColourId, palette::background());
+        setColour(juce::ComboBox::backgroundColourId, palette::raised());
+        setColour(juce::ComboBox::outlineColourId, palette::edge());
+        setColour(juce::ComboBox::textColourId, palette::text());
+        setColour(juce::ComboBox::arrowColourId, palette::textMuted());
+        setColour(juce::PopupMenu::backgroundColourId, palette::surface());
+        setColour(juce::PopupMenu::textColourId, palette::text());
+        setColour(juce::PopupMenu::highlightedBackgroundColourId, palette::accent());
+        setColour(juce::PopupMenu::highlightedTextColourId, palette::onAccent());
+        setColour(juce::TextButton::buttonColourId, palette::raised());
+        setColour(juce::TextButton::buttonOnColourId, palette::accent());
+        setColour(juce::TextButton::textColourOffId, palette::text());
+        setColour(juce::TextButton::textColourOnId, palette::onAccent());
+        setColour(juce::Slider::rotarySliderFillColourId, palette::accent());
+        setColour(juce::Slider::rotarySliderOutlineColourId, palette::edge());
+        setColour(juce::Slider::thumbColourId, palette::accent());
+        setColour(juce::Slider::textBoxTextColourId, palette::text());
+        setColour(juce::TooltipWindow::backgroundColourId, palette::surface());
+        setColour(juce::TooltipWindow::textColourId, palette::text());
+        setColour(juce::TooltipWindow::outlineColourId, palette::edge());
+        setColour(juce::ScrollBar::thumbColourId, palette::edge());
+        setColour(juce::Label::textColourId, palette::text());
+    }
+
     void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
-                          float startAngle, float endAngle, juce::Slider&) override
+                          float startAngle, float endAngle, juce::Slider& slider) override
     {
         const auto bounds = juce::Rectangle<int>(x, y, width, height).toFloat().reduced(4.0f);
         const float radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) / 2.0f;
@@ -47,28 +81,28 @@ public:
         // Background track.
         juce::Path back;
         back.addCentredArc(cx, cy, arcR, arcR, 0.0f, startAngle, endAngle, true);
-        g.setColour(juce::Colour(0xff2a2f37));
+        g.setColour(palette::edge());
         g.strokePath(back, juce::PathStrokeType(lineW, juce::PathStrokeType::curved,
                                                 juce::PathStrokeType::rounded));
 
         // Filled value arc.
         juce::Path arc;
         arc.addCentredArc(cx, cy, arcR, arcR, 0.0f, startAngle, toAngle, true);
-        g.setColour(juce::Colour(0xff58b0f0));
+        g.setColour(slider.findColour(juce::Slider::rotarySliderFillColourId));
         g.strokePath(arc, juce::PathStrokeType(lineW, juce::PathStrokeType::curved,
                                                juce::PathStrokeType::rounded));
 
         // Knob body + pointer.
         const float bodyR = arcR - lineW;
-        g.setColour(juce::Colour(0xff31363f));
+        g.setColour(palette::knobBody());
         g.fillEllipse(cx - bodyR, cy - bodyR, bodyR * 2.0f, bodyR * 2.0f);
-        g.setColour(juce::Colour(0xff3d4450));
+        g.setColour(palette::knobRim());
         g.drawEllipse(cx - bodyR, cy - bodyR, bodyR * 2.0f, bodyR * 2.0f, 1.0f);
 
         const juce::Point<float> tip(cx + arcR * std::sin(toAngle), cy - arcR * std::cos(toAngle));
         const juce::Point<float> base(cx + bodyR * 0.35f * std::sin(toAngle),
                                       cy - bodyR * 0.35f * std::cos(toAngle));
-        g.setColour(juce::Colours::white);
+        g.setColour(palette::text());
         g.drawLine({base, tip}, juce::jmax(2.0f, lineW * 0.6f));
     }
 };
@@ -88,7 +122,7 @@ public:
         caption.setText(name, juce::dontSendNotification);
         caption.setJustificationType(juce::Justification::centred);
         caption.setFont(juce::Font(11.0f));
-        caption.setColour(juce::Label::textColourId, juce::Colour(0xffb9c0cc));
+        caption.setColour(juce::Label::textColourId, palette::textMuted());
         addAndMakeVisible(caption);
         addAndMakeVisible(*control);
     }
@@ -120,10 +154,10 @@ public:
     OnOffButton()
     {
         setClickingTogglesState(true);
-        setColour(buttonColourId, juce::Colour(0xff21252b));
-        setColour(buttonOnColourId, juce::Colour(0xff58b0f0));
-        setColour(textColourOffId, juce::Colour(0xff8a94a3));
-        setColour(textColourOnId, juce::Colour(0xff101216));
+        setColour(buttonColourId, palette::raised());
+        setColour(buttonOnColourId, palette::accent());
+        setColour(textColourOffId, palette::textMuted());
+        setColour(textColourOnId, palette::onAccent());
         updateText();
     }
 
@@ -276,14 +310,14 @@ public:
     void paint(juce::Graphics& g) override
     {
         auto bounds = getLocalBounds().toFloat();
-        g.setColour(juce::Colour(0xff15181d));
+        g.setColour(palette::background());
         g.fillRoundedRectangle(bounds, 4.0f);
-        g.setColour(juce::Colour(0xff2a2f37));
+        g.setColour(palette::edge());
         g.drawRoundedRectangle(bounds.reduced(0.5f), 4.0f, 1.0f);
 
         if (!hasSample)
         {
-            g.setColour(juce::Colour(0xff5a6470));
+            g.setColour(palette::textFaint());
             g.drawText(emptyText, getLocalBounds(), juce::Justification::centred);
             return;
         }
@@ -294,7 +328,7 @@ public:
         const int n = peaks.numBins();
 
         // Centre line.
-        g.setColour(juce::Colour(0xff2a2f37));
+        g.setColour(palette::edge());
         g.drawHorizontalLine(static_cast<int>(midY), area.getX(), area.getRight());
 
         // One vertical line per bin, mapped across the width (bins may differ
@@ -327,7 +361,7 @@ public:
             g.fillRect(area.withRight(left));
         if (right < area.getRight())
             g.fillRect(area.withLeft(right));
-        g.setColour(juce::Colour(0xffe0a53a));
+        g.setColour(palette::marker());
         g.drawVerticalLine(static_cast<int>(left), area.getY(), area.getBottom());
         g.drawVerticalLine(static_cast<int>(right), area.getY(), area.getBottom());
 
@@ -370,7 +404,7 @@ public:
             shadeB.closeSubPath();
             g.fillPath(shadeB);
             // The contour itself.
-            g.setColour(juce::Colour(0xffffc861));
+            g.setColour(palette::marker());
             g.strokePath(top, juce::PathStrokeType(1.5f));
             g.strokePath(bot, juce::PathStrokeType(1.5f));
         }
@@ -391,7 +425,7 @@ private:
     juce::String emptyText{"no sample in this cell"};
     dsp::WaveformPeaks peaks;
     std::vector<float> envelope; // amp-envelope contour overlay (0..1), empty = hidden
-    juce::Colour baseColour{0xff58b0f0};
+    juce::Colour baseColour = palette::accent();
     float windowStart = 0.0f;
     float windowEnd = 1.0f;
     bool hasSample = false;
@@ -624,7 +658,7 @@ public:
         focusButton.setButtonText("L" + juce::String(layer + 1));
         focusButton.setTooltip("Edit this layer's details below (own envelope, filters).");
         focusButton.setColour(juce::TextButton::buttonColourId, colour);
-        focusButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff101216));
+        focusButton.setColour(juce::TextButton::textColourOffId, palette::onAccent());
         focusButton.onClick = [this] { focus(); };
         addAndMakeVisible(focusButton);
 
@@ -638,12 +672,12 @@ public:
         };
         addAndMakeVisible(loadButton);
 
-        setupToggle(muteButton, "mute", "M", "Mute this layer.", juce::Colour(0xffd65a5a));
+        setupToggle(muteButton, "mute", "M", "Mute this layer.", palette::mute());
         setupToggle(soloButton, "solo", "S",
                     "Solo this layer: if any layer is soloed, only soloed layers sound.",
-                    juce::Colour(0xffe0c341));
+                    palette::solo());
         setupToggle(reverseButton, "reverse", "REV", "Play this layer backwards.",
-                    juce::Colour(0xff58b0f0));
+                    palette::accent());
         // The attachment updates the param from its listener before onClick runs, so
         // the waveform can re-read the new reverse state here.
         reverseButton.onClick = [this]
@@ -699,9 +733,9 @@ public:
     {
         loadButton.setButtonText(name.isEmpty() ? u8("Load…") : name);
         loadButton.setColour(juce::TextButton::buttonColourId,
-                             name.isEmpty() ? juce::Colour(0xff21252b) : juce::Colour(0xff262c35));
+                             name.isEmpty() ? palette::raised() : palette::loadedPad());
         loadButton.setColour(juce::TextButton::textColourOffId,
-                             name.isEmpty() ? juce::Colour(0xff8a94a3) : juce::Colour(0xffe6ebf2));
+                             name.isEmpty() ? palette::textMuted() : palette::text());
     }
 
     void setFocused(bool shouldBeFocused)
@@ -718,9 +752,9 @@ public:
     void paint(juce::Graphics& g) override
     {
         const auto r = getLocalBounds().toFloat().reduced(0.5f);
-        g.setColour(juce::Colour(0xff181b21));
+        g.setColour(palette::surface());
         g.fillRoundedRectangle(r, 6.0f);
-        g.setColour(focused ? colour : juce::Colour(0xff2a2f37));
+        g.setColour(focused ? colour : palette::edge());
         g.drawRoundedRectangle(r, 6.0f, focused ? 2.0f : 1.0f);
     }
 
@@ -799,10 +833,10 @@ private:
         b.setButtonText(text);
         b.setTooltip(tip);
         b.setClickingTogglesState(true);
-        b.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff21252b));
+        b.setColour(juce::TextButton::buttonColourId, palette::raised());
         b.setColour(juce::TextButton::buttonOnColourId, onColour);
-        b.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff8a94a3));
-        b.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff101216));
+        b.setColour(juce::TextButton::textColourOffId, palette::textMuted());
+        b.setColour(juce::TextButton::textColourOnId, palette::onAccent());
         addAndMakeVisible(b);
     }
 
@@ -814,14 +848,14 @@ private:
         s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, knobTextW, 14);
         s.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
         s.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
-        s.setColour(juce::Slider::textBoxTextColourId, juce::Colour(0xffd6dbe4));
+        s.setColour(juce::Slider::textBoxTextColourId, palette::text());
         s.setTooltip(tip);
         addAndMakeVisible(s);
 
         caption.setText(name, juce::dontSendNotification);
         caption.setJustificationType(juce::Justification::centred);
         caption.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
-        caption.setColour(juce::Label::textColourId, juce::Colour(0xff8a94a3));
+        caption.setColour(juce::Label::textColourId, palette::textMuted());
         addAndMakeVisible(caption);
     }
 
@@ -924,9 +958,13 @@ public:
     void refreshTabs()
     {
         for (int i = 0; i < static_cast<int>(tabButtons.size()); ++i)
-            tabButtons[static_cast<size_t>(i)]->setColour(
-                juce::TextButton::buttonColourId,
-                i == currentTab ? juce::Colour(0xff2b6cb0) : juce::Colour(0xff21252b));
+        {
+            auto* tab = tabButtons[static_cast<size_t>(i)];
+            tab->setColour(juce::TextButton::buttonColourId,
+                           i == currentTab ? palette::accent() : palette::raised());
+            tab->setColour(juce::TextButton::textColourOffId,
+                           i == currentTab ? palette::onAccent() : palette::text());
+        }
         // Refresh the log view immediately when switching onto the Logs tab.
         if (currentTab == kLogsTab)
             refreshLogs(true);
@@ -942,9 +980,9 @@ public:
         logView.setCaretVisible(false);
         logView.setFont(
             juce::Font(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
-        logView.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff15181d));
-        logView.setColour(juce::TextEditor::textColourId, juce::Colour(0xffc7d0dc));
-        logView.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xff2a2f37));
+        logView.setColour(juce::TextEditor::backgroundColourId, palette::background());
+        logView.setColour(juce::TextEditor::textColourId, palette::text());
+        logView.setColour(juce::TextEditor::outlineColourId, palette::edge());
         addChildComponent(logView); // shown only on the Logs tab
 
         logClearButton.setButtonText("Clear");
@@ -1259,7 +1297,7 @@ private:
         auto h = std::make_unique<juce::Label>();
         h->setText(title, juce::dontSendNotification);
         h->setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
-        h->setColour(juce::Label::textColourId, juce::Colour(0xff8fd0ff));
+        h->setColour(juce::Label::textColourId, palette::header());
         h->setBorderSize({});
         auto* hp = h.get();
         addAndMakeVisible(*hp);
@@ -1832,13 +1870,13 @@ private:
 
             // Selected = blue; loaded = teal; empty = dark. Text brightens when there
             // is a sample, so a full kit reads at a glance.
-            const auto fill = selected ? juce::Colour(0xff2b6cb0)
-                              : loaded ? juce::Colour(0xff2d5f57)
-                                       : juce::Colour(0xff21252b);
+            const auto fill = selected ? palette::accent()
+                              : loaded ? palette::loadedPad()
+                                       : palette::raised();
             pad->setColour(juce::TextButton::buttonColourId, fill);
-            const auto text = selected ? juce::Colours::white
-                              : loaded ? juce::Colour(0xffdfeae6)
-                                       : juce::Colour(0xff6b7280);
+            const auto text = selected ? palette::onAccent()
+                              : loaded ? palette::text()
+                                       : palette::textFaint();
             pad->setColour(juce::TextButton::textColourOffId, text);
         }
     }
@@ -2141,7 +2179,7 @@ ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     loadPoolButton.onClick = [this] { choosePoolFolder(); };
 
     sampleNameLabel.setJustificationType(juce::Justification::centredLeft);
-    sampleNameLabel.setColour(juce::Label::textColourId, juce::Colour(0xffd6dbe4));
+    sampleNameLabel.setColour(juce::Label::textColourId, palette::text());
     addAndMakeVisible(sampleNameLabel);
     refreshSampleName();
 
@@ -2250,7 +2288,7 @@ void ColdAudioProcessorEditor::chooseKit()
 
 void ColdAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff101216));
+    g.fillAll(palette::background());
 }
 
 void ColdAudioProcessorEditor::resized()
