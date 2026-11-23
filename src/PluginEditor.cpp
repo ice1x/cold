@@ -983,8 +983,10 @@ public:
         }
         else
         {
-            // Live-update every strip's envelope mask as knobs move.
+            // Live-update every strip's envelope mask as knobs move, and the pad
+            // labels (a cell's Source / Pool Slot can change from the host).
             refreshEnvOverlay();
+            refreshCellPads();
         }
     }
 
@@ -1102,10 +1104,27 @@ public:
             s.header->setVisible(true);
             s.header->setBounds(pad, y, titleW, kCellH);
             int x = pad + titleW;
-            for (auto* cell : s.cells)
+            // Combos keep their width (the first, Layer Mode, shows "Round-Robin" in
+            // full); the knobs share what is left, up to their normal width, so the
+            // whole bar always fits in one row.
+            auto comboW = [&s](size_t i) { return i == 0 ? 124 : kComboW; };
+            int fixedW = 0;
+            int knobs = 0;
+            for (size_t i = 0; i < s.cells.size(); ++i)
             {
-                // The cell bar has room to spare: show "Round-Robin" in full.
-                const int w = cellWidth(cell) == kComboW ? 124 : cellWidth(cell);
+                if (cellWidth(s.cells[i]) == kComboW)
+                    fixedW += comboW(i);
+                else
+                    ++knobs;
+            }
+            const int gaps = gap * static_cast<int>(s.cells.size());
+            const int knobW =
+                knobs > 0 ? juce::jlimit(48, kCellW, (inner - titleW - fixedW - gaps) / knobs)
+                          : kCellW;
+            for (size_t i = 0; i < s.cells.size(); ++i)
+            {
+                auto* cell = s.cells[i];
+                const int w = cellWidth(cell) == kComboW ? comboW(i) : knobW;
                 cell->setVisible(true);
                 cell->setBounds(x, y, w, kCellH);
                 x += w + gap;
@@ -1771,13 +1790,24 @@ private:
         }
     }
 
+    [[nodiscard]] float paramValue(const juce::String& id) const
+    {
+        auto* p = proc.apvts.getRawParameterValue(id);
+        return p != nullptr ? p->load() : 0.0f;
+    }
+
     void refreshCellPads()
     {
         for (int t = 0; t < static_cast<int>(cellPads.size()); ++t)
         {
             // A cell's label is its primary sample (layer 0), plus how many of its
             // layers hold a sample so a stacked cell reads at a glance.
-            const auto name = proc.slotSampleName(t * ColdAudioProcessor::kNumLayers);
+            // A Pool cell shows its pool slot and sample instead, e.g. "2  P5 snare".
+            const bool poolCell = paramValue(trackId(t, "source")) > 0.5f;
+            const int poolSlot = juce::jlimit(1, juce::jmax(1, proc.poolSize()),
+                                              static_cast<int>(paramValue(trackId(t, "poolSlot"))));
+            const auto name = poolCell ? proc.poolSampleName(poolSlot - 1)
+                                       : proc.slotSampleName(t * ColdAudioProcessor::kNumLayers);
             const bool loaded = name.isNotEmpty();
             const bool selected = (t == currentTrack);
             auto* pad = cellPads[static_cast<size_t>(t)];
@@ -1792,7 +1822,13 @@ private:
                                                       juce::String(ColdAudioProcessor::kNumLayers)
                                                 : juce::String();
 
-            pad->setButtonText(juce::String(t + 1) + (loaded ? "  " + name : u8("  ·")) + badge);
+            const auto label = poolCell ? "P" + juce::String(poolSlot) + " " + name : name;
+            pad->setButtonText(juce::String(t + 1) + (loaded ? "  " + label : u8("  ·")) +
+                               (poolCell ? juce::String() : badge));
+            // The selected Pool cell does not play its layers: dim their strips.
+            if (t == currentTrack)
+                for (auto& strip : strips)
+                    strip->setAlpha(poolCell ? 0.4f : 1.0f);
 
             // Selected = blue; loaded = teal; empty = dark. Text brightens when there
             // is a sample, so a full kit reads at a glance.
@@ -1824,6 +1860,14 @@ private:
               "below sounds TOGETHER on each note — layering. Round-Robin: one loaded "
               "layer per note, cycling in order — different take on each hit. Velocity: "
               "one loaded layer chosen by how hard you play (layer 1 = softest).");
+
+        tCombo(s, "source", "Source",
+               "Where this cell's sound comes from. Layers: its own layer strips below. "
+               "Pool: one sample of the shared pool (Load Pool…), picked by Slot; "
+               "LFO -> Sample then steps through the pool, depth = number of slots.");
+        tKnob(s, "poolSlot", "Slot",
+              "The pool sample this cell plays when Source is Pool (1-127). Past the end of "
+              "the pool it plays the last sample.");
 
         tKnob(s, "mapNote", "Note",
               "Note Map mode: the MIDI note that triggers this cell (0-127; 36 = C1). "
@@ -2087,6 +2131,15 @@ ColdAudioProcessorEditor::ColdAudioProcessorEditor(ColdAudioProcessor& p)
     addAndMakeVisible(importKitButton);
     importKitButton.onClick = [this] { chooseKit(); };
 
+    loadPoolButton.setButtonText(u8("Load Pool…"));
+    loadPoolButton.setComponentID("loadPoolButton");
+    loadPoolButton.setTooltip("Fill the sample pool from a folder (up to " +
+                              juce::String(ColdAudioProcessor::kPoolSize) +
+                              " samples, sorted by name). A cell with Source = Pool plays "
+                              "its Pool Slot, and LFO -> Sample walks the pool from there.");
+    addAndMakeVisible(loadPoolButton);
+    loadPoolButton.onClick = [this] { choosePoolFolder(); };
+
     sampleNameLabel.setJustificationType(juce::Justification::centredLeft);
     sampleNameLabel.setColour(juce::Label::textColourId, juce::Colour(0xffd6dbe4));
     addAndMakeVisible(sampleNameLabel);
@@ -2131,6 +2184,26 @@ void ColdAudioProcessorEditor::chooseFolder()
                              const int n = processorRef.loadFolder(dir);
                              sampleNameLabel.setText(juce::String(n) + " sample(s) loaded — " +
                                                          processorRef.loadedSampleName(),
+                                                     juce::dontSendNotification);
+                             content->refreshBank();
+                         });
+}
+
+void ColdAudioProcessorEditor::choosePoolFolder()
+{
+    chooser =
+        std::make_unique<juce::FileChooser>("Load a folder into the sample pool", juce::File{});
+    const auto flags =
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories;
+    chooser->launchAsync(flags,
+                         [this](const juce::FileChooser& fc)
+                         {
+                             const auto dir = fc.getResult();
+                             if (dir == juce::File{})
+                                 return;
+                             const int n = processorRef.loadPoolFolder(dir);
+                             sampleNameLabel.setText("Pool: " + juce::String(n) +
+                                                         " sample(s) from " + dir.getFileName(),
                                                      juce::dontSendNotification);
                              content->refreshBank();
                          });
@@ -2188,6 +2261,8 @@ void ColdAudioProcessorEditor::resized()
     loadFolderButton.setBounds(top.removeFromLeft(120));
     top.removeFromLeft(6);
     importKitButton.setBounds(top.removeFromLeft(120));
+    top.removeFromLeft(6);
+    loadPoolButton.setBounds(top.removeFromLeft(120));
     top.removeFromLeft(8);
     sampleNameLabel.setBounds(top);
 

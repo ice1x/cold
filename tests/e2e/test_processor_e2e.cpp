@@ -14,6 +14,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <cmath>
+#include <set>
 
 using Catch::Matchers::WithinAbs;
 using cold::ColdAudioProcessor;
@@ -2784,4 +2785,156 @@ TEST_CASE("Cold moves the old global LFO settings into every cell",
         REQUIRE(value(t + "lfo1_mult") == 16.0f); // "16 (120)"
     }
     REQUIRE(proc.apvts.getParameter("lfoShape") == nullptr); // the globals are gone
+}
+
+// ---- sample pool --------------------------------------------------------------
+
+namespace
+{
+// A temp folder of `count` constant-level WAVs named s001.wav.., levels 0.1, 0.2, ..
+// (capped at 1.0), so a hit's peak tells which pool sample played.
+struct PoolFolder
+{
+    juce::File dir;
+    explicit PoolFolder(int count)
+    {
+        dir = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                  .getNonexistentChildFile("cold-pool", "", false);
+        REQUIRE(dir.createDirectory());
+        for (int i = 0; i < count; ++i)
+        {
+            const float level = std::min(1.0f, 0.1f * static_cast<float>(i + 1));
+            auto wav = writeConstantWav(48000.0, 256, level);
+            REQUIRE(wav.moveFileTo(
+                dir.getChildFile("s" + juce::String(i + 1).paddedLeft('0', 3) + ".wav")));
+        }
+    }
+    ~PoolFolder() { dir.deleteRecursively(); }
+    PoolFolder(const PoolFolder&) = delete;
+    PoolFolder& operator=(const PoolFolder&) = delete;
+};
+
+struct PoolRig
+{
+    static constexpr double kRate = 48000.0;
+    static constexpr int kBlock = 2048;
+    ColdAudioProcessor proc;
+    juce::AudioBuffer<float> buffer{2, kBlock};
+
+    PoolRig()
+    {
+        proc.setPlayConfigDetails(0, 2, kRate, kBlock);
+        proc.prepareToPlay(kRate, kBlock);
+    }
+    void set(const juce::String& id, float value)
+    {
+        auto* p = proc.apvts.getParameter(id);
+        REQUIRE(p != nullptr);
+        p->setValueNotifyingHost(p->convertTo0to1(value));
+    }
+    float hit(int cell = 0)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(cell + 1, 60, 1.0f), 0);
+        renderBlock(proc, buffer, midi);
+        return buffer.getMagnitude(0, 0, kBlock);
+    }
+};
+} // namespace
+
+TEST_CASE("Cold loads a folder into the sample pool", "[processor][e2e][pool]")
+{
+    PoolFolder folder(5);
+    ColdAudioProcessor proc;
+    REQUIRE(proc.poolSize() == 0);
+    REQUIRE(proc.loadPoolFolder(folder.dir) == 5);
+    REQUIRE(proc.poolSize() == 5);
+    REQUIRE(proc.poolSampleName(0).startsWith("s001"));
+    REQUIRE(proc.poolSampleName(4).startsWith("s005"));
+    REQUIRE(proc.poolSampleName(5).isEmpty());
+
+    proc.clearPool();
+    REQUIRE(proc.poolSize() == 0);
+}
+
+TEST_CASE("Cold sample pool holds up to 127 samples", "[processor][e2e][pool]")
+{
+    PoolFolder folder(130);
+    ColdAudioProcessor proc;
+    REQUIRE(proc.loadPoolFolder(folder.dir) == ColdAudioProcessor::kPoolSize);
+    REQUIRE(ColdAudioProcessor::kPoolSize == 127);
+    REQUIRE(proc.poolSize() == 127);
+}
+
+TEST_CASE("Cold cell plays the selected pool slot", "[processor][e2e][pool]")
+{
+    PoolFolder folder(5);
+    PoolRig rig;
+    auto layer = writeConstantWav(PoolRig::kRate, 256, 0.8f);
+    REQUIRE(rig.proc.loadSampleToLayer(0, 0, layer));
+    layer.deleteFile();
+    REQUIRE(rig.proc.loadPoolFolder(folder.dir) == 5);
+
+    REQUIRE_THAT(rig.hit(), WithinAbs(0.8, 0.01)); // Source = Layers: layer 1
+    rig.set("t0_source", 1.0f);                    // Pool
+    rig.set("t0_poolSlot", 3.0f);
+    REQUIRE_THAT(rig.hit(), WithinAbs(0.3, 0.01)); // pool slot 3
+    REQUIRE(rig.proc.loadedSampleName() == "Pool 3: s003");
+    rig.set("t0_poolSlot", 99.0f); // past the end -> the last sample
+    REQUIRE_THAT(rig.hit(), WithinAbs(0.5, 0.01));
+    REQUIRE_THAT(rig.hit(1), WithinAbs(0.0, 1e-6)); // cell 2 stays empty
+}
+
+TEST_CASE("Cold LFO sample depth counts pool slots", "[processor][e2e][pool][lfo]")
+{
+    PoolFolder folder(8);
+    PoolRig rig;
+    REQUIRE(rig.proc.loadPoolFolder(folder.dir) == 8);
+    rig.set("t0_source", 1.0f);
+    rig.set("t0_poolSlot", 2.0f);
+    rig.set("t0_lfo1_wave", 4.0f);                 // Square: +1 for the first half bar
+    rig.set("t0_lfo1_dest", 1.0f);                 // Sample
+    rig.set("t0_lfo1_depth", 3.0f);                // three slots up
+    REQUIRE_THAT(rig.hit(), WithinAbs(0.5, 0.01)); // slot 2 + 3 = 5
+}
+
+TEST_CASE("Cold random LFO roams the whole pool", "[processor][e2e][pool][lfo]")
+{
+    PoolFolder folder(10);
+    PoolRig rig;
+    REQUIRE(rig.proc.loadPoolFolder(folder.dir) == 10);
+    rig.set("t0_source", 1.0f);
+    rig.set("t0_poolSlot", 5.0f);  // the middle of the pool
+    rig.set("t0_lfo1_wave", 5.0f); // Random
+    rig.set("t0_lfo1_mode", 1.0f); // Trig: a new value every hit
+    rig.set("t0_lfo1_speed", 1.0f);
+    rig.set("t0_lfo1_mult", 0.0f);
+    rig.set("t0_lfo1_dest", 1.0f);
+    rig.set("t0_lfo1_depth", 5.0f); // +-5 slots: the whole pool
+
+    std::set<int> heard;
+    for (int i = 0; i < 60; ++i)
+        heard.insert(static_cast<int>(std::lround(rig.hit() * 10.0f)));
+    REQUIRE(heard.count(0) == 0);  // never silent
+    REQUIRE(heard.size() >= 5);    // well beyond the four layers
+    REQUIRE(*heard.rbegin() >= 8); // reaches the top of the pool
+}
+
+TEST_CASE("Cold sample pool is saved with the project", "[processor][e2e][pool][state]")
+{
+    PoolFolder folder(4);
+    juce::MemoryBlock state;
+    {
+        ColdAudioProcessor source;
+        REQUIRE(source.loadPoolFolder(folder.dir) == 4);
+        source.getStateInformation(state);
+    }
+    PoolRig rig;
+    rig.proc.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    REQUIRE(rig.proc.poolSize() == 4);
+    REQUIRE(rig.proc.poolSampleName(3).startsWith("s004"));
+    rig.set("t0_source", 1.0f);
+    rig.set("t0_poolSlot", 4.0f);
+    REQUIRE_THAT(rig.hit(), WithinAbs(0.4, 0.01));
 }

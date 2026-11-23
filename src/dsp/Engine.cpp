@@ -63,6 +63,12 @@ void Engine::setBaseSampleIndex(int index)
     baseSampleIndex = std::clamp(index, 0, std::max(0, sampleCount() - 1));
 }
 
+void Engine::setSelectRange(int first, int count) noexcept
+{
+    selectFirst = std::max(0, first);
+    selectCount = count;
+}
+
 void Engine::setLayerMode(LayerMode newMode)
 {
     layerStackMode = newMode;
@@ -333,7 +339,11 @@ void Engine::configureVoice(int voiceIndex, int sampleIndex)
 
 int Engine::selectSampleIndex() const
 {
-    const int base = std::clamp(baseSampleIndex, 0, std::max(0, sampleCount() - 1));
+    // The select range: the whole list, or the part set by setSelectRange.
+    const int first = std::clamp(selectFirst, 0, std::max(0, sampleCount() - 1));
+    const int end =
+        selectCount < 0 ? sampleCount() : std::clamp(first + selectCount, first, sampleCount());
+    const int base = std::clamp(baseSampleIndex, first, std::max(first, end - 1));
     // Sum of every LFO's sample-select offset at this note.
     float offsetSum = 0.0f;
     bool routed = false;
@@ -346,7 +356,7 @@ int Engine::selectSampleIndex() const
         const float scale = i == 0 ? lfo1DepthScale : 1.0f;
         offsetSum += lfos[static_cast<size_t>(i)].peek() * scale * amount;
     }
-    if (sampleCount() <= 1 || !routed)
+    if (end - first <= 1 || !routed)
         return base;
 
     // Read the LFO at the trig and step that many LOADED samples away from the base
@@ -354,7 +364,7 @@ int Engine::selectSampleIndex() const
     // lands on a hole and silences the hit. Two passes, no allocation (audio thread).
     int loaded = 0;
     int baseRank = 0; // rank of the base (or the nearest loaded slot below it)
-    for (int i = 0; i < sampleCount(); ++i)
+    for (int i = first; i < end; ++i)
         if (samples[static_cast<size_t>(i)].valid())
         {
             if (i <= base)
@@ -366,7 +376,7 @@ int Engine::selectSampleIndex() const
 
     const int offset = static_cast<int>(std::lround(offsetSum));
     const int rank = std::clamp(baseRank + offset, 0, loaded - 1);
-    for (int i = 0, r = 0; i < sampleCount(); ++i)
+    for (int i = first, r = 0; i < end; ++i)
         if (samples[static_cast<size_t>(i)].valid())
         {
             if (r == rank)

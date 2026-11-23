@@ -1268,3 +1268,66 @@ TEST_CASE("Engine LFO 2 speeds up LFO 1", "[engine][dsp][unit][lfodest]")
     fast.noteOn(kRootNote, 1.0f, kRootNote);
     REQUIRE(fast.currentSampleIndex() == 0);
 }
+
+// ---- sample pool: the select range ------------------------------------------
+
+TEST_CASE("Engine LFO sample-select stays inside the select range",
+          "[engine][dsp][unit][sampleselect][pool]")
+{
+    // Indices 0-1 are the cell's layers, 2-5 a sample pool. With the select range
+    // on the pool, the LFO roams the pool only and clamps at its ends.
+    std::vector<SourceSample> data;
+    data.reserve(6);
+    for (int i = 0; i < 6; ++i)
+        data.push_back(makeConstant(64, 0.1f * static_cast<float>(i + 1)));
+    std::vector<cold::dsp::Engine::SampleRef> refs;
+    for (auto& d : data)
+        refs.push_back({d.data(), d.numChannels(), d.numFrames(), 44100.0});
+
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList(refs);
+    engine.setSelectRange(2, 4);
+    engine.setBaseSampleIndex(3);
+
+    SECTION("no LFO -> the base pool sample")
+    {
+        engine.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE(engine.currentSampleIndex() == 3);
+    }
+    SECTION("a large positive offset stops at the last pool sample")
+    {
+        engine.setLfo(cold::dsp::LfoShape::Square, 1.0f, 1.0f); // +1 at phase 0
+        engine.addModRoute(cold::dsp::ModDestination::SampleSelect, 10.0f);
+        engine.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE(engine.currentSampleIndex() == 5);
+    }
+    SECTION("a large negative offset stops at the first pool sample, not a layer")
+    {
+        engine.setLfo(cold::dsp::LfoShape::Square, 1.0f, 1.0f);
+        engine.addModRoute(cold::dsp::ModDestination::SampleSelect, -10.0f);
+        engine.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE(engine.currentSampleIndex() == 2);
+    }
+    SECTION("a base outside the range is pulled into it")
+    {
+        engine.setBaseSampleIndex(0);
+        engine.noteOn(kRootNote, 1.0f, kRootNote);
+        REQUIRE(engine.currentSampleIndex() == 2);
+    }
+}
+
+TEST_CASE("Engine select range covers the whole list by default",
+          "[engine][dsp][unit][sampleselect][pool]")
+{
+    auto a = makeConstant(64, 0.2f);
+    auto b = makeConstant(64, 0.5f);
+    Engine engine;
+    engine.prepare(44100.0);
+    engine.setSampleList({{a.data(), a.numChannels(), a.numFrames(), 44100.0},
+                          {b.data(), b.numChannels(), b.numFrames(), 44100.0}});
+    engine.setLfo(cold::dsp::LfoShape::Square, 1.0f, 1.0f);
+    engine.addModRoute(cold::dsp::ModDestination::SampleSelect, 1.0f);
+    engine.noteOn(kRootNote, 1.0f, kRootNote);
+    REQUIRE(engine.currentSampleIndex() == 1);
+}
