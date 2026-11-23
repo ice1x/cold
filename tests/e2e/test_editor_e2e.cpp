@@ -310,13 +310,16 @@ TEST_CASE("Each tab shows only its own group", "[editor][e2e][onescreen]")
     clickTab(editor.get(), "tabTone");
     REQUIRE(shown("filterCutoff"));
     REQUIRE(shown("humanizePitch"));
+    REQUIRE(shown("modAttack")); // the filter mod envelope lives with the filter
 
     clickTab(editor.get(), "tabFX");
     REQUIRE(shown("compThreshold"));
     REQUIRE_FALSE(shown("ampAttack"));
 
-    clickTab(editor.get(), "tabMod");
-    REQUIRE(shown("lfoRate"));
+    clickTab(editor.get(), "tabMod"); // the cell's two LFOs
+    REQUIRE(shown("lfo1_speed"));
+    REQUIRE(shown("lfo2_dest"));
+    REQUIRE_FALSE(shown("modAttack"));
 
     clickTab(editor.get(), "tabSends");
     REQUIRE(shown("delayTime"));
@@ -384,6 +387,29 @@ TEST_CASE("Every knob shows its value in musician units", "[editor][e2e][onescre
     REQUIRE(text("velToCutoff", -2.0) == "-2.0 oct");
     // No negative zero anywhere.
     REQUIRE(text("ampAttackCurve", -0.0001) == "0.00");
-    REQUIRE(text("lfoToType", -0.0001) == "0.00");
+    REQUIRE(text("lfo1_depth", -0.0001) == "0.00");
+    REQUIRE(text("lfo1_speed", 16.0) == "16.00");
+    REQUIRE(text("lfo1_fade", -3.0) == "-3");
+    REQUIRE(text("lfo1_phase", 64.0) == "64");
     REQUIRE(text("pitchEnvAmount", -0.0001) == "0 st");
+}
+
+TEST_CASE("LFO controls follow the selected cell", "[editor][e2e][lfo]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    ColdAudioProcessor proc;
+    std::unique_ptr<juce::AudioProcessorEditor> editor(proc.createEditor());
+
+    dynamic_cast<juce::Button*>(findById(editor.get(), "cellPad3"))->onClick(); // cell 4
+    clickTab(editor.get(), "tabMod");
+
+    auto* depth = dynamic_cast<juce::Slider*>(findById(editor.get(), "lfo2_depth"));
+    auto* dest = dynamic_cast<juce::ComboBox*>(findById(editor.get(), "lfo2_dest"));
+    REQUIRE(depth != nullptr);
+    REQUIRE(dest != nullptr);
+    depth->setValue(24.0, juce::sendNotificationSync);
+    dest->setSelectedItemIndex(1, juce::sendNotificationSync); // Sample
+    REQUIRE_THAT(param(proc, "t3_lfo2_depth"), WithinAbs(24.0, 1e-3));
+    REQUIRE(param(proc, "t3_lfo2_dest") == 1.0f);
+    REQUIRE_THAT(param(proc, "t0_lfo2_depth"), WithinAbs(0.0, 1e-3)); // cell 1 untouched
 }
