@@ -169,7 +169,7 @@ public:
     }
 };
 
-// Waveform view of the selected cell's sample (И5c). Draws a
+// Waveform view of the selected cell's sample (I5c). Draws a
 // min/max peak envelope (from dsp::computeWaveformPeaks, fetched by Content) and
 // the playable start/end window as vertical markers with the outside dimmed.
 // Purely a painter: it holds no processor reference, so Content owns the fetch.

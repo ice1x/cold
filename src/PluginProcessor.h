@@ -104,7 +104,7 @@ public:
     [[nodiscard]] juce::String loadedSampleName() const;       // selected track's sample name
     [[nodiscard]] juce::String slotSampleName(int slot) const; // "" for an empty slot
 
-    // Waveform view of slot `slot` (И5c): a `numBins`-column min/max envelope of
+    // Waveform view of slot `slot` (I5c): a `numBins`-column min/max envelope of
     // the WHOLE decoded sample (not just the playable window). Empty if the slot
     // is unloaded or the request is degenerate. The editor draws this behind the
     // start/end markers, which come from the window accessors below.
@@ -120,7 +120,7 @@ public:
     // amp envelope's time onto the waveform, scaled by the layer's tune.
     [[nodiscard]] double slotSampleRate(int slot) const;
 
-    // Set a slot's playable window (И5e): first frame / length in frames (0 length
+    // Set a slot's playable window (I5e): first frame / length in frames (0 length
     // = to the end). Clamped to the sample; rebuilds the tracks' sample views under
     // the engine lock so playback follows immediately. No-op on a bad/empty slot.
     // The editor calls these when the waveform start/end markers are dragged.
