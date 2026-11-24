@@ -1,4 +1,4 @@
-// Unit tests for the framework-agnostic waveform peak reducer (И5c).
+// Unit tests for the framework-agnostic waveform peak reducer (I5c).
 
 #include "dsp/Waveform.h"
 
